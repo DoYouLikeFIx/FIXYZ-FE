@@ -1,0 +1,38 @@
+#!/usr/bin/env sh
+
+MSG_FILE="$1"
+
+# Never block commit if hook input is not available
+[ -n "$MSG_FILE" ] && [ -f "$MSG_FILE" ] || exit 0
+
+# Skip detached HEAD, merge/revert/fixup/squash style commits
+BRANCH_NAME="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+[ -n "$BRANCH_NAME" ] || exit 0
+
+SUBJECT_LINE="$(sed -n '1p' "$MSG_FILE")"
+case "$SUBJECT_LINE" in
+  ""|"Merge "*|"Revert "*|"fixup! "*|"squash! "*) exit 0 ;;
+esac
+
+# Extract Jira key from branch, e.g. FIX-27
+# Supports names like:
+# - FIX-27-Story-0.1-BE-Core-Platform-Baseline
+# - feature/FIX-27-story-0.1
+# - FIX-17-Story-0.1
+JIRA_KEY="$(printf '%s' "$BRANCH_NAME" | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | head -n1 || true)"
+
+# No Jira key in branch -> no-op (do not block commits)
+[ -n "$JIRA_KEY" ] || exit 0
+
+# Already present in subject -> no-op
+printf '%s' "$SUBJECT_LINE" | grep -qE "(^|[[:space:]])${JIRA_KEY}([[:space:]]|$)" && exit 0
+
+TMP_FILE="${MSG_FILE}.tmp.$$"
+{
+  IFS= read -r line || true
+  printf '%s %s\n' "$line" "$JIRA_KEY"
+  cat
+} < "$MSG_FILE" > "$TMP_FILE"
+
+mv "$TMP_FILE" "$MSG_FILE"
+exit 0
