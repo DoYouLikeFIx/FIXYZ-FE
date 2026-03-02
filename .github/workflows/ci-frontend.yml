@@ -1,0 +1,74 @@
+name: ci-frontend
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+
+jobs:
+  ci-frontend:
+    name: ci-frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.2
+
+      - name: Restore Node PATH for act compatibility
+        if: ${{ env.ACT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node_bin=""
+          for candidate in /opt/acttoolcache/node/*/x64/bin/node /usr/local/bin/node /usr/bin/node; do
+            if [ -x "$candidate" ]; then
+              dir="$(dirname "$candidate")"
+              echo "$dir" >> "$GITHUB_PATH"
+              if [ -z "$node_bin" ]; then
+                node_bin="$dir"
+              fi
+            fi
+          done
+          if [ -n "$node_bin" ]; then
+            export PATH="$node_bin:$PATH"
+          fi
+          command -v node
+          node -v
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm run type-check
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Test
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Verify dist artifact exists
+        run: test -d dist
+
+      - name: Upload dist artifact
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fe-dist
+          path: dist/
