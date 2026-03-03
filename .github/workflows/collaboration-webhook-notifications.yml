@@ -1,0 +1,145 @@
+name: Collaboration Webhook Notifications
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - closed
+  workflow_run:
+    workflows:
+      - ci-frontend
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: mm-github-${{ github.event_name }}-${{ github.event.pull_request.id || github.event.workflow_run.id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Prepare artifact directory
+        run: mkdir -p .tmp/webhook-validation
+
+      - name: Validate secure webhook configuration
+        id: config
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.MATTERMOST_WEBHOOK_URL }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            printf '%s\n' '{"event":"mattermost_config_missing","message":"MATTERMOST_WEBHOOK_URL secret is not configured"}' > .tmp/webhook-validation/github-config-missing.log
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build GitHub event payload
+        id: payload
+        if: steps.config.outputs.configured == 'true'
+        env:
+          MATTERMOST_CHANNEL_KEY: ${{ vars.MATTERMOST_CHANNEL_KEY || github.repository }}
+        run: node .github/scripts/collab-webhook/build-github-payload.js
+
+      - name: Restore dedupe state (GitHub 10m window)
+        id: dedupe_restore
+        if: steps.config.outputs.configured == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          key: ${{ steps.payload.outputs.cache_key }}
+          path: .tmp/mm-dedupe/${{ steps.payload.outputs.dedupe_hash }}/${{ steps.payload.outputs.window_bucket_10m }}/marker.txt
+
+      - name: Evaluate duplicate suppression
+        id: suppression
+        if: steps.config.outputs.configured == 'true'
+        shell: bash
+        run: |
+          if [ "${{ steps.dedupe_restore.outputs.cache-hit }}" = "true" ]; then
+            echo "skip_post=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip_post=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post to MatterMost with bounded retries
+        id: post
+        if: steps.config.outputs.configured == 'true' && steps.suppression.outputs.skip_post == 'false'
+        env:
+          MATTERMOST_WEBHOOK_URL: ${{ secrets.MATTERMOST_WEBHOOK_URL }}
+          PAYLOAD_JSON: ${{ steps.payload.outputs.payload_json }}
+          WEBHOOK_SOURCE: github
+          ENTITY_KEY: ${{ steps.payload.outputs.entity_key }}
+          MATTERMOST_TIMEOUT_MS: "10000"
+        run: node .github/scripts/collab-webhook/post-to-mattermost.js
+
+      - name: Persist dedupe marker for successful delivery
+        id: dedupe_marker
+        if: steps.config.outputs.configured == 'true' && steps.suppression.outputs.skip_post == 'false' && steps.post.outcome == 'success'
+        shell: bash
+        run: |
+          marker_path=".tmp/mm-dedupe/${{ steps.payload.outputs.dedupe_hash }}/${{ steps.payload.outputs.window_bucket_10m }}/marker.txt"
+          mkdir -p "$(dirname "$marker_path")"
+          {
+            echo "source=github"
+            echo "event_type=${{ steps.payload.outputs.event_type }}"
+            echo "entity_key=${{ steps.payload.outputs.entity_key }}"
+            echo "cache_key=${{ steps.payload.outputs.cache_key }}"
+            echo "dedupe_mode=${{ steps.payload.outputs.dedupe_mode }}"
+            echo "dedupe_hash=${{ steps.payload.outputs.dedupe_hash }}"
+            echo "window_bucket_10m=${{ steps.payload.outputs.window_bucket_10m }}"
+          } > "$marker_path"
+          echo "marker_path=$marker_path" >> "$GITHUB_OUTPUT"
+
+      - name: Save dedupe state cache
+        if: steps.config.outputs.configured == 'true' && steps.suppression.outputs.skip_post == 'false' && steps.post.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.payload.outputs.cache_key }}
+          path: ${{ steps.dedupe_marker.outputs.marker_path }}
+
+      - name: Write validation artifacts
+        if: steps.config.outputs.configured == 'true'
+        env:
+          PAYLOAD_JSON: ${{ steps.payload.outputs.payload_json }}
+          AUDIT_JSON: ${{ steps.payload.outputs.audit_json }}
+          CACHE_HIT: ${{ steps.dedupe_restore.outputs.cache-hit || 'false' }}
+          SUPPRESSED: ${{ steps.suppression.outputs.skip_post || 'false' }}
+          POST_OUTCOME: ${{ steps.post.outcome || 'skipped' }}
+          RUN_ID: ${{ github.run_id }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          payload_path=".tmp/webhook-validation/payload-github-${EVENT_NAME}-${RUN_ID}.json"
+          log_path=".tmp/webhook-validation/github-${EVENT_NAME}-${RUN_ID}.log"
+          printf '%s\n' "$PAYLOAD_JSON" > "$payload_path"
+          node - <<'NODE' > "$log_path"
+          const audit = JSON.parse(process.env.AUDIT_JSON);
+          audit.cache_hit = process.env.CACHE_HIT === "true";
+          audit.suppressed = process.env.SUPPRESSED === "true";
+          audit.post_outcome = process.env.POST_OUTCOME;
+          audit.max_attempts = 3;
+          audit.retry_contract = "github: 2s,5s with jitter ±20%";
+          process.stdout.write(`${JSON.stringify(audit, null, 2)}\n`);
+          NODE
+
+      - name: Upload validation artifacts (retention >= 90 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webhook-validation-github-${{ github.run_id }}
+          path: .tmp/webhook-validation/
+          if-no-files-found: warn
+          retention-days: 90
