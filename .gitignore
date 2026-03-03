@@ -3,6 +3,9 @@ dist/
 coverage/
 .DS_Store
 .vite/
-.env.local
-.env.production
 *.tsbuildinfo
+
+# Local environment values
+.env
+.env.*
+!.env.example

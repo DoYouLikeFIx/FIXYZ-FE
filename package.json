@@ -12,6 +12,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:collab-webhook": "node --test tests/collab-webhook/*.test.js",
+    "lint:collab-webhook": "node --check .github/scripts/collab-webhook/*.js",
     "prepare": "husky"
   },
   "dependencies": {
