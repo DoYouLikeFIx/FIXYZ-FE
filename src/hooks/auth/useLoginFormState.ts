@@ -1,12 +1,11 @@
 import { useState } from 'react';
 
+import {
+  createLoginFieldErrors,
+  validateLoginForm,
+} from '@/lib/schemas/auth.schema';
 import type { LoginRequest } from '@/types/auth';
 import type { LoginFieldErrors } from '@/types/auth-ui';
-
-const createLoginFieldErrors = (): LoginFieldErrors => ({
-  username: false,
-  password: false,
-});
 
 export const useLoginFormState = () => {
   const [username, setUsername] = useState('');
@@ -23,22 +22,16 @@ export const useLoginFormState = () => {
   };
 
   const validate = (): { message: string } | null => {
-    const nextFieldErrors: LoginFieldErrors = {
-      username: !username.trim(),
-      password: !password,
-    };
+    const validationResult = validateLoginForm({
+      username,
+      password,
+    });
 
-    setFieldErrors(nextFieldErrors);
+    setFieldErrors(validationResult.fieldErrors);
 
-    if (nextFieldErrors.username) {
-      return { message: '아이디를 입력해 주세요.' };
-    }
-
-    if (nextFieldErrors.password) {
-      return { message: '비밀번호를 입력해 주세요.' };
-    }
-
-    return null;
+    return validationResult.message
+      ? { message: validationResult.message }
+      : null;
   };
 
   const getPayload = (): LoginRequest => ({
