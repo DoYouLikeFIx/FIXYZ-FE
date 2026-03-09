@@ -39,7 +39,7 @@ export const useRegisterPageController = () => {
       await registerMember(registrationPayload);
 
       const member = await loginMember({
-        username: registrationPayload.username,
+        username: registrationPayload.email,
         password: registrationPayload.password,
       });
 
