@@ -8,13 +8,10 @@ export interface AuthState {
   status: AuthStatus;
   member: Member | null;
   reauthMessage: string | null;
-  sessionExpiryRemainingSeconds: number | null;
   initialize: (member: Member | null) => void;
   login: (member: Member) => void;
   logout: () => void;
   requireReauth: (message: string) => void;
-  showSessionExpiryWarning: (remainingSeconds: number) => void;
-  clearSessionExpiryWarning: () => void;
   clearReauthMessage: () => void;
 }
 
@@ -22,13 +19,11 @@ const createAuthStoreState = (): AuthState => ({
   status: 'checking',
   member: null,
   reauthMessage: null,
-  sessionExpiryRemainingSeconds: null,
   initialize: (member) => {
     useAuthStore.setState({
       status: member ? 'authenticated' : 'anonymous',
       member,
       reauthMessage: null,
-      sessionExpiryRemainingSeconds: null,
     });
   },
   login: (member) => {
@@ -36,7 +31,6 @@ const createAuthStoreState = (): AuthState => ({
       status: 'authenticated',
       member,
       reauthMessage: null,
-      sessionExpiryRemainingSeconds: null,
     });
   },
   logout: () => {
@@ -44,7 +38,6 @@ const createAuthStoreState = (): AuthState => ({
       status: 'anonymous',
       member: null,
       reauthMessage: null,
-      sessionExpiryRemainingSeconds: null,
     });
   },
   requireReauth: (message) => {
@@ -52,17 +45,6 @@ const createAuthStoreState = (): AuthState => ({
       status: 'anonymous',
       member: null,
       reauthMessage: message,
-      sessionExpiryRemainingSeconds: null,
-    });
-  },
-  showSessionExpiryWarning: (remainingSeconds) => {
-    useAuthStore.setState({
-      sessionExpiryRemainingSeconds: remainingSeconds,
-    });
-  },
-  clearSessionExpiryWarning: () => {
-    useAuthStore.setState({
-      sessionExpiryRemainingSeconds: null,
     });
   },
   clearReauthMessage: () => {
