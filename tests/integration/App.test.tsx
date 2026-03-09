@@ -314,7 +314,7 @@ describe('App auth flow', () => {
       name: 'New User',
     });
     expect(mockLoginMember).toHaveBeenCalledWith({
-      username: 'new_user',
+      username: 'new@fix.com',
       password: 'Test1234!',
     });
     expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
@@ -497,6 +497,41 @@ describe('App auth flow', () => {
       await screen.findByTestId('reauth-guidance'),
     ).toHaveTextContent('세션이 만료되었습니다. 다시 로그인해 주세요.');
     expect(window.location.pathname).toBe('/login');
+  });
+
+  it('redirects to login with preserved destination when the session was invalidated by a newer login', async () => {
+    mockFetchSession.mockResolvedValueOnce(memberFixture).mockRejectedValueOnce(
+      createApiError({
+        code: 'AUTH-016',
+        status: 401,
+        message: 'Session invalidated by another login',
+      }),
+    );
+    const user = userEvent.setup();
+
+    window.history.pushState({}, '', '/portfolio?tab=positions#open-orders');
+    render(<App />);
+
+    expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
+      'Portfolio overview',
+    );
+
+    const stream = MockEventSource.instances.at(-1);
+    expect(stream).toBeDefined();
+
+    act(() => {
+      stream?.emit('session-expiry', { remainingSeconds: 90 });
+    });
+
+    await user.click(await screen.findByTestId('session-expiry-extend'));
+
+    expect(
+      await screen.findByTestId('reauth-guidance'),
+    ).toHaveTextContent('세션이 만료되었습니다. 다시 로그인해 주세요.');
+    expect(window.location.pathname).toBe('/login');
+    expect(window.location.search).toContain(
+      'redirect=%2Fportfolio%3Ftab%3Dpositions%23open-orders',
+    );
   });
 
   it('keeps the protected view active and shows a retryable error when session extension fails for a non-reauth reason', async () => {

@@ -43,7 +43,14 @@ describe('auth api', () => {
   });
 
   it('logs in a member and refreshes the CSRF token for subsequent requests', async () => {
-    mockPost.mockResolvedValue({ data: memberFixture });
+    mockPost.mockResolvedValue({
+      data: {
+        memberId: 1,
+        email: 'demo@fix.com',
+        name: 'Demo User',
+      },
+    });
+    mockGet.mockResolvedValue({ data: memberFixture });
     mockFetchCsrfToken.mockResolvedValue({
       csrfToken: 'csrf-token',
       headerName: 'X-CSRF-TOKEN',
@@ -53,16 +60,32 @@ describe('auth api', () => {
       loginMember({ username: 'demo', password: 'Test1234!' }),
     ).resolves.toEqual(memberFixture);
 
-    expect(mockPost).toHaveBeenCalledWith(
-      '/api/v1/auth/login',
-      { username: 'demo', password: 'Test1234!' },
-      { _skipAuthHandling: true },
+    const [url, body, options] = mockPost.mock.calls[0] ?? [];
+    expect(url).toBe('/api/v1/auth/login');
+    expect(body).toBeInstanceOf(URLSearchParams);
+    expect((body as URLSearchParams).toString()).toBe(
+      'email=demo&password=Test1234%21',
     );
+    expect(options).toEqual({
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      _skipAuthHandling: true,
+    });
     expect(mockFetchCsrfToken).toHaveBeenCalledWith(true);
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/auth/session', {
+      _skipAuthHandling: true,
+    });
   });
 
   it('registers a member and clears the cached CSRF token', async () => {
-    mockPost.mockResolvedValue({ data: memberFixture });
+    mockPost.mockResolvedValue({
+      data: {
+        memberId: 2,
+        email: 'new@fix.com',
+        name: 'New User',
+      },
+    });
 
     await expect(
       registerMember({
@@ -71,18 +94,27 @@ describe('auth api', () => {
         email: 'new@fix.com',
         name: 'New User',
       }),
-    ).resolves.toEqual(memberFixture);
+    ).resolves.toEqual({
+      memberUuid: '2',
+      username: 'new',
+      email: 'new@fix.com',
+      name: 'New User',
+      role: 'ROLE_USER',
+      totpEnrolled: false,
+    });
 
-    expect(mockPost).toHaveBeenCalledWith(
-      '/api/v1/auth/register',
-      {
-        username: 'new_user',
-        password: 'Test1234!',
-        email: 'new@fix.com',
-        name: 'New User',
-      },
-      { _skipAuthHandling: true },
+    const [url, body, options] = mockPost.mock.calls[0] ?? [];
+    expect(url).toBe('/api/v1/auth/register');
+    expect(body).toBeInstanceOf(URLSearchParams);
+    expect((body as URLSearchParams).toString()).toBe(
+      'email=new%40fix.com&password=Test1234%21&name=New+User',
     );
+    expect(options).toEqual({
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      _skipAuthHandling: true,
+    });
     expect(mockClearCsrfToken).toHaveBeenCalledTimes(1);
   });
 });
