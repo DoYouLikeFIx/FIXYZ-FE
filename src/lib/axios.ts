@@ -36,6 +36,14 @@ export interface NormalizedApiError extends Error {
   traceId?: string;
 }
 
+interface DirectApiErrorPayload {
+  code?: string;
+  message?: string;
+  path?: string;
+  correlationId?: string;
+  timestamp?: string;
+}
+
 export const isApiResponseEnvelope = (
   value: unknown,
 ): value is ApiResponseEnvelope<unknown> => {
@@ -49,6 +57,21 @@ export const isApiResponseEnvelope = (
     typeof candidate.success === 'boolean' &&
     Object.hasOwn(candidate, 'data') &&
     Object.hasOwn(candidate, 'error')
+  );
+};
+
+const isDirectApiErrorPayload = (
+  value: unknown,
+): value is DirectApiErrorPayload => {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+
+  return (
+    typeof candidate.code === 'string' &&
+    typeof candidate.message === 'string'
   );
 };
 
@@ -110,6 +133,18 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
         detail: responseData.error.detail ?? undefined,
         status,
         traceId: responseData.traceId,
+      },
+    );
+  }
+
+  if (isDirectApiErrorPayload(responseData)) {
+    return buildNormalizedError(
+      responseData.message || DEFAULT_SERVER_ERROR_MESSAGE,
+      {
+        code: responseData.code,
+        detail: responseData.path,
+        status,
+        traceId: responseData.correlationId,
       },
     );
   }
@@ -198,10 +233,24 @@ export const fetchCsrfToken = async (
         throw buildNormalizedError(DEFAULT_SERVER_ERROR_MESSAGE);
       }
 
-      csrfToken = payload.data.csrfToken;
+      const resolvedToken =
+        'csrfToken' in payload.data && typeof payload.data.csrfToken === 'string'
+          ? payload.data.csrfToken
+          : 'token' in payload.data && typeof payload.data.token === 'string'
+            ? payload.data.token
+            : null;
+
+      if (!resolvedToken) {
+        throw buildNormalizedError(DEFAULT_SERVER_ERROR_MESSAGE);
+      }
+
+      csrfToken = resolvedToken;
       csrfHeaderName = payload.data.headerName || DEFAULT_CSRF_HEADER;
 
-      return payload.data;
+      return {
+        csrfToken: resolvedToken,
+        headerName: csrfHeaderName,
+      };
     })
     .finally(() => {
       csrfRequest = null;
