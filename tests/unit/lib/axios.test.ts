@@ -2,6 +2,7 @@ import { AxiosError } from 'axios';
 
 import {
   DEFAULT_SERVER_ERROR_MESSAGE,
+  FORBIDDEN_ERROR_MESSAGE,
   NETWORK_ERROR_MESSAGE,
   TIMEOUT_ERROR_MESSAGE,
   isApiResponseEnvelope,
@@ -28,6 +29,7 @@ describe('axios helpers', () => {
           detail: 'Insufficient quantity for requested order',
           timestamp: '2026-03-02T00:00:00Z',
         },
+        traceId: 'trace-auth-001',
       },
       headers: {},
       status: 422,
@@ -39,6 +41,30 @@ describe('axios helpers', () => {
     expect(normalized.message).toBe('Insufficient position');
     expect(normalized.code).toBe('CORE-002');
     expect(normalized.status).toBe(422);
+    expect(normalized.traceId).toBe('trace-auth-001');
+  });
+
+  it('normalizes direct backend error responses used by spring security entry points', () => {
+    const err = new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
+      config: {} as never,
+      data: {
+        code: 'AUTH-003',
+        message: 'authentication required',
+        path: '/api/v1/auth/session',
+        correlationId: 'corr-123',
+        timestamp: '2026-03-09T00:00:00Z',
+      },
+      headers: {},
+      status: 401,
+      statusText: 'Unauthorized',
+    });
+
+    const normalized = normalizeApiError(err);
+
+    expect(normalized.message).toBe('authentication required');
+    expect(normalized.code).toBe('AUTH-003');
+    expect(normalized.status).toBe(401);
+    expect(normalized.traceId).toBe('corr-123');
   });
 
   it('normalizes timeout errors', () => {
@@ -51,6 +77,18 @@ describe('axios helpers', () => {
     const err = new AxiosError('network failed', 'ERR_NETWORK');
 
     expect(normalizeApiError(err).message).toBe(NETWORK_ERROR_MESSAGE);
+  });
+
+  it('normalizes forbidden responses with the localized refresh guidance', () => {
+    const err = new AxiosError('forbidden', 'ERR_BAD_REQUEST', undefined, undefined, {
+      config: {} as never,
+      data: '',
+      headers: {},
+      status: 403,
+      statusText: 'Forbidden',
+    });
+
+    expect(normalizeApiError(err).message).toBe(FORBIDDEN_ERROR_MESSAGE);
   });
 
   it('falls back for non-axios errors', () => {
