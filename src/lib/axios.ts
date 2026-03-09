@@ -4,10 +4,23 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from 'axios';
 
+import {
+  DEFAULT_SERVER_ERROR_MESSAGE,
+  FORBIDDEN_ERROR_MESSAGE,
+  NETWORK_ERROR_MESSAGE,
+  TIMEOUT_ERROR_MESSAGE,
+} from '@/lib/api-error-messages';
 import { getReauthMessage, isReauthError } from '@/lib/auth-errors';
 import { useAuthStore } from '@/store/useAuthStore';
 import type { ApiResponseEnvelope } from '@/types/api';
 import type { CsrfTokenPayload } from '@/types/auth';
+
+export {
+  DEFAULT_SERVER_ERROR_MESSAGE,
+  FORBIDDEN_ERROR_MESSAGE,
+  NETWORK_ERROR_MESSAGE,
+  TIMEOUT_ERROR_MESSAGE,
+} from '@/lib/api-error-messages';
 
 declare module 'axios' {
   interface AxiosRequestConfig {
@@ -16,15 +29,6 @@ declare module 'axios' {
     _skipAuthHandling?: boolean;
   }
 }
-
-export const DEFAULT_SERVER_ERROR_MESSAGE =
-  'Unexpected server response. Please try again.';
-export const NETWORK_ERROR_MESSAGE =
-  'Unable to reach the server. Check your network and try again.';
-export const TIMEOUT_ERROR_MESSAGE =
-  'Request timed out. Please try again.';
-export const FORBIDDEN_ERROR_MESSAGE =
-  '요청을 확인할 수 없습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.';
 
 const DEFAULT_BASE_URL = '/';
 const DEFAULT_CSRF_HEADER = 'X-CSRF-TOKEN';
