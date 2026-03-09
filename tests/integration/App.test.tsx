@@ -77,6 +77,7 @@ const createApiError = (
   error.code = overrides.code;
   error.status = overrides.status;
   error.detail = overrides.detail;
+  error.traceId = overrides.traceId;
 
   return error;
 };
@@ -369,6 +370,54 @@ describe('App auth flow', () => {
       '아이디 또는 비밀번호가 올바르지 않습니다.',
     );
     expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
+  it.each([
+    ['AUTH-002', '로그인 시도가 잠겨 있습니다. 잠시 후 다시 시도해 주세요.'],
+    ['RATE-001', '로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.'],
+  ])(
+    'renders the standardized login recovery guidance for %s',
+    async (code, expectedMessage) => {
+      mockLoginMember.mockRejectedValue(
+        createApiError({
+          code,
+          status: code === 'RATE-001' ? 429 : 401,
+          message: `${code} backend message`,
+        }),
+      );
+      const user = userEvent.setup();
+
+      render(<App />);
+
+      await user.type(await screen.findByTestId('login-username'), 'demo');
+      await user.type(screen.getByTestId('login-password'), 'wrong-password');
+      await user.click(screen.getByTestId('login-submit'));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(expectedMessage);
+      expect(screen.getAllByRole('alert')).toHaveLength(1);
+    },
+  );
+
+  it('shows the safe fallback and visible correlation id for unknown auth codes', async () => {
+    mockLoginMember.mockRejectedValue(
+      createApiError({
+        code: 'AUTH-999',
+        status: 500,
+        message: 'Internal backend details should not leak',
+        traceId: 'corr-123',
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.type(await screen.findByTestId('login-username'), 'demo');
+    await user.type(screen.getByTestId('login-password'), 'wrong-password');
+    await user.click(screen.getByTestId('login-submit'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '로그인을 완료할 수 없습니다. 잠시 후 다시 시도해 주세요. 문제가 계속되면 고객센터에 문의해 주세요. 문의 코드: corr-123',
+    );
   });
 
   it('shows a custom inline login validation error instead of relying on browser popups', async () => {
