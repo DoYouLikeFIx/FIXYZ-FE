@@ -7,12 +7,13 @@ import type { LoginFieldErrors, RegisterFieldErrors } from '@/types/auth-ui';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export interface LoginFormValues {
-  username: string;
+  email: string;
   password: string;
 }
 
-export interface RegisterFormValues extends LoginFormValues {
+export interface RegisterFormValues {
   email: string;
+  password: string;
   name: string;
   confirmPassword: string;
 }
@@ -31,12 +32,11 @@ export interface RegisterPasswordState {
 }
 
 export const createLoginFieldErrors = (): LoginFieldErrors => ({
-  username: false,
+  email: false,
   password: false,
 });
 
 export const createRegisterFieldErrors = (): RegisterFieldErrors => ({
-  username: false,
   email: false,
   name: false,
   password: false,
@@ -44,18 +44,20 @@ export const createRegisterFieldErrors = (): RegisterFieldErrors => ({
 });
 
 export const validateLoginForm = ({
-  username,
+  email,
   password,
 }: LoginFormValues): ValidationResult<LoginFieldErrors> => {
   const fieldErrors: LoginFieldErrors = {
-    username: !username.trim(),
+    email: !email.trim() || !EMAIL_PATTERN.test(email.trim()),
     password: !password,
   };
 
-  if (fieldErrors.username) {
+  if (fieldErrors.email) {
     return {
       fieldErrors,
-      message: '아이디를 입력해 주세요.',
+      message: !email.trim()
+        ? '이메일을 입력해 주세요.'
+        : '올바른 이메일 형식을 입력해 주세요.',
     };
   }
 
@@ -97,7 +99,6 @@ export const getRegisterPasswordState = (
 };
 
 export const validateRegisterForm = ({
-  username,
   email,
   name,
   password,
@@ -105,15 +106,6 @@ export const validateRegisterForm = ({
 }: RegisterFormValues): ValidationResult<RegisterFieldErrors> => {
   const fieldErrors = createRegisterFieldErrors();
   const passwordState = getRegisterPasswordState(password, confirmPassword);
-
-  if (!username.trim()) {
-    fieldErrors.username = true;
-
-    return {
-      fieldErrors,
-      message: '아이디를 입력해 주세요.',
-    };
-  }
 
   if (!email.trim() || !EMAIL_PATTERN.test(email.trim())) {
     fieldErrors.email = true;
