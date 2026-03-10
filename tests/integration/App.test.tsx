@@ -62,7 +62,7 @@ const memberFixture: Member = {
   name: 'Demo User',
   role: 'ROLE_USER',
   totpEnrolled: true,
-  accountId: 'ACC-001',
+  accountId: '1',
 };
 
 const createApiError = (
@@ -181,6 +181,22 @@ describe('App auth flow', () => {
       'Portfolio overview',
     );
     expect(window.location.pathname).toBe('/portfolio');
+  });
+
+  it('exposes the order boundary link from the protected portfolio page', async () => {
+    mockLoginMember.mockResolvedValue(memberFixture);
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.type(await screen.findByTestId('login-email'), 'demo@fix.com');
+    await user.type(screen.getByTestId('login-password'), 'Test1234!');
+    await user.click(screen.getByTestId('login-submit'));
+
+    expect(await screen.findByTestId('portfolio-demo-order')).toHaveAttribute(
+      'href',
+      '/orders',
+    );
   });
 
   it('restores the original protected destination after login succeeds', async () => {
@@ -304,7 +320,7 @@ describe('App auth flow', () => {
       'Tesla',
     );
     expect(screen.getByText('변동성 플레이 대상으로 가장 빠르게 반응합니다.')).toBeInTheDocument();
-    expect(screen.getByTestId('portfolio-demo-order')).toBeDisabled();
+    expect(screen.getByTestId('portfolio-demo-order')).toHaveAttribute('href', '/orders');
   });
 
   it('registers a member and completes the post-register login flow', async () => {
