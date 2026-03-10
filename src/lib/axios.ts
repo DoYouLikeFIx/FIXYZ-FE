@@ -38,6 +38,9 @@ export interface NormalizedApiError extends Error {
   status?: number;
   detail?: string;
   traceId?: string;
+  operatorCode?: string;
+  retryAfterSeconds?: number;
+  userMessageKey?: string;
 }
 
 interface DirectApiErrorPayload {
@@ -45,6 +48,9 @@ interface DirectApiErrorPayload {
   message?: string;
   path?: string;
   correlationId?: string;
+  operatorCode?: string;
+  retryAfterSeconds?: number;
+  userMessageKey?: string;
   timestamp?: string;
 }
 
@@ -79,13 +85,16 @@ const isDirectApiErrorPayload = (
   );
 };
 
-const buildNormalizedError = (
+export const createNormalizedApiError = (
   message: string,
   options?: {
     code?: string;
     status?: number;
     detail?: string;
     traceId?: string;
+    operatorCode?: string;
+    retryAfterSeconds?: number;
+    userMessageKey?: string;
   },
 ): NormalizedApiError => {
   const normalized = new Error(message) as NormalizedApiError;
@@ -94,8 +103,52 @@ const buildNormalizedError = (
   normalized.status = options?.status;
   normalized.detail = options?.detail;
   normalized.traceId = options?.traceId;
+  normalized.operatorCode = options?.operatorCode;
+  normalized.retryAfterSeconds = options?.retryAfterSeconds;
+  normalized.userMessageKey = options?.userMessageKey;
 
   return normalized;
+};
+
+const parseRetryAfterSeconds = (value: unknown) => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.round(value);
+  }
+
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    return Number.parseInt(value, 10);
+  }
+
+  return undefined;
+};
+
+const getHeaderValue = (headers: unknown, name: string) => {
+  if (!headers) {
+    return undefined;
+  }
+
+  if (
+    typeof headers === 'object'
+    && headers !== null
+    && 'get' in headers
+    && typeof (headers as { get: (headerName: string) => unknown }).get === 'function'
+  ) {
+    const value = (headers as { get: (headerName: string) => unknown }).get(name);
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  if (typeof headers === 'object' && headers !== null) {
+    const record = headers as Record<string, unknown>;
+    const direct = record[name] ?? record[name.toLowerCase()] ?? record[name.toUpperCase()];
+
+    if (Array.isArray(direct)) {
+      return typeof direct[0] === 'string' ? direct[0] : undefined;
+    }
+
+    return typeof direct === 'string' ? direct : undefined;
+  }
+
+  return undefined;
 };
 
 const unwrapEnvelope = <T>(response: AxiosResponse<T>): AxiosResponse<T> => {
@@ -106,13 +159,24 @@ const unwrapEnvelope = <T>(response: AxiosResponse<T>): AxiosResponse<T> => {
   }
 
   if (!payload.success) {
-    throw buildNormalizedError(
+    throw createNormalizedApiError(
       payload.error?.message ?? DEFAULT_SERVER_ERROR_MESSAGE,
       {
         code: payload.error?.code,
         detail: payload.error?.detail ?? undefined,
         status: response.status,
         traceId: payload.traceId,
+        operatorCode:
+          typeof payload.error?.operatorCode === 'string'
+            ? payload.error.operatorCode
+            : undefined,
+        retryAfterSeconds:
+          parseRetryAfterSeconds(payload.error?.retryAfterSeconds)
+          ?? parseRetryAfterSeconds(getHeaderValue(response.headers, 'retry-after')),
+        userMessageKey:
+          typeof payload.error?.userMessageKey === 'string'
+            ? payload.error.userMessageKey
+            : undefined,
       },
     );
   }
@@ -123,49 +187,71 @@ const unwrapEnvelope = <T>(response: AxiosResponse<T>): AxiosResponse<T> => {
 
 export const normalizeApiError = (error: unknown): NormalizedApiError => {
   if (!axios.isAxiosError(error)) {
-    return buildNormalizedError(DEFAULT_SERVER_ERROR_MESSAGE);
+    return createNormalizedApiError(DEFAULT_SERVER_ERROR_MESSAGE);
   }
 
   const status = error.response?.status;
   const responseData = error.response?.data;
 
   if (isApiResponseEnvelope(responseData) && responseData.error) {
-    return buildNormalizedError(
+    return createNormalizedApiError(
       responseData.error.message || DEFAULT_SERVER_ERROR_MESSAGE,
       {
         code: responseData.error.code,
         detail: responseData.error.detail ?? undefined,
         status,
         traceId: responseData.traceId,
+        operatorCode:
+          typeof responseData.error.operatorCode === 'string'
+            ? responseData.error.operatorCode
+            : undefined,
+        retryAfterSeconds:
+          parseRetryAfterSeconds(responseData.error.retryAfterSeconds)
+          ?? parseRetryAfterSeconds(getHeaderValue(error.response?.headers, 'retry-after')),
+        userMessageKey:
+          typeof responseData.error.userMessageKey === 'string'
+            ? responseData.error.userMessageKey
+            : undefined,
       },
     );
   }
 
   if (isDirectApiErrorPayload(responseData)) {
-    return buildNormalizedError(
+    return createNormalizedApiError(
       responseData.message || DEFAULT_SERVER_ERROR_MESSAGE,
       {
         code: responseData.code,
         detail: responseData.path,
         status,
         traceId: responseData.correlationId,
+        operatorCode:
+          typeof responseData.operatorCode === 'string'
+            ? responseData.operatorCode
+            : undefined,
+        retryAfterSeconds:
+          parseRetryAfterSeconds(responseData.retryAfterSeconds)
+          ?? parseRetryAfterSeconds(getHeaderValue(error.response?.headers, 'retry-after')),
+        userMessageKey:
+          typeof responseData.userMessageKey === 'string'
+            ? responseData.userMessageKey
+            : undefined,
       },
     );
   }
 
   if (status === 403) {
-    return buildNormalizedError(FORBIDDEN_ERROR_MESSAGE, { status });
+    return createNormalizedApiError(FORBIDDEN_ERROR_MESSAGE, { status });
   }
 
   if (error.code === AxiosError.ECONNABORTED) {
-    return buildNormalizedError(TIMEOUT_ERROR_MESSAGE, { status });
+    return createNormalizedApiError(TIMEOUT_ERROR_MESSAGE, { status });
   }
 
   if (!error.response) {
-    return buildNormalizedError(NETWORK_ERROR_MESSAGE, { status });
+    return createNormalizedApiError(NETWORK_ERROR_MESSAGE, { status });
   }
 
-  return buildNormalizedError(DEFAULT_SERVER_ERROR_MESSAGE, { status });
+  return createNormalizedApiError(DEFAULT_SERVER_ERROR_MESSAGE, { status });
 };
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
@@ -234,7 +320,7 @@ export const fetchCsrfToken = async (
       const payload = response.data;
 
       if (!isApiResponseEnvelope(payload) || !payload.success || !payload.data) {
-        throw buildNormalizedError(DEFAULT_SERVER_ERROR_MESSAGE);
+        throw createNormalizedApiError(DEFAULT_SERVER_ERROR_MESSAGE);
       }
 
       const resolvedToken =
@@ -245,7 +331,7 @@ export const fetchCsrfToken = async (
             : null;
 
       if (!resolvedToken) {
-        throw buildNormalizedError(DEFAULT_SERVER_ERROR_MESSAGE);
+        throw createNormalizedApiError(DEFAULT_SERVER_ERROR_MESSAGE);
       }
 
       csrfToken = resolvedToken;
