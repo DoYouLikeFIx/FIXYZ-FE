@@ -3,7 +3,6 @@ import type { Member } from '@/types/auth';
 
 const memberFixture: Member = {
   memberUuid: 'member-001',
-  username: 'demo',
   email: 'demo@fix.com',
   name: 'Demo User',
   role: 'ROLE_USER',
@@ -40,13 +39,12 @@ describe('useAuthStore', () => {
     expect(state.reauthMessage).toBe('세션이 만료되었습니다. 다시 로그인해 주세요.');
   });
 
-  it('tracks and clears the session-expiry warning banner', () => {
+  it('clears re-auth guidance when requested', () => {
     const store = useAuthStore.getState();
 
-    store.showSessionExpiryWarning(300);
-    expect(useAuthStore.getState().sessionExpiryRemainingSeconds).toBe(300);
+    store.requireReauth('세션이 만료되었습니다. 다시 로그인해 주세요.');
+    store.clearReauthMessage();
 
-    store.clearSessionExpiryWarning();
-    expect(useAuthStore.getState().sessionExpiryRemainingSeconds).toBeNull();
+    expect(useAuthStore.getState().reauthMessage).toBeNull();
   });
 });

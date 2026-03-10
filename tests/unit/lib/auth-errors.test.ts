@@ -3,7 +3,10 @@ import {
   getAuthErrorMessage,
   getReauthMessage,
   isReauthError,
+  resolveAuthErrorPresentation,
 } from '@/lib/auth-errors';
+import { NETWORK_ERROR_MESSAGE } from '@/lib/axios';
+import { authErrorContract } from '../../fixtures/auth-error-contract';
 
 const createApiError = (
   overrides: Partial<NormalizedApiError> & { message?: string } = {},
@@ -15,39 +18,33 @@ const createApiError = (
   error.name = 'ApiClientError';
   error.code = overrides.code;
   error.status = overrides.status;
+  error.traceId = overrides.traceId;
 
   return error;
 };
 
 describe('auth error messages', () => {
-  it('maps credential failures to the canonical login message', () => {
-    expect(
-      getAuthErrorMessage(
-        createApiError({ code: 'AUTH-001', message: 'Credential mismatch' }),
-      ),
-    ).toBe('아이디 또는 비밀번호가 올바르지 않습니다.');
-  });
+  for (const { codes, semantic, recoveryAction, message } of authErrorContract.cases) {
+    it(`matches the FE auth contract for ${codes.join(', ')}`, () => {
+      for (const code of codes) {
+        const presentation = resolveAuthErrorPresentation(
+          createApiError({ code, message: `${code} server message` }),
+        );
 
-  it('maps duplicate username failures for register flow', () => {
-    expect(
-      getAuthErrorMessage(
-        createApiError({ code: 'AUTH-008', message: 'Username already exists' }),
-      ),
-    ).toBe('이미 사용 중인 아이디입니다. 다른 아이디를 선택해 주세요.');
-  });
+        expect(presentation.semantic).toBe(semantic);
+        expect(presentation.recoveryAction).toBe(recoveryAction);
+        expect(presentation.message).toBe(message);
+        expect(getAuthErrorMessage(createApiError({ code }))).toBe(message);
+      }
+    });
+  }
 
-  it('maps lockout and rate-limit failures to the canonical abuse-protection messages', () => {
+  it('maps duplicate email failures for register flow', () => {
     expect(
       getAuthErrorMessage(
-        createApiError({ code: 'AUTH-002', message: 'Account locked' }),
+        createApiError({ code: 'AUTH-017', message: 'Email already exists' }),
       ),
-    ).toBe('로그인 시도가 잠겨 있습니다. 잠시 후 다시 시도해 주세요.');
-
-    expect(
-      getAuthErrorMessage(
-        createApiError({ code: 'RATE-001', message: 'Too many attempts' }),
-      ),
-    ).toBe('로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.');
+    ).toBe('이미 가입된 이메일입니다. 다른 이메일을 입력해 주세요.');
   });
 
   it('detects auth-expiry codes that require re-authentication', () => {
@@ -69,5 +66,29 @@ describe('auth error messages', () => {
     expect(
       getReauthMessage(createApiError({ code: 'CHANNEL-001', status: 410 })),
     ).toBe('세션이 만료되었습니다. 다시 로그인해 주세요.');
+  });
+
+  it('uses the safe fallback and exposes the correlation id for unknown backend codes', () => {
+    const presentation = resolveAuthErrorPresentation(
+      createApiError({
+        code: 'AUTH-999',
+        message: 'Raw backend exception should not leak',
+        traceId: 'corr-123',
+      }),
+    );
+
+    expect(presentation.semantic).toBe(authErrorContract.unknownFallback.semantic);
+    expect(presentation.recoveryAction).toBe(
+      authErrorContract.unknownFallback.recoveryAction,
+    );
+    expect(presentation.message).toBe(
+      `${authErrorContract.unknownFallback.message} ${authErrorContract.supportReferenceLabel}: corr-123`,
+    );
+  });
+
+  it('preserves client-generated transport guidance when no backend auth code exists', () => {
+    expect(
+      getAuthErrorMessage(createApiError({ message: NETWORK_ERROR_MESSAGE })),
+    ).toBe(NETWORK_ERROR_MESSAGE);
   });
 });

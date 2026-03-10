@@ -58,7 +58,6 @@ class MockEventSource {
 
 const memberFixture: Member = {
   memberUuid: 'member-001',
-  username: 'demo',
   email: 'demo@fix.com',
   name: 'Demo User',
   role: 'ROLE_USER',
@@ -77,6 +76,7 @@ const createApiError = (
   error.code = overrides.code;
   error.status = overrides.status;
   error.detail = overrides.detail;
+  error.traceId = overrides.traceId;
 
   return error;
 };
@@ -145,7 +145,7 @@ describe('App auth flow', () => {
     expect(
       screen.getByRole('heading', { name: '보안 세션을 확인하고 있습니다' }),
     ).toBeInTheDocument();
-    expect(screen.queryByTestId('login-username')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('login-email')).not.toBeInTheDocument();
 
     await act(async () => {
       deferred.reject(
@@ -169,12 +169,12 @@ describe('App auth flow', () => {
 
     render(<App />);
 
-    await user.type(await screen.findByTestId('login-username'), 'demo');
+    await user.type(await screen.findByTestId('login-email'), 'demo@fix.com');
     await user.type(screen.getByTestId('login-password'), 'Test1234!');
     await user.click(screen.getByTestId('login-submit'));
 
     expect(mockLoginMember).toHaveBeenCalledWith({
-      username: 'demo',
+      email: 'demo@fix.com',
       password: 'Test1234!',
     });
     expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
@@ -198,7 +198,7 @@ describe('App auth flow', () => {
       'redirect=%2Fportfolio%3Ftab%3Dpositions%23open-orders',
     );
 
-    await user.type(screen.getByLabelText('아이디'), 'demo');
+    await user.type(screen.getByLabelText('이메일'), 'demo@fix.com');
     await user.type(screen.getByLabelText('비밀번호'), 'Test1234!');
     await user.click(screen.getByRole('button', { name: '로그인' }));
 
@@ -226,9 +226,9 @@ describe('App auth flow', () => {
   it('shows canonical login and register fields for the current contract', async () => {
     const loginView = render(<App />);
 
-    expect(await screen.findByTestId('login-username')).toHaveAttribute(
+    expect(await screen.findByTestId('login-email')).toHaveAttribute(
       'placeholder',
-      '아이디',
+      '이메일',
     );
     expect(screen.getByTestId('login-password')).toBeInTheDocument();
 
@@ -239,11 +239,35 @@ describe('App auth flow', () => {
     });
     render(<App />);
 
-    expect(await screen.findByTestId('register-username')).toBeInTheDocument();
-    expect(screen.getByTestId('register-email')).toBeInTheDocument();
+    expect(await screen.findByTestId('register-email')).toBeInTheDocument();
+    expect(
+      screen.getByText('로그인과 비밀번호 재설정에 같은 이메일을 사용합니다.'),
+    ).toBeInTheDocument();
     expect(screen.getByTestId('register-name')).toBeInTheDocument();
     expect(screen.getByTestId('register-password')).toBeInTheDocument();
     expect(screen.getByTestId('register-password-confirm')).toBeInTheDocument();
+  });
+
+  it('shows email-based password recovery guidance from the login form', async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.type(await screen.findByLabelText('이메일'), 'demo@fix.com');
+    await user.click(screen.getByTestId('login-password-recovery-toggle'));
+
+    expect(screen.getByTestId('login-password-recovery-help')).toHaveTextContent(
+      '비밀번호 재설정은 가입한 이메일 기준으로 진행됩니다.',
+    );
+    expect(screen.getByTestId('login-password-recovery-help')).toHaveTextContent(
+      '현재 입력된 이메일: demo@fix.com',
+    );
+
+    await user.click(screen.getByTestId('login-password-recovery-toggle'));
+
+    expect(
+      screen.queryByTestId('login-password-recovery-help'),
+    ).not.toBeInTheDocument();
   });
 
   it('updates portfolio selections interactively after authentication succeeds', async () => {
@@ -297,24 +321,22 @@ describe('App auth flow', () => {
     window.history.pushState({}, '', '/register');
     render(<App />);
 
-    await user.type(await screen.findByTestId('register-username'), 'new_user');
+    await user.type(await screen.findByTestId('register-email'), 'new@fix.com');
+    await user.type(screen.getByTestId('register-name'), 'New User');
     await user.type(screen.getByTestId('register-password'), 'Test1234!');
     await user.type(
       screen.getByTestId('register-password-confirm'),
       'Test1234!',
     );
-    await user.type(screen.getByTestId('register-email'), 'new@fix.com');
-    await user.type(screen.getByTestId('register-name'), 'New User');
     await user.click(screen.getByTestId('register-submit'));
 
     expect(mockRegisterMember).toHaveBeenCalledWith({
-      username: 'new_user',
       password: 'Test1234!',
       email: 'new@fix.com',
       name: 'New User',
     });
     expect(mockLoginMember).toHaveBeenCalledWith({
-      username: 'new@fix.com',
+      email: 'new@fix.com',
       password: 'Test1234!',
     });
     expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
@@ -322,12 +344,12 @@ describe('App auth flow', () => {
     );
   });
 
-  it('renders the standardized register error message once when the username is already taken', async () => {
+  it('renders the standardized register error message once when the email is already taken', async () => {
     mockRegisterMember.mockRejectedValue(
       createApiError({
-        code: 'AUTH-008',
+        code: 'AUTH-017',
         status: 409,
-        message: 'Username already exists',
+        message: 'Email already exists',
       }),
     );
     const user = userEvent.setup();
@@ -335,15 +357,14 @@ describe('App auth flow', () => {
     window.history.pushState({}, '', '/register');
     render(<App />);
 
-    await user.type(await screen.findByLabelText('아이디'), 'new_user');
-    await user.type(screen.getByLabelText('이메일'), 'new@fix.com');
+    await user.type(await screen.findByLabelText('이메일'), 'new@fix.com');
     await user.type(screen.getByLabelText('이름'), 'New User');
     await user.type(screen.getByLabelText('비밀번호'), 'Test1234!');
     await user.type(screen.getByLabelText('비밀번호 확인'), 'Test1234!');
     await user.click(screen.getByRole('button', { name: '회원가입' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      '이미 사용 중인 아이디입니다. 다른 아이디를 선택해 주세요.',
+      '이미 가입된 이메일입니다. 다른 이메일을 입력해 주세요.',
     );
     expect(screen.getAllByRole('alert')).toHaveLength(1);
     expect(mockLoginMember).not.toHaveBeenCalled();
@@ -361,14 +382,62 @@ describe('App auth flow', () => {
 
     render(<App />);
 
-    await user.type(await screen.findByTestId('login-username'), 'demo');
+    await user.type(await screen.findByTestId('login-email'), 'demo@fix.com');
     await user.type(screen.getByTestId('login-password'), 'wrong-password');
     await user.click(screen.getByTestId('login-submit'));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      '아이디 또는 비밀번호가 올바르지 않습니다.',
+      '이메일 또는 비밀번호가 올바르지 않습니다.',
     );
     expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
+  it.each([
+    ['AUTH-002', '로그인 시도가 잠겨 있습니다. 잠시 후 다시 시도해 주세요.'],
+    ['RATE-001', '로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.'],
+  ])(
+    'renders the standardized login recovery guidance for %s',
+    async (code, expectedMessage) => {
+      mockLoginMember.mockRejectedValue(
+        createApiError({
+          code,
+          status: code === 'RATE-001' ? 429 : 401,
+          message: `${code} backend message`,
+        }),
+      );
+      const user = userEvent.setup();
+
+      render(<App />);
+
+      await user.type(await screen.findByTestId('login-email'), 'demo@fix.com');
+      await user.type(screen.getByTestId('login-password'), 'wrong-password');
+      await user.click(screen.getByTestId('login-submit'));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(expectedMessage);
+      expect(screen.getAllByRole('alert')).toHaveLength(1);
+    },
+  );
+
+  it('shows the safe fallback and visible correlation id for unknown auth codes', async () => {
+    mockLoginMember.mockRejectedValue(
+      createApiError({
+        code: 'AUTH-999',
+        status: 500,
+        message: 'Internal backend details should not leak',
+        traceId: 'corr-123',
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.type(await screen.findByTestId('login-email'), 'demo@fix.com');
+    await user.type(screen.getByTestId('login-password'), 'wrong-password');
+    await user.click(screen.getByTestId('login-submit'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '로그인을 완료할 수 없습니다. 잠시 후 다시 시도해 주세요. 문제가 계속되면 고객센터에 문의해 주세요. 문의 코드: corr-123',
+    );
   });
 
   it('shows a custom inline login validation error instead of relying on browser popups', async () => {
@@ -376,7 +445,7 @@ describe('App auth flow', () => {
 
     render(<App />);
 
-    await user.type(await screen.findByTestId('login-username'), 'demo');
+    await user.type(await screen.findByTestId('login-email'), 'demo@fix.com');
     await user.click(screen.getByTestId('login-submit'));
 
     expect(await screen.findByTestId('error-message')).toHaveTextContent(
@@ -424,7 +493,7 @@ describe('App auth flow', () => {
     await user.click(screen.getByTestId('register-submit'));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      '아이디를 입력해 주세요.',
+      '이메일을 입력해 주세요.',
     );
     expect(mockRegisterMember).not.toHaveBeenCalled();
 

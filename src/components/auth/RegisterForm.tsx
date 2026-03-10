@@ -1,14 +1,14 @@
 import type { FormEventHandler } from 'react';
 
+import { REGISTER_EMAIL_USAGE_HINT } from '@/lib/auth-copy';
+
 interface RegisterFormProps {
-  username: string;
   email: string;
   name: string;
   password: string;
   confirmPassword: string;
   showPassword: boolean;
   showConfirmPassword: boolean;
-  usernameInvalid: boolean;
   emailInvalid: boolean;
   nameInvalid: boolean;
   passwordInvalid: boolean;
@@ -20,7 +20,6 @@ interface RegisterFormProps {
   confirmPasswordMessage: string;
   errorMessage: string | null;
   isSubmitting: boolean;
-  onUsernameChange: (value: string) => void;
   onEmailChange: (value: string) => void;
   onNameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
@@ -31,14 +30,12 @@ interface RegisterFormProps {
 }
 
 export function RegisterForm({
-  username,
   email,
   name,
   password,
   confirmPassword,
   showPassword,
   showConfirmPassword,
-  usernameInvalid,
   emailInvalid,
   nameInvalid,
   passwordInvalid,
@@ -50,7 +47,6 @@ export function RegisterForm({
   confirmPasswordMessage,
   errorMessage,
   isSubmitting,
-  onUsernameChange,
   onEmailChange,
   onNameChange,
   onPasswordChange,
@@ -61,23 +57,6 @@ export function RegisterForm({
 }: RegisterFormProps) {
   return (
     <form className="auth-form auth-form--register" noValidate onSubmit={onSubmit}>
-      <div className="field field--register-username">
-        <label className="field-label" htmlFor="register-username">
-          아이디
-        </label>
-        <input
-          autoComplete="username"
-          aria-invalid={usernameInvalid}
-          data-testid="register-username"
-          id="register-username"
-          name="username"
-          onChange={(event) => onUsernameChange(event.target.value)}
-          placeholder="아이디"
-          required
-          value={username}
-        />
-      </div>
-
       <div className="field field--register-email">
         <label className="field-label" htmlFor="register-email">
           이메일
@@ -94,6 +73,7 @@ export function RegisterForm({
           type="email"
           value={email}
         />
+        <span className="field-hint field-hint--pending">{REGISTER_EMAIL_USAGE_HINT}</span>
       </div>
 
       <div className="field field--register-name">

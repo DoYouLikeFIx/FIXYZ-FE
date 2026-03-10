@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { fetchSession } from '@/api/authApi';
-import { useSessionExpiry } from '@/hooks/auth/useSessionExpiry';
+import { useNotification } from '@/hooks/useNotification';
 import {
   getAuthErrorMessage,
   getReauthMessage,
@@ -18,24 +18,14 @@ export const useProtectedSession = () => {
   const member = useAuthStore((state) => state.member);
   const login = useAuthStore((state) => state.login);
   const requireReauth = useAuthStore((state) => state.requireReauth);
-  const showSessionExpiryWarning = useAuthStore(
-    (state) => state.showSessionExpiryWarning,
-  );
-  const clearSessionExpiryWarning = useAuthStore(
-    (state) => state.clearSessionExpiryWarning,
-  );
-  const remainingSeconds = useAuthStore(
-    (state) => state.sessionExpiryRemainingSeconds,
-  );
+  const {
+    sessionExpiryRemainingSeconds: remainingSeconds,
+    clearSessionExpiryWarning,
+  } = useNotification();
   const navigate = useNavigate();
   const location = useLocation();
   const [isExtending, setIsExtending] = useState(false);
   const [extensionError, setExtensionError] = useState<string | null>(null);
-
-  useSessionExpiry({
-    enabled: Boolean(member),
-    onWarning: showSessionExpiryWarning,
-  });
 
   const handleExtendSession = async () => {
     setIsExtending(true);
@@ -48,6 +38,7 @@ export const useProtectedSession = () => {
       setExtensionError(null);
     } catch (error) {
       if (isReauthError(error)) {
+        clearSessionExpiryWarning();
         requireReauth(getReauthMessage(error));
         navigate(
           buildLoginRedirect(

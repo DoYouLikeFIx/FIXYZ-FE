@@ -12,6 +12,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "e2e:live": "playwright test",
+    "e2e:live:headed": "playwright test --headed",
+    "e2e:live:install": "playwright install chromium",
     "test:collab-webhook": "node --test tests/collab-webhook/*.test.js",
     "lint:collab-webhook": "node --check .github/scripts/collab-webhook/*.js",
     "prepare": "husky"
@@ -25,6 +28,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.3",
+    "@playwright/test": "^1.58.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",

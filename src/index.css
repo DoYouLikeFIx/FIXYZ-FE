@@ -441,6 +441,34 @@ button:disabled {
   font-size: 0.78rem;
 }
 
+.auth-inline-help {
+  display: grid;
+  gap: 0.28rem;
+  margin-top: -0.35rem;
+  padding: 0.9rem 0.95rem;
+  border: 1px solid rgba(60, 109, 191, 0.2);
+  border-radius: 16px;
+  background: rgba(235, 244, 255, 0.72);
+  color: #274160;
+}
+
+.auth-inline-help__title {
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.auth-inline-help__body,
+.auth-inline-help__detail {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.auth-inline-help__detail {
+  color: #48637f;
+  font-weight: 600;
+}
+
 .checkbox {
   display: inline-flex;
   align-items: center;

@@ -17,6 +17,7 @@ export const useLoginPageController = () => {
   const [searchParams] = useSearchParams();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPasswordRecoveryHelp, setShowPasswordRecoveryHelp] = useState(false);
   const loginForm = useLoginFormState();
   const { displayMode, handleTabNavigation } = useAuthTabsNavigation('login');
 
@@ -59,22 +60,26 @@ export const useLoginPageController = () => {
   return {
     frameProps,
     formProps: {
-      username: loginForm.username,
+      email: loginForm.email,
       password: loginForm.password,
       showPassword: loginForm.showPassword,
-      usernameInvalid: loginForm.fieldErrors.username,
+      emailInvalid: loginForm.fieldErrors.email,
       passwordInvalid: loginForm.fieldErrors.password,
+      showPasswordRecoveryHelp,
       errorMessage,
       isSubmitting,
-      onUsernameChange: (value: string) => {
+      onEmailChange: (value: string) => {
         setErrorMessage(null);
-        loginForm.setUsername(value);
+        loginForm.setEmail(value);
       },
       onPasswordChange: (value: string) => {
         setErrorMessage(null);
         loginForm.setPassword(value);
       },
       onTogglePasswordVisibility: loginForm.togglePasswordVisibility,
+      onTogglePasswordRecoveryHelp: () => {
+        setShowPasswordRecoveryHelp((current) => !current);
+      },
       onSubmit: handleSubmit,
     },
   };

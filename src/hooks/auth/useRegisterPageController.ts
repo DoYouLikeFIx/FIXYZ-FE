@@ -39,7 +39,7 @@ export const useRegisterPageController = () => {
       await registerMember(registrationPayload);
 
       const member = await loginMember({
-        username: registrationPayload.email,
+        email: registrationPayload.email,
         password: registrationPayload.password,
       });
 
@@ -63,14 +63,12 @@ export const useRegisterPageController = () => {
   return {
     frameProps,
     formProps: {
-      username: registerForm.username,
       email: registerForm.email,
       name: registerForm.name,
       password: registerForm.password,
       confirmPassword: registerForm.confirmPassword,
       showPassword: registerForm.showPassword,
       showConfirmPassword: registerForm.showConfirmPassword,
-      usernameInvalid: registerForm.fieldErrors.username,
       emailInvalid: registerForm.fieldErrors.email,
       nameInvalid: registerForm.fieldErrors.name,
       passwordInvalid: registerForm.fieldErrors.password,
@@ -82,10 +80,6 @@ export const useRegisterPageController = () => {
       confirmPasswordMessage: registerForm.confirmPasswordMessage,
       errorMessage,
       isSubmitting,
-      onUsernameChange: (value: string) => {
-        setErrorMessage(null);
-        registerForm.setUsername(value);
-      },
       onEmailChange: (value: string) => {
         setErrorMessage(null);
         registerForm.setEmail(value);

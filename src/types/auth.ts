@@ -1,6 +1,5 @@
 export interface Member {
   memberUuid: string;
-  username: string;
   email: string;
   name: string;
   role: string;
@@ -9,12 +8,13 @@ export interface Member {
 }
 
 export interface LoginRequest {
-  username: string;
+  email: string;
   password: string;
 }
 
-export interface RegisterRequest extends LoginRequest {
+export interface RegisterRequest {
   email: string;
+  password: string;
   name: string;
 }
 

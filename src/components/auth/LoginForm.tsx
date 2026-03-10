@@ -1,48 +1,57 @@
 import type { FormEventHandler } from 'react';
 
+import { buildPasswordRecoveryGuidance } from '@/lib/auth-copy';
+
 interface LoginFormProps {
-  username: string;
+  email: string;
   password: string;
   showPassword: boolean;
-  usernameInvalid: boolean;
+  emailInvalid: boolean;
   passwordInvalid: boolean;
+  showPasswordRecoveryHelp: boolean;
   errorMessage: string | null;
   isSubmitting: boolean;
-  onUsernameChange: (value: string) => void;
+  onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onTogglePasswordVisibility: () => void;
+  onTogglePasswordRecoveryHelp: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
 }
 
 export function LoginForm({
-  username,
+  email,
   password,
   showPassword,
-  usernameInvalid,
+  emailInvalid,
   passwordInvalid,
+  showPasswordRecoveryHelp,
   errorMessage,
   isSubmitting,
-  onUsernameChange,
+  onEmailChange,
   onPasswordChange,
   onTogglePasswordVisibility,
+  onTogglePasswordRecoveryHelp,
   onSubmit,
 }: LoginFormProps) {
+  const passwordRecoveryGuidance = buildPasswordRecoveryGuidance(email);
+
   return (
     <form className="auth-form auth-form--login" noValidate onSubmit={onSubmit}>
       <div className="field">
-        <label className="field-label" htmlFor="login-username">
-          아이디
+        <label className="field-label" htmlFor="login-email">
+          이메일
         </label>
         <input
-          autoComplete="username"
-          aria-invalid={usernameInvalid}
-          data-testid="login-username"
-          id="login-username"
-          name="username"
-          onChange={(event) => onUsernameChange(event.target.value)}
-          placeholder="아이디"
+          autoComplete="email"
+          aria-invalid={emailInvalid}
+          data-testid="login-email"
+          id="login-email"
+          name="email"
+          onChange={(event) => onEmailChange(event.target.value)}
+          placeholder="이메일"
           required
-          value={username}
+          type="email"
+          value={email}
         />
       </div>
 
@@ -76,10 +85,30 @@ export function LoginForm({
       </div>
 
       <div className="auth-meta">
-        <button className="auth-help-link" type="button">
-          비밀번호 찾기
+        <button
+          aria-expanded={showPasswordRecoveryHelp}
+          className="auth-help-link"
+          data-testid="login-password-recovery-toggle"
+          type="button"
+          onClick={onTogglePasswordRecoveryHelp}
+        >
+          {showPasswordRecoveryHelp ? '안내 닫기' : '비밀번호 재설정 안내'}
         </button>
       </div>
+
+      {showPasswordRecoveryHelp ? (
+        <div
+          className="auth-inline-help"
+          data-testid="login-password-recovery-help"
+          role="status"
+        >
+          <strong className="auth-inline-help__title">
+            {passwordRecoveryGuidance.title}
+          </strong>
+          <p className="auth-inline-help__body">{passwordRecoveryGuidance.body}</p>
+          <p className="auth-inline-help__detail">{passwordRecoveryGuidance.detail}</p>
+        </div>
+      ) : null}
 
       {errorMessage && (
         <p className="form-message form-message--error" data-testid="error-message" role="alert">
