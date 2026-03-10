@@ -17,7 +17,6 @@ vi.mock('@/lib/axios', () => ({
 
 const memberFixture: Member = {
   memberUuid: 'member-001',
-  username: 'demo',
   email: 'demo@fix.com',
   name: 'Demo User',
   role: 'ROLE_USER',
@@ -57,14 +56,14 @@ describe('auth api', () => {
     });
 
     await expect(
-      loginMember({ username: 'demo', password: 'Test1234!' }),
+      loginMember({ email: 'demo@fix.com', password: 'Test1234!' }),
     ).resolves.toEqual(memberFixture);
 
     const [url, body, options] = mockPost.mock.calls[0] ?? [];
     expect(url).toBe('/api/v1/auth/login');
     expect(body).toBeInstanceOf(URLSearchParams);
     expect((body as URLSearchParams).toString()).toBe(
-      'email=demo&password=Test1234%21',
+      'email=demo%40fix.com&password=Test1234%21',
     );
     expect(options).toEqual({
       headers: {
@@ -89,14 +88,12 @@ describe('auth api', () => {
 
     await expect(
       registerMember({
-        username: 'new_user',
         password: 'Test1234!',
         email: 'new@fix.com',
         name: 'New User',
       }),
     ).resolves.toEqual({
       memberUuid: '2',
-      username: 'new',
       email: 'new@fix.com',
       name: 'New User',
       role: 'ROLE_USER',

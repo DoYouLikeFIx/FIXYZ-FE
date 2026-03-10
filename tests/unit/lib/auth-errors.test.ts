@@ -1,4 +1,3 @@
-import authErrorContract from '../../../../docs/contracts/auth-error-standardization.json';
 import type { NormalizedApiError } from '@/lib/axios';
 import {
   getAuthErrorMessage,
@@ -7,6 +6,7 @@ import {
   resolveAuthErrorPresentation,
 } from '@/lib/auth-errors';
 import { NETWORK_ERROR_MESSAGE } from '@/lib/axios';
+import { authErrorContract } from '../../fixtures/auth-error-contract';
 
 const createApiError = (
   overrides: Partial<NormalizedApiError> & { message?: string } = {},
@@ -24,9 +24,8 @@ const createApiError = (
 };
 
 describe('auth error messages', () => {
-  it.each(authErrorContract.cases)(
-    'matches the FE auth contract for %s',
-    ({ codes, semantic, recoveryAction, message }) => {
+  for (const { codes, semantic, recoveryAction, message } of authErrorContract.cases) {
+    it(`matches the FE auth contract for ${codes.join(', ')}`, () => {
       for (const code of codes) {
         const presentation = resolveAuthErrorPresentation(
           createApiError({ code, message: `${code} server message` }),
@@ -37,15 +36,15 @@ describe('auth error messages', () => {
         expect(presentation.message).toBe(message);
         expect(getAuthErrorMessage(createApiError({ code }))).toBe(message);
       }
-    },
-  );
+    });
+  }
 
-  it('maps duplicate username failures for register flow', () => {
+  it('maps duplicate email failures for register flow', () => {
     expect(
       getAuthErrorMessage(
-        createApiError({ code: 'AUTH-008', message: 'Username already exists' }),
+        createApiError({ code: 'AUTH-017', message: 'Email already exists' }),
       ),
-    ).toBe('이미 사용 중인 아이디입니다. 다른 아이디를 선택해 주세요.');
+    ).toBe('이미 가입된 이메일입니다. 다른 이메일을 입력해 주세요.');
   });
 
   it('detects auth-expiry codes that require re-authentication', () => {

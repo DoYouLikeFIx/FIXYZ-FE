@@ -3,7 +3,6 @@ import type { Member } from '@/types/auth';
 
 const memberFixture: Member = {
   memberUuid: 'member-001',
-  username: 'demo',
   email: 'demo@fix.com',
   name: 'Demo User',
   role: 'ROLE_USER',
