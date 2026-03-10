@@ -37,6 +37,7 @@ export interface NormalizedApiError extends Error {
   code?: string;
   status?: number;
   detail?: string;
+  retryAfterSeconds?: number;
   traceId?: string;
 }
 
@@ -85,6 +86,7 @@ const buildNormalizedError = (
     code?: string;
     status?: number;
     detail?: string;
+    retryAfterSeconds?: number;
     traceId?: string;
   },
 ): NormalizedApiError => {
@@ -93,9 +95,54 @@ const buildNormalizedError = (
   normalized.code = options?.code;
   normalized.status = options?.status;
   normalized.detail = options?.detail;
+  normalized.retryAfterSeconds = options?.retryAfterSeconds;
   normalized.traceId = options?.traceId;
 
   return normalized;
+};
+
+const parseRetryAfterSeconds = (value: unknown) => {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.ceil(value);
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const asNumber = Number(trimmed);
+
+  if (Number.isFinite(asNumber) && asNumber >= 0) {
+    return Math.ceil(asNumber);
+  }
+
+  const asDate = Date.parse(trimmed);
+
+  if (Number.isNaN(asDate)) {
+    return undefined;
+  }
+
+  return Math.max(0, Math.ceil((asDate - Date.now()) / 1000));
+};
+
+const extractRetryAfterSeconds = (headers: unknown) => {
+  if (!headers || typeof headers !== 'object') {
+    return undefined;
+  }
+
+  const candidate = headers as Record<string, unknown>;
+
+  return parseRetryAfterSeconds(
+    candidate['retry-after']
+    ?? candidate['Retry-After']
+    ?? candidate['Retry-after'],
+  );
 };
 
 const unwrapEnvelope = <T>(response: AxiosResponse<T>): AxiosResponse<T> => {
@@ -128,6 +175,7 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
 
   const status = error.response?.status;
   const responseData = error.response?.data;
+  const retryAfterSeconds = extractRetryAfterSeconds(error.response?.headers);
 
   if (isApiResponseEnvelope(responseData) && responseData.error) {
     return buildNormalizedError(
@@ -135,6 +183,7 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
       {
         code: responseData.error.code,
         detail: responseData.error.detail ?? undefined,
+        retryAfterSeconds,
         status,
         traceId: responseData.traceId,
       },
@@ -147,6 +196,7 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
       {
         code: responseData.code,
         detail: responseData.path,
+        retryAfterSeconds,
         status,
         traceId: responseData.correlationId,
       },
