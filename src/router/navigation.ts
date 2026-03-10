@@ -1,4 +1,7 @@
 export const DEFAULT_PROTECTED_ROUTE = '/portfolio';
+export const FORGOT_PASSWORD_ROUTE = '/forgot-password';
+export const RESET_PASSWORD_ROUTE = '/reset-password';
+export const PASSWORD_RESET_SUCCESS_QUERY = 'recovery=reset-success';
 
 export const buildRedirectPath = ({
   pathname,
@@ -18,7 +21,9 @@ export const resolveRedirectTarget = (redirectParam: string | null | undefined) 
   if (
     redirectParam.startsWith('//') ||
     redirectParam.startsWith('/login') ||
-    redirectParam.startsWith('/register')
+    redirectParam.startsWith('/register') ||
+    redirectParam.startsWith(FORGOT_PASSWORD_ROUTE) ||
+    redirectParam.startsWith(RESET_PASSWORD_ROUTE)
   ) {
     return DEFAULT_PROTECTED_ROUTE;
   }
@@ -28,3 +33,23 @@ export const resolveRedirectTarget = (redirectParam: string | null | undefined) 
 
 export const buildLoginRedirect = (redirectPath: string) =>
   `/login?redirect=${encodeURIComponent(redirectPath)}`;
+
+export const buildForgotPasswordPath = (email?: string) => {
+  const normalizedEmail = email?.trim();
+
+  if (!normalizedEmail) {
+    return FORGOT_PASSWORD_ROUTE;
+  }
+
+  return `${FORGOT_PASSWORD_ROUTE}?email=${encodeURIComponent(normalizedEmail)}`;
+};
+
+export const buildResetPasswordPath = (token?: string) => {
+  const normalizedToken = token?.trim();
+
+  if (!normalizedToken) {
+    return RESET_PASSWORD_ROUTE;
+  }
+
+  return `${RESET_PASSWORD_ROUTE}?token=${encodeURIComponent(normalizedToken)}`;
+};

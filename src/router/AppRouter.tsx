@@ -1,7 +1,9 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { ProtectedLayout } from '@/components/layout/ProtectedLayout';
+import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
 import { LoginPage } from '@/pages/LoginPage';
+import { PasswordResetPage } from '@/pages/PasswordResetPage';
 import { PortfolioPage } from '@/pages/PortfolioPage';
 import { RegisterPage } from '@/pages/RegisterPage';
 import { PrivateRoute } from '@/router/PrivateRoute';
@@ -24,6 +26,22 @@ export function AppRouter() {
         element={(
           <PublicOnlyRoute>
             <RegisterPage />
+          </PublicOnlyRoute>
+        )}
+      />
+      <Route
+        path="/forgot-password"
+        element={(
+          <PublicOnlyRoute>
+            <ForgotPasswordPage />
+          </PublicOnlyRoute>
+        )}
+      />
+      <Route
+        path="/reset-password"
+        element={(
+          <PublicOnlyRoute>
+            <PasswordResetPage />
           </PublicOnlyRoute>
         )}
       />
