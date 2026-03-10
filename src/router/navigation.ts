@@ -1,7 +1,11 @@
+export const LOGIN_ROUTE = '/login';
 export const DEFAULT_PROTECTED_ROUTE = '/portfolio';
 export const FORGOT_PASSWORD_ROUTE = '/forgot-password';
 export const RESET_PASSWORD_ROUTE = '/reset-password';
-export const PASSWORD_RESET_SUCCESS_QUERY = 'recovery=reset-success';
+export const PASSWORD_RESET_SUCCESS_QUERY_KEY = 'recovery';
+export const PASSWORD_RESET_SUCCESS_QUERY_VALUE = 'reset-success';
+export const PASSWORD_RESET_SUCCESS_QUERY =
+  `${PASSWORD_RESET_SUCCESS_QUERY_KEY}=${PASSWORD_RESET_SUCCESS_QUERY_VALUE}`;
 
 export const buildRedirectPath = ({
   pathname,
@@ -32,7 +36,14 @@ export const resolveRedirectTarget = (redirectParam: string | null | undefined) 
 };
 
 export const buildLoginRedirect = (redirectPath: string) =>
-  `/login?redirect=${encodeURIComponent(redirectPath)}`;
+  `${LOGIN_ROUTE}?redirect=${encodeURIComponent(redirectPath)}`;
+
+export const buildPasswordResetSuccessLoginPath = () =>
+  `${LOGIN_ROUTE}?${PASSWORD_RESET_SUCCESS_QUERY}`;
+
+export const hasPasswordResetSuccessQuery = (
+  searchParams: Pick<URLSearchParams, 'get'>,
+) => searchParams.get(PASSWORD_RESET_SUCCESS_QUERY_KEY) === PASSWORD_RESET_SUCCESS_QUERY_VALUE;
 
 export const buildForgotPasswordPath = (email?: string) => {
   const normalizedEmail = email?.trim();

@@ -8,6 +8,7 @@ import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
 import { getAuthErrorMessage } from '@/lib/auth-errors';
 import {
   buildForgotPasswordPath,
+  hasPasswordResetSuccessQuery,
   resolveRedirectTarget,
 } from '@/router/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -18,7 +19,7 @@ export const useLoginPageController = () => {
   const clearReauthMessage = useAuthStore((state) => state.clearReauthMessage);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const hasPasswordResetSuccess = searchParams.get('recovery') === 'reset-success';
+  const hasPasswordResetSuccess = hasPasswordResetSuccessQuery(searchParams);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPasswordRecoveryHelp, setShowPasswordRecoveryHelp] = useState(false);

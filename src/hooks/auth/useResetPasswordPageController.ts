@@ -10,7 +10,10 @@ import {
   getResetPasswordState,
   validateResetPasswordForm,
 } from '@/lib/schemas/auth.schema';
-import { buildResetPasswordPath } from '@/router/navigation';
+import {
+  buildPasswordResetSuccessLoginPath,
+  buildResetPasswordPath,
+} from '@/router/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 
 interface ResetPasswordLocationState {
@@ -88,7 +91,7 @@ export const useResetPasswordPageController = () => {
         newPassword,
       });
 
-      navigate(`/login?recovery=reset-success`, {
+      navigate(buildPasswordResetSuccessLoginPath(), {
         replace: true,
       });
     } catch (error) {
