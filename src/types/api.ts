@@ -1,10 +1,11 @@
 export interface ApiErrorPayload {
   code: string;
   message: string;
-  detail?: string | null;
-  field?: string | null;
-  timestamp?: string;
-  [key: string]: unknown;
+  detail: string;
+  operatorCode?: string | null;
+  retryAfterSeconds?: number | null;
+  userMessageKey?: string | null;
+  timestamp: string;
 }
 
 export interface ApiResponseEnvelope<T> {
