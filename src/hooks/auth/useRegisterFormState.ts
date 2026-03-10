@@ -9,7 +9,6 @@ import type { RegisterRequest } from '@/types/auth';
 import type { RegisterFieldErrors } from '@/types/auth-ui';
 
 export const useRegisterFormState = () => {
-  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [email, setEmail] = useState('');
@@ -36,7 +35,6 @@ export const useRegisterFormState = () => {
 
   const validate = (): { message: string } | null => {
     const validationResult = validateRegisterForm({
-      username,
       email,
       name,
       password,
@@ -51,14 +49,12 @@ export const useRegisterFormState = () => {
   };
 
   const getPayload = (): RegisterRequest => ({
-    username: username.trim(),
     password,
     email: email.trim(),
     name: name.trim(),
   });
 
   return {
-    username,
     email,
     name,
     password,
@@ -71,10 +67,6 @@ export const useRegisterFormState = () => {
     isConfirmPasswordValid,
     passwordPolicyMessage,
     confirmPasswordMessage,
-    setUsername: (value: string) => {
-      setUsername(value);
-      clearFieldError('username');
-    },
     setEmail: (value: string) => {
       setEmail(value);
       clearFieldError('email');

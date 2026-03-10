@@ -8,7 +8,7 @@ import type { LoginRequest } from '@/types/auth';
 import type { LoginFieldErrors } from '@/types/auth-ui';
 
 export const useLoginFormState = () => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>(
@@ -23,7 +23,7 @@ export const useLoginFormState = () => {
 
   const validate = (): { message: string } | null => {
     const validationResult = validateLoginForm({
-      username,
+      email,
       password,
     });
 
@@ -35,18 +35,18 @@ export const useLoginFormState = () => {
   };
 
   const getPayload = (): LoginRequest => ({
-    username: username.trim(),
+    email: email.trim(),
     password,
   });
 
   return {
-    username,
+    email,
     password,
     showPassword,
     fieldErrors,
-    setUsername: (value: string) => {
-      setUsername(value);
-      clearFieldError('username');
+    setEmail: (value: string) => {
+      setEmail(value);
+      clearFieldError('email');
     },
     setPassword: (value: string) => {
       setPassword(value);
