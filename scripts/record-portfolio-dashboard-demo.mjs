@@ -5,7 +5,7 @@ import { chromium } from '@playwright/test';
 
 const demoBaseUrl = process.env.DEMO_BASE_URL ?? 'http://127.0.0.1:14173';
 const videoDir = process.env.DEMO_VIDEO_DIR
-  ?? '/Users/yeongjae/fixyz/_bmad-output/implementation-artifacts/demos/.tmp-fe-video/raw';
+  ?? path.resolve(process.cwd(), '.tmp-fe-video', 'raw');
 
 const wait = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
