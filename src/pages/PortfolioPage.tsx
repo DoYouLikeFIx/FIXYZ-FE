@@ -1,338 +1,408 @@
 import { Link } from 'react-router-dom';
 
-import { usePortfolioExperience } from '@/hooks/portfolio/usePortfolioExperience';
-import { hasExternalOrderAccountId } from '@/order/external-order-recovery';
+import {
+  HISTORY_PAGE_SIZE_OPTIONS,
+  useAccountDashboard,
+} from '@/hooks/portfolio/useAccountDashboard';
+
+const currencyFormatter = new Intl.NumberFormat('ko-KR', {
+  style: 'currency',
+  currency: 'KRW',
+  maximumFractionDigits: 0,
+});
+
+const quantityFormatter = new Intl.NumberFormat('ko-KR', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 4,
+});
+
+const dateFormatter = new Intl.DateTimeFormat('ko-KR', {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+});
 
 export function PortfolioPage() {
   const {
-    viewer,
-    rangeOptions,
-    profileOptions,
-    holdings,
-    watchItems,
-    selectedRange,
-    selectedProfile,
-    selectedHolding,
-    selectedWatch,
-    selectedSnapshot,
-    chartPolyline,
-    setSelectedRange,
-    setSelectedProfile,
-    setSelectedHoldingId,
-    setSelectedWatchId,
-  } = usePortfolioExperience();
-  const hasOrderAccount = hasExternalOrderAccountId(viewer?.accountId);
+    activeTab,
+    hasLinkedAccount,
+    historyError,
+    historyItems,
+    historyLoading,
+    historyPage,
+    historyPageSize,
+    historyTotalElements,
+    historyTotalPages,
+    maskedAccountNumber,
+    member,
+    position,
+    positionError,
+    positionLoading,
+    retryHistory,
+    retryPosition,
+    selectedSymbol,
+    setActiveTab,
+    setHistoryPage,
+    setHistoryPageSize,
+    setSelectedSymbol,
+    symbolOptions,
+    symbolOptionsError,
+  } = useAccountDashboard();
 
   return (
-    <section className="portfolio-grid">
-      <section className="portfolio-hero">
-        <article className="portfolio-surface portfolio-surface--hero">
-          <div className="portfolio-hero__copy">
-            <p className="status-kicker">Interactive portfolio</p>
-            <h2 data-testid="protected-area-title">Portfolio overview</h2>
-            <p className="portfolio-hero__description">
-              FIX 플랫폼의 포트폴리오 화면을 대시보드 형태로 재구성했습니다.
-              기간별 추세, 자산 선택, 관심 종목 시나리오를 한 화면에서 검토할 수 있습니다.
-            </p>
-          </div>
+    <section className="account-dashboard-shell">
+      <header className="account-dashboard-hero">
+        <div>
+          <p className="status-kicker">Account dashboard</p>
+          <h2 data-testid="protected-area-title">Portfolio overview</h2>
+          <p className="account-dashboard-hero__description">
+            계좌 잔고와 대표 보유 종목을 확인하고, 서버 기준 페이지네이션으로 최근 주문
+            이력을 다시 조회할 수 있습니다.
+          </p>
+        </div>
 
-          <div className="portfolio-hero__controls">
-            <div
-              className="portfolio-segmented"
-              aria-label="포트폴리오 기간 선택"
-              role="tablist"
+        <div className="account-dashboard-hero__actions">
+          {hasLinkedAccount ? (
+            <Link
+              to="/orders"
+              className="portfolio-action portfolio-action--primary"
+              data-testid="portfolio-demo-order"
             >
-              {rangeOptions.map((range) => (
-                <button
-                  key={range}
-                  type="button"
-                  role="tab"
-                  aria-selected={selectedRange === range}
-                  className={`portfolio-segmented__button ${
-                    selectedRange === range ? 'portfolio-segmented__button--active' : ''
-                  }`}
-                  data-testid={`portfolio-range-${range}`}
-                  onClick={() => setSelectedRange(range)}
-                >
-                  {range}
-                </button>
-              ))}
-            </div>
+              주문 경계 열기
+            </Link>
+          ) : (
+            <button
+              type="button"
+              className="portfolio-action portfolio-action--primary"
+              data-testid="portfolio-demo-order-unavailable"
+              disabled
+            >
+              주문 계좌 연동 필요
+            </button>
+          )}
 
-            <div className="portfolio-profile-switch" aria-label="전략 강도 선택">
-              {profileOptions.map((profile) => (
+          <div className="account-dashboard-pill">
+            <span>대표 계좌</span>
+            <strong data-testid="portfolio-masked-account">{maskedAccountNumber}</strong>
+          </div>
+        </div>
+      </header>
+
+      <section className="account-dashboard-tabs" role="tablist" aria-label="계좌 화면 탭">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'dashboard'}
+          className={`account-dashboard-tab ${
+            activeTab === 'dashboard' ? 'account-dashboard-tab--active' : ''
+          }`}
+          data-testid="portfolio-tab-dashboard"
+          onClick={() => setActiveTab('dashboard')}
+        >
+          대시보드
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'history'}
+          className={`account-dashboard-tab ${
+            activeTab === 'history' ? 'account-dashboard-tab--active' : ''
+          }`}
+          data-testid="portfolio-tab-history"
+          onClick={() => setActiveTab('history')}
+        >
+          주문 내역
+        </button>
+      </section>
+
+      <section className="account-symbol-panel">
+        <div>
+          <p className="status-kicker">Owned positions</p>
+          <h3>보유 종목 조회</h3>
+          <p className="account-symbol-panel__description">
+            백엔드가 반환한 보유 종목 리스트를 그대로 사용해 대표 종목과 요약을 구성합니다.
+          </p>
+        </div>
+
+        {!hasLinkedAccount ? (
+          <p className="account-symbol-panel__hint" data-testid="portfolio-symbol-unavailable">
+            연결된 계좌가 없어 보유 종목 리스트를 불러올 수 없습니다.
+          </p>
+        ) : null}
+
+        {hasLinkedAccount && symbolOptions.length > 0 ? (
+          <div className="account-symbol-selector" aria-label="대표 종목 조회">
+            {symbolOptions.map((symbol) => (
+              <button
+                key={symbol}
+                type="button"
+                className={`account-history-toolbar__button ${
+                  selectedSymbol === symbol
+                    ? 'account-history-toolbar__button--active'
+                    : ''
+                }`}
+                data-testid={`portfolio-symbol-${symbol}`}
+                onClick={() => setSelectedSymbol(symbol)}
+              >
+                {symbol}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {hasLinkedAccount && !positionLoading && symbolOptionsError ? (
+          <div className="account-state-panel" data-testid="portfolio-symbol-error">
+            <strong>보유 종목 리스트를 불러오지 못했습니다</strong>
+            <p>{symbolOptionsError.message}</p>
+            <p>{symbolOptionsError.nextStep}</p>
+            <button
+              type="button"
+              className="portfolio-action portfolio-action--secondary"
+              data-testid="portfolio-symbol-retry"
+              onClick={retryPosition}
+            >
+              다시 시도
+            </button>
+          </div>
+        ) : null}
+
+        {hasLinkedAccount
+        && !positionLoading
+        && !symbolOptionsError
+        && symbolOptions.length === 0 ? (
+          <p className="account-symbol-panel__hint" data-testid="portfolio-symbol-empty">
+            아직 보유 중인 종목이 없습니다.
+          </p>
+        ) : null}
+
+        {hasLinkedAccount && selectedSymbol ? (
+          <p className="account-symbol-panel__hint">
+            현재 조회 종목 <strong>{selectedSymbol}</strong>
+          </p>
+        ) : null}
+      </section>
+
+      {activeTab === 'dashboard' ? (
+        <section className="account-dashboard-grid">
+          <article className="account-card">
+            <header className="account-card__header">
+              <div>
+                <p className="status-kicker">Balance</p>
+                <h3>계좌 요약</h3>
+              </div>
+              <span className="account-card__meta">
+                {member?.name ?? '사용자'} / {maskedAccountNumber}
+              </span>
+            </header>
+
+            {!hasLinkedAccount ? (
+              <div className="account-state-panel" data-testid="portfolio-summary-unavailable">
+                <strong>계좌 요약을 조회할 수 없습니다</strong>
+                <p>연결된 계좌가 없어 계좌 요약을 불러올 수 없습니다.</p>
+              </div>
+            ) : null}
+
+            {hasLinkedAccount && positionLoading ? (
+              <p className="account-state-copy" data-testid="portfolio-summary-loading">
+                계좌 요약을 불러오는 중입니다.
+              </p>
+            ) : null}
+
+            {hasLinkedAccount && !positionLoading && positionError ? (
+              <div className="account-state-panel" data-testid="portfolio-summary-error">
+                <strong>계좌 요약을 불러오지 못했습니다</strong>
+                <p>{positionError.message}</p>
+                <p>{positionError.nextStep}</p>
                 <button
-                  key={profile}
                   type="button"
-                  className={`portfolio-profile-switch__button ${
-                    selectedProfile === profile
-                      ? 'portfolio-profile-switch__button--active'
+                  className="portfolio-action portfolio-action--secondary"
+                  data-testid="portfolio-summary-retry"
+                  onClick={retryPosition}
+                >
+                  다시 시도
+                </button>
+              </div>
+            ) : null}
+
+            {hasLinkedAccount && !positionLoading && !positionError && position ? (
+              <div className="account-summary-grid">
+                <div className="account-summary-cell">
+                  <span className="account-summary-cell__label">예수금</span>
+                  <strong
+                    className="account-summary-cell__value"
+                    data-testid="portfolio-total-balance"
+                  >
+                    {currencyFormatter.format(position.balance)}
+                  </strong>
+                </div>
+                <div className="account-summary-cell">
+                  <span className="account-summary-cell__label">가용 수량</span>
+                  <strong data-testid="portfolio-available-quantity">
+                    {quantityFormatter.format(position.availableQuantity)}주
+                  </strong>
+                </div>
+                <div className="account-summary-cell">
+                  <span className="account-summary-cell__label">보유 수량</span>
+                  <strong>{quantityFormatter.format(position.quantity)}주</strong>
+                </div>
+                <div className="account-summary-cell">
+                  <span className="account-summary-cell__label">조회 기준</span>
+                  <strong>{dateFormatter.format(new Date(position.asOf))}</strong>
+                </div>
+              </div>
+            ) : null}
+
+            {hasLinkedAccount && !positionLoading && !positionError && !position ? (
+              <p className="account-state-copy" data-testid="portfolio-summary-empty">
+                아직 보유 중인 종목이 없어 계좌 요약을 표시할 수 없습니다.
+              </p>
+            ) : null}
+          </article>
+
+          <article className="account-card">
+            <header className="account-card__header">
+              <div>
+                <p className="status-kicker">Contract</p>
+                <h3>조회 원칙</h3>
+              </div>
+            </header>
+
+            <ul className="account-guidance-list">
+              <li>예수금은 backend canonical balance 값을 그대로 노출합니다.</li>
+              <li>계좌 식별자는 웹 화면 전체에서 동일한 마스킹 규칙을 사용합니다.</li>
+              <li>주문 내역은 page/size 계약 변경 시마다 서버에서 다시 조회합니다.</li>
+            </ul>
+          </article>
+        </section>
+      ) : (
+        <section className="account-card">
+          <header className="account-card__header">
+            <div>
+              <p className="status-kicker">Order history</p>
+              <h3>최근 주문 이력</h3>
+            </div>
+            <span className="account-card__meta">
+              {historyTotalElements}건 / {maskedAccountNumber}
+            </span>
+          </header>
+
+          <div className="account-history-toolbar">
+            <div className="account-history-toolbar__sizes" aria-label="페이지 크기 선택">
+              {HISTORY_PAGE_SIZE_OPTIONS.map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  className={`account-history-toolbar__button ${
+                    historyPageSize === size
+                      ? 'account-history-toolbar__button--active'
                       : ''
                   }`}
-                  data-testid={`portfolio-profile-${profile}`}
-                  onClick={() => setSelectedProfile(profile)}
+                  data-testid={`portfolio-history-size-${size}`}
+                  disabled={!hasLinkedAccount || historyLoading}
+                  onClick={() => setHistoryPageSize(size)}
                 >
-                  {profile}
+                  {size}건
                 </button>
               ))}
             </div>
-          </div>
-        </article>
 
-        <article className="portfolio-surface portfolio-surface--summary">
-          <p className="portfolio-summary__eyebrow">{selectedSnapshot.label}</p>
-          <h3 className="portfolio-summary__value" data-testid="portfolio-total-value">
-            {selectedSnapshot.totalValue}
-          </h3>
-          <p
-            className={`portfolio-summary__delta ${
-              selectedSnapshot.deltaTone === 'positive'
-                ? 'portfolio-summary__delta--positive'
-                : ''
-            }`}
-          >
-            {selectedSnapshot.delta}
-          </p>
-
-          <dl className="portfolio-summary__stats">
-            <div>
-              <dt>현금 비중</dt>
-              <dd>{selectedSnapshot.cash}</dd>
-            </div>
-            <div>
-              <dt>집중 포인트</dt>
-              <dd>{selectedSnapshot.focusLabel}</dd>
-            </div>
-            <div>
-              <dt>리밸런싱 큐</dt>
-              <dd>{selectedSnapshot.rebalanceCue}</dd>
-            </div>
-          </dl>
-
-          <div className="portfolio-summary__actions">
-            {hasOrderAccount ? (
-              <Link
-                to="/orders"
-                className="portfolio-action portfolio-action--primary"
-                data-testid="portfolio-demo-order"
-              >
-                주문 경계 열기
-              </Link>
-            ) : (
+            <div className="account-history-toolbar__pager">
               <button
                 type="button"
-                className="portfolio-action portfolio-action--primary"
-                data-testid="portfolio-demo-order-unavailable"
-                disabled
+                className="account-history-toolbar__button"
+                data-testid="portfolio-history-prev"
+                disabled={!hasLinkedAccount || historyPage === 0 || historyLoading}
+                onClick={() => setHistoryPage(Math.max(0, historyPage - 1))}
               >
-                주문 계좌 연동 필요
+                이전
               </button>
-            )}
-            <button
-              type="button"
-              className="portfolio-action portfolio-action--secondary"
-              data-testid="portfolio-demo-transfer"
-              disabled
-            >
-              입출금 연동 준비 중
-            </button>
-          </div>
-        </article>
-      </section>
-
-      <section className="portfolio-dashboard">
-        <article className="portfolio-surface portfolio-surface--chart">
-          <header className="portfolio-card__header">
-            <div>
-              <p className="status-kicker">Performance</p>
-              <h3>{selectedHolding.name} 흐름</h3>
-            </div>
-            <span className="portfolio-card__chip" data-testid="portfolio-selected-holding">
-              {selectedHolding.name}
-            </span>
-          </header>
-
-          <div className="portfolio-chart">
-            <svg
-              aria-label={`${selectedHolding.name} 성과 차트`}
-              className="portfolio-chart__svg"
-              data-testid="portfolio-performance-chart"
-              viewBox="0 0 340 168"
-            >
-              <defs>
-                <linearGradient id="portfolio-line" x1="0%" x2="100%" y1="0%" y2="0%">
-                  <stop offset="0%" stopColor="#f08400" />
-                  <stop offset="100%" stopColor="#0b63ce" />
-                </linearGradient>
-              </defs>
-              <path
-                d="M 14 154 H 326"
-                className="portfolio-chart__baseline"
-              />
-              <polyline
-                className="portfolio-chart__line"
-                fill="none"
-                points={chartPolyline}
-                stroke="url(#portfolio-line)"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="4"
-              />
-            </svg>
-
-            <div className="portfolio-chart__meta">
-              <div>
-                <p className="portfolio-chart__label">선택 기간</p>
-                <strong data-testid="portfolio-selected-range">{selectedRange}</strong>
-              </div>
-              <div>
-                <p className="portfolio-chart__label">포지션 메모</p>
-                <strong>{selectedHolding.riskLabel}</strong>
-              </div>
-              <div>
-                <p className="portfolio-chart__label">전략 가이드</p>
-                <strong>{selectedHolding.profileCue[selectedProfile]}</strong>
-              </div>
+              <span data-testid="portfolio-history-page-indicator">
+                {historyTotalPages === 0 ? 0 : historyPage + 1} / {historyTotalPages}
+              </span>
+              <button
+                type="button"
+                className="account-history-toolbar__button"
+                data-testid="portfolio-history-next"
+                disabled={
+                  !hasLinkedAccount
+                  || historyLoading
+                  || historyTotalPages === 0
+                  || historyPage + 1 >= historyTotalPages
+                }
+                onClick={() => setHistoryPage(historyPage + 1)}
+              >
+                다음
+              </button>
             </div>
           </div>
-        </article>
 
-        <article className="portfolio-surface portfolio-surface--holdings">
-          <header className="portfolio-card__header">
-            <div>
-              <p className="status-kicker">Holdings</p>
-              <h3>보유 자산</h3>
+          {!hasLinkedAccount ? (
+            <div className="account-state-panel" data-testid="portfolio-history-unavailable">
+              <strong>주문 내역을 조회할 수 없습니다</strong>
+              <p>연결된 계좌가 없어 주문 내역을 조회할 수 없습니다.</p>
             </div>
-            <span className="portfolio-card__meta">{viewer?.accountId ?? '계좌 연동 대기'}</span>
-          </header>
+          ) : null}
 
-          <div className="portfolio-holdings">
-            {holdings.map((holding) => {
-              const isActive = holding.id === selectedHolding.id;
+          {hasLinkedAccount && historyLoading ? (
+            <p className="account-state-copy" data-testid="portfolio-history-loading">
+              주문 내역을 조회하는 중입니다.
+            </p>
+          ) : null}
 
-              return (
-                <button
-                  key={holding.id}
-                  type="button"
-                  className={`portfolio-holding-card ${
-                    isActive ? 'portfolio-holding-card--active' : ''
-                  }`}
-                  data-testid={`portfolio-holding-${holding.id}`}
-                  onClick={() => setSelectedHoldingId(holding.id)}
-                >
-                  <div className="portfolio-holding-card__topline">
-                    <div>
-                      <strong>{holding.name}</strong>
-                      <span>{holding.symbol}</span>
-                    </div>
-                    <span className="portfolio-holding-card__delta">{holding.delta}</span>
-                  </div>
-                  <p className="portfolio-holding-card__value">{holding.value}</p>
-                  <div className="portfolio-holding-card__bar">
-                    <span style={{ width: `${holding.allocation}%` }} />
-                  </div>
-                  <div className="portfolio-holding-card__foot">
-                    <span>{holding.amount}</span>
-                    <span>{holding.allocation}%</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </article>
-
-        <article className="portfolio-surface portfolio-surface--insight">
-          <header className="portfolio-card__header">
-            <div>
-              <p className="status-kicker">Position memo</p>
-              <h3>{selectedHolding.name} 메모</h3>
+          {hasLinkedAccount && !historyLoading && historyError ? (
+            <div className="account-state-panel" data-testid="portfolio-history-error">
+              <strong>주문 내역을 불러오지 못했습니다</strong>
+              <p>{historyError.message}</p>
+              <p>{historyError.nextStep}</p>
+              <button
+                type="button"
+                className="portfolio-action portfolio-action--secondary"
+                data-testid="portfolio-history-retry"
+                onClick={retryHistory}
+              >
+                다시 시도
+              </button>
             </div>
-            <span className="portfolio-card__chip">{selectedProfile}</span>
-          </header>
+          ) : null}
 
-          <p className="portfolio-insight__body" data-testid="portfolio-position-thesis">
-            {selectedHolding.thesis}
-          </p>
+          {hasLinkedAccount && !historyLoading && !historyError && historyItems.length === 0 ? (
+            <p className="account-state-copy" data-testid="order-list-empty">
+              아직 주문 내역이 없습니다.
+            </p>
+          ) : null}
 
-          <dl className="portfolio-insight__stats">
-            <div>
-              <dt>전략 강도</dt>
-              <dd>{selectedHolding.profileCue[selectedProfile]}</dd>
-            </div>
-            <div>
-              <dt>현재 비중</dt>
-              <dd>{selectedHolding.allocation}%</dd>
-            </div>
-            <div>
-              <dt>담당자</dt>
-              <dd>{viewer?.name ?? 'FIX Demo Desk'}</dd>
-            </div>
-          </dl>
-        </article>
-
-        <article className="portfolio-surface portfolio-surface--watchlist">
-          <header className="portfolio-card__header">
-            <div>
-              <p className="status-kicker">Watchlist</p>
-              <h3>관심 종목</h3>
-            </div>
-            <span className="portfolio-card__meta" data-testid="portfolio-selected-watch">
-              {selectedWatch.name}
-            </span>
-          </header>
-
-          <div className="portfolio-watchlist">
-            {watchItems.map((item) => {
-              const isActive = item.id === selectedWatch.id;
-
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`portfolio-watch-item ${
-                    isActive ? 'portfolio-watch-item--active' : ''
-                  }`}
-                  data-testid={`portfolio-watch-${item.id}`}
-                  onClick={() => setSelectedWatchId(item.id)}
+          {hasLinkedAccount && !historyLoading && !historyError && historyItems.length > 0 ? (
+            <div className="account-history-list" data-testid="order-list">
+              {historyItems.map((item) => (
+                <article
+                  key={item.clOrdId}
+                  className="account-history-row"
+                  data-testid={`order-row-${item.clOrdId}`}
                 >
                   <div>
-                    <strong>{item.name}</strong>
-                    <span>{item.market}</span>
+                    <strong>{item.symbolName}</strong>
+                    <p>{item.symbol}</p>
                   </div>
-                  <div className="portfolio-watch-item__meta">
-                    <span>{item.price}</span>
-                    <span>{item.delta}</span>
+                  <div>
+                    <strong>{item.side}</strong>
+                    <p>{quantityFormatter.format(item.qty)}주</p>
                   </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <section className="portfolio-watch-spotlight">
-            <p className="portfolio-watch-spotlight__signal">{selectedWatch.signal}</p>
-            <h4>{selectedWatch.name}</h4>
-            <p>{selectedWatch.note}</p>
-            <dl>
-              <div>
-                <dt>티커</dt>
-                <dd>{selectedWatch.ticker}</dd>
-              </div>
-              <div>
-                <dt>전략 메모</dt>
-                <dd>{selectedWatch.profileCue[selectedProfile]}</dd>
-              </div>
-            </dl>
-            <button
-              type="button"
-              className="portfolio-action portfolio-action--secondary"
-              data-testid="portfolio-watch-cta"
-              disabled
-            >
-              실거래 알림 준비 중
-            </button>
-          </section>
-        </article>
-      </section>
+                  <div data-testid={`order-amount-${item.clOrdId}`}>
+                    <strong>{currencyFormatter.format(item.totalAmount)}</strong>
+                    <p>{currencyFormatter.format(item.unitPrice)}</p>
+                  </div>
+                  <div data-testid={`order-status-${item.clOrdId}`}>
+                    <strong>{item.status}</strong>
+                    <p>{dateFormatter.format(new Date(item.createdAt))}</p>
+                    <p data-testid={`order-cl-ord-id-${item.clOrdId}`}>{item.clOrdId}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      )}
     </section>
   );
 }

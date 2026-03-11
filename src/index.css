@@ -1474,3 +1474,248 @@ p {
     text-align: left;
   }
 }
+
+.account-dashboard-shell {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.account-dashboard-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+  align-items: flex-start;
+  padding: 1.75rem;
+  border-radius: 1.5rem;
+  background: linear-gradient(135deg, #102542 0%, #1d4e89 55%, #ff9b42 100%);
+  color: #fff;
+  box-shadow: 0 18px 42px rgba(16, 37, 66, 0.2);
+}
+
+.account-dashboard-hero__description {
+  max-width: 44rem;
+  margin: 0.5rem 0 0;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.account-dashboard-hero__actions {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: end;
+}
+
+.account-dashboard-pill {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 12rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(8px);
+}
+
+.account-dashboard-pill span {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.account-dashboard-pill strong {
+  font-size: 1.05rem;
+}
+
+.account-dashboard-tabs {
+  display: inline-flex;
+  gap: 0.5rem;
+  padding: 0.35rem;
+  border-radius: 999px;
+  background: #eef4fb;
+  width: fit-content;
+}
+
+.account-dashboard-tab {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.75rem 1.1rem;
+  background: transparent;
+  color: #44627f;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.account-dashboard-tab--active {
+  background: #0b63ce;
+  color: #fff;
+}
+
+.account-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
+  gap: 1.5rem;
+}
+
+.account-symbol-panel {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-radius: 1.5rem;
+  background:
+    linear-gradient(135deg, rgba(11, 99, 206, 0.08), rgba(240, 132, 0, 0.08)),
+    #fff;
+  box-shadow: 0 12px 28px rgba(11, 33, 64, 0.08);
+}
+
+.account-symbol-panel h3,
+.account-symbol-panel p {
+  margin: 0;
+}
+
+.account-symbol-panel__description,
+.account-symbol-panel__hint {
+  color: #4f657d;
+}
+
+.account-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-radius: 1.5rem;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(11, 33, 64, 0.08);
+}
+
+.account-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.account-card__header h3 {
+  margin: 0.2rem 0 0;
+}
+
+.account-card__meta {
+  color: #5b7086;
+  font-weight: 600;
+}
+
+.account-symbol-selector,
+.account-history-toolbar__sizes,
+.account-history-toolbar__pager {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.account-symbol-selector {
+  align-items: end;
+}
+
+.account-history-toolbar__button {
+  border: 1px solid #d9e5f2;
+  border-radius: 999px;
+  padding: 0.65rem 0.9rem;
+  background: #fff;
+  color: #143b61;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.account-history-toolbar__button--active {
+  border-color: #0b63ce;
+  background: #e8f1fd;
+}
+
+.account-history-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.account-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.account-summary-cell {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: #f6f9fc;
+}
+
+.account-summary-cell__label {
+  color: #5b7086;
+  font-size: 0.9rem;
+}
+
+.account-summary-cell__value {
+  font-size: 1.4rem;
+}
+
+.account-guidance-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #36506b;
+  line-height: 1.6;
+}
+
+.account-state-copy {
+  margin: 0;
+  color: #5b7086;
+}
+
+.account-state-panel {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: #fff4ea;
+  color: #6b3c11;
+}
+
+.account-state-panel p {
+  margin: 0;
+}
+
+.account-history-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.account-history-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: #f6f9fc;
+}
+
+.account-history-row p,
+.account-history-row strong {
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .account-dashboard-hero,
+  .account-dashboard-grid,
+  .account-summary-grid,
+  .account-history-row {
+    grid-template-columns: 1fr;
+  }
+
+  .account-dashboard-hero {
+    padding: 1.25rem;
+  }
+
+  .account-dashboard-hero__actions {
+    width: 100%;
+    justify-items: stretch;
+  }
+}

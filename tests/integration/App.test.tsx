@@ -6,6 +6,9 @@ import type { NormalizedApiError } from '@/lib/axios';
 import { resetAuthStore } from '@/store/useAuthStore';
 import type { Member } from '@/types/auth';
 
+const mockFetchAccountPositions = vi.fn();
+const mockFetchAccountSummary = vi.fn();
+const mockFetchAccountOrderHistory = vi.fn();
 const mockFetchSession = vi.fn();
 const mockLoginMember = vi.fn();
 const mockRegisterMember = vi.fn();
@@ -21,6 +24,12 @@ vi.mock('@/api/authApi', () => ({
   requestPasswordRecoveryChallenge: (payload: unknown) =>
     mockRequestPasswordRecoveryChallenge(payload),
   resetPassword: (payload: unknown) => mockResetPassword(payload),
+}));
+
+vi.mock('@/api/accountApi', () => ({
+  fetchAccountPositions: (payload: unknown) => mockFetchAccountPositions(payload),
+  fetchAccountSummary: (payload: unknown) => mockFetchAccountSummary(payload),
+  fetchAccountOrderHistory: (payload: unknown) => mockFetchAccountOrderHistory(payload),
 }));
 
 class MockEventSource {
@@ -114,12 +123,60 @@ describe('App auth flow', () => {
   });
 
   beforeEach(() => {
+    mockFetchAccountPositions.mockReset();
+    mockFetchAccountSummary.mockReset();
+    mockFetchAccountOrderHistory.mockReset();
     mockFetchSession.mockReset();
     mockLoginMember.mockReset();
     mockRegisterMember.mockReset();
     mockRequestPasswordResetEmail.mockReset();
     mockRequestPasswordRecoveryChallenge.mockReset();
     mockResetPassword.mockReset();
+    mockFetchAccountPositions.mockResolvedValue([
+      {
+        accountId: 1,
+        memberId: 1,
+        symbol: '005930',
+        quantity: 120,
+        availableQuantity: 20,
+        availableQty: 20,
+        balance: 100000000,
+        availableBalance: 100000000,
+        currency: 'KRW',
+        asOf: '2026-03-11T09:10:00Z',
+      },
+      {
+        accountId: 1,
+        memberId: 1,
+        symbol: '000660',
+        quantity: 15,
+        availableQuantity: 7,
+        availableQty: 7,
+        balance: 98500000,
+        availableBalance: 98500000,
+        currency: 'KRW',
+        asOf: '2026-03-11T09:20:00Z',
+      },
+    ]);
+    mockFetchAccountSummary.mockResolvedValue({
+      accountId: 1,
+      memberId: 1,
+      symbol: '',
+      quantity: 0,
+      availableQuantity: 0,
+      availableQty: 0,
+      balance: 100000000,
+      availableBalance: 100000000,
+      currency: 'KRW',
+      asOf: '2026-03-11T09:05:00Z',
+    });
+    mockFetchAccountOrderHistory.mockResolvedValue({
+      content: [],
+      totalElements: 0,
+      totalPages: 0,
+      number: 0,
+      size: 10,
+    });
     MockEventSource.instances = [];
     resetAuthStore();
     window.history.pushState({}, '', '/login');
@@ -296,8 +353,53 @@ describe('App auth flow', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('updates portfolio selections interactively after authentication succeeds', async () => {
+  it('updates the account dashboard interactively after authentication succeeds', async () => {
     mockFetchSession.mockResolvedValue(memberFixture);
+    mockFetchAccountPositions.mockResolvedValue([
+      {
+        accountId: 1,
+        memberId: 1,
+        symbol: '005930',
+        quantity: 120,
+        availableQuantity: 20,
+        availableQty: 20,
+        balance: 100000000,
+        availableBalance: 100000000,
+        currency: 'KRW',
+        asOf: '2026-03-11T09:10:00Z',
+      },
+      {
+        accountId: 1,
+        memberId: 1,
+        symbol: '000660',
+        quantity: 15,
+        availableQuantity: 7,
+        availableQty: 7,
+        balance: 98500000,
+        availableBalance: 98500000,
+        currency: 'KRW',
+        asOf: '2026-03-11T09:20:00Z',
+      },
+    ]);
+    mockFetchAccountSummary.mockResolvedValue({
+      accountId: 1,
+      memberId: 1,
+      symbol: '',
+      quantity: 0,
+      availableQuantity: 0,
+      availableQty: 0,
+      balance: 100000000,
+      availableBalance: 100000000,
+      currency: 'KRW',
+      asOf: '2026-03-11T09:05:00Z',
+    });
+    mockFetchAccountOrderHistory.mockResolvedValue({
+      content: [],
+      totalElements: 0,
+      totalPages: 0,
+      number: 0,
+      size: 10,
+    });
     const user = userEvent.setup();
 
     window.history.pushState({}, '', '/portfolio');
@@ -306,30 +408,30 @@ describe('App auth flow', () => {
     expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
       'Portfolio overview',
     );
-    expect(await screen.findByTestId('portfolio-selected-holding')).toHaveTextContent(
-      '비트코인',
+    expect(await screen.findByTestId('portfolio-total-balance')).toHaveTextContent(
+      '₩100,000,000',
     );
-    expect(screen.getByTestId('portfolio-selected-range')).toHaveTextContent('1M');
-    expect(screen.getByTestId('portfolio-selected-watch')).toHaveTextContent(
-      'SK하이닉스',
+    expect(screen.getByTestId('portfolio-masked-account')).toHaveTextContent('***-***1');
+
+    await user.click(screen.getByTestId('portfolio-symbol-000660'));
+
+    await waitFor(() => {
+      expect(mockFetchAccountPositions).toHaveBeenCalledWith({
+        accountId: '1',
+      });
+    });
+    expect(mockFetchAccountSummary).toHaveBeenCalledWith({
+      accountId: '1',
+    });
+    expect(await screen.findByTestId('portfolio-available-quantity')).toHaveTextContent(
+      '7주',
     );
 
-    await user.click(screen.getByTestId('portfolio-range-1Y'));
-    await user.click(screen.getByTestId('portfolio-holding-sol'));
-    await user.click(screen.getByTestId('portfolio-watch-tesla'));
-    await user.click(screen.getByTestId('portfolio-profile-공격형'));
+    await user.click(screen.getByTestId('portfolio-tab-history'));
 
-    expect(screen.getByTestId('portfolio-selected-range')).toHaveTextContent('1Y');
-    expect(screen.getByTestId('portfolio-selected-holding')).toHaveTextContent(
-      '솔라나',
+    expect(await screen.findByTestId('order-list-empty')).toHaveTextContent(
+      '아직 주문 내역이 없습니다.',
     );
-    expect(screen.getByTestId('portfolio-position-thesis')).toHaveTextContent(
-      '체인 활동성과 디앱 사용량이 높아져',
-    );
-    expect(screen.getByTestId('portfolio-selected-watch')).toHaveTextContent(
-      'Tesla',
-    );
-    expect(screen.getByText('변동성 플레이 대상으로 가장 빠르게 반응합니다.')).toBeInTheDocument();
     expect(screen.getByTestId('portfolio-demo-order')).toHaveAttribute('href', '/orders');
   });
 
