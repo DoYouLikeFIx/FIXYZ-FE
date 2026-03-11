@@ -1,4 +1,5 @@
 import type { FormEventHandler } from 'react';
+import { Link } from 'react-router-dom';
 
 import { buildPasswordRecoveryGuidance } from '@/lib/auth-copy';
 
@@ -11,6 +12,7 @@ interface LoginFormProps {
   showPasswordRecoveryHelp: boolean;
   errorMessage: string | null;
   isSubmitting: boolean;
+  forgotPasswordHref: string;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onTogglePasswordVisibility: () => void;
@@ -27,6 +29,7 @@ export function LoginForm({
   showPasswordRecoveryHelp,
   errorMessage,
   isSubmitting,
+  forgotPasswordHref,
   onEmailChange,
   onPasswordChange,
   onTogglePasswordVisibility,
@@ -85,6 +88,13 @@ export function LoginForm({
       </div>
 
       <div className="auth-meta">
+        <Link
+          className="auth-help-link auth-help-link--route"
+          data-testid="login-open-password-recovery"
+          to={forgotPasswordHref}
+        >
+          비밀번호 재설정 요청
+        </Link>
         <button
           aria-expanded={showPasswordRecoveryHelp}
           className="auth-help-link"

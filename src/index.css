@@ -348,6 +348,12 @@ button:disabled {
   row-gap: 0.85rem;
 }
 
+.auth-form--recovery {
+  grid-template-columns: 1fr;
+  align-items: start;
+  row-gap: 0.9rem;
+}
+
 .auth-submit--register {
   grid-area: auto;
 }
@@ -487,6 +493,44 @@ button:disabled {
   border: none;
   color: var(--brand);
   font-weight: 700;
+}
+
+.auth-help-link--route {
+  text-decoration: none;
+}
+
+.auth-secondary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(13, 24, 43, 0.12);
+  background: rgba(13, 24, 43, 0.04);
+  color: #1f2937;
+  font-weight: 700;
+}
+
+.auth-secondary-action--link {
+  text-decoration: none;
+}
+
+.auth-secondary-links {
+  display: grid;
+  gap: 0.4rem;
+  justify-items: start;
+  font-size: 0.82rem;
+}
+
+.auth-secondary-links a {
+  color: var(--brand);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.auth-inline-help--challenge {
+  gap: 0.35rem;
 }
 
 .auth-submit {

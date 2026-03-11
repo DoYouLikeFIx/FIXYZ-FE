@@ -31,7 +31,9 @@ describe('axios helpers', () => {
         },
         traceId: 'trace-auth-001',
       },
-      headers: {},
+      headers: {
+        'retry-after': '120',
+      },
       status: 422,
       statusText: 'Unprocessable Entity',
     });
@@ -41,6 +43,7 @@ describe('axios helpers', () => {
     expect(normalized.message).toBe('Insufficient position');
     expect(normalized.code).toBe('CORE-002');
     expect(normalized.status).toBe(422);
+    expect(normalized.retryAfterSeconds).toBe(120);
     expect(normalized.traceId).toBe('trace-auth-001');
   });
 

@@ -1,4 +1,11 @@
-import { fetchSession, loginMember, registerMember } from '@/api/authApi';
+import {
+  fetchSession,
+  loginMember,
+  requestPasswordRecoveryChallenge,
+  requestPasswordResetEmail,
+  registerMember,
+  resetPassword,
+} from '@/api/authApi';
 import type { Member } from '@/types/auth';
 
 const mockGet = vi.fn();
@@ -113,5 +120,96 @@ describe('auth api', () => {
       _skipAuthHandling: true,
     });
     expect(mockClearCsrfToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('submits the forgot-password request as a JSON body', async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        accepted: true,
+        message: 'If the account is eligible, a reset email will be sent.',
+        recovery: {
+          challengeEndpoint: '/api/v1/auth/password/forgot/challenge',
+          challengeMayBeRequired: true,
+        },
+      },
+    });
+
+    await expect(
+      requestPasswordResetEmail({
+        email: 'demo@fix.com',
+      }),
+    ).resolves.toEqual({
+      accepted: true,
+      message: 'If the account is eligible, a reset email will be sent.',
+      recovery: {
+        challengeEndpoint: '/api/v1/auth/password/forgot/challenge',
+        challengeMayBeRequired: true,
+      },
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/auth/password/forgot',
+      {
+        email: 'demo@fix.com',
+      },
+      {
+        _skipAuthHandling: true,
+      },
+    );
+  });
+
+  it('bootstraps a password-recovery challenge as a JSON body', async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        challengeToken: 'challenge-token',
+        challengeType: 'captcha',
+        challengeTtlSeconds: 300,
+      },
+    });
+
+    await expect(
+      requestPasswordRecoveryChallenge({
+        email: 'demo@fix.com',
+      }),
+    ).resolves.toEqual({
+      challengeToken: 'challenge-token',
+      challengeType: 'captcha',
+      challengeTtlSeconds: 300,
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/auth/password/forgot/challenge',
+      {
+        email: 'demo@fix.com',
+      },
+      {
+        _skipAuthHandling: true,
+      },
+    );
+  });
+
+  it('submits the password reset payload as JSON and resolves without a body', async () => {
+    mockPost.mockResolvedValue({
+      status: 204,
+      data: null,
+    });
+
+    await expect(
+      resetPassword({
+        token: 'reset-token',
+        newPassword: 'Test1234!',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/auth/password/reset',
+      {
+        token: 'reset-token',
+        newPassword: 'Test1234!',
+      },
+      {
+        _skipAuthHandling: true,
+      },
+    );
   });
 });

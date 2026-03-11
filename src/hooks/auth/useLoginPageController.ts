@@ -6,7 +6,11 @@ import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
 import { useLoginFormState } from '@/hooks/auth/useLoginFormState';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
 import { getAuthErrorMessage } from '@/lib/auth-errors';
-import { resolveRedirectTarget } from '@/router/navigation';
+import {
+  buildForgotPasswordPath,
+  hasPasswordResetSuccessQuery,
+  resolveRedirectTarget,
+} from '@/router/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export const useLoginPageController = () => {
@@ -15,6 +19,7 @@ export const useLoginPageController = () => {
   const clearReauthMessage = useAuthStore((state) => state.clearReauthMessage);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const hasPasswordResetSuccess = hasPasswordResetSuccessQuery(searchParams);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPasswordRecoveryHelp, setShowPasswordRecoveryHelp] = useState(false);
@@ -50,9 +55,17 @@ export const useLoginPageController = () => {
 
   const frameProps: AuthFrameControllerProps = {
     displayMode,
-    feedbackMessage: reauthMessage,
+    feedbackMessage: reauthMessage ?? (
+      hasPasswordResetSuccess
+        ? '비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.'
+        : null
+    ),
     feedbackTone: 'info',
-    feedbackTestId: reauthMessage ? 'reauth-guidance' : undefined,
+    feedbackTestId: reauthMessage
+      ? 'reauth-guidance'
+      : hasPasswordResetSuccess
+        ? 'password-reset-success'
+        : undefined,
     onLoginTabClick: handleTabNavigation('/login'),
     onRegisterTabClick: handleTabNavigation('/register'),
   };
@@ -68,6 +81,7 @@ export const useLoginPageController = () => {
       showPasswordRecoveryHelp,
       errorMessage,
       isSubmitting,
+      forgotPasswordHref: buildForgotPasswordPath(loginForm.email),
       onEmailChange: (value: string) => {
         setErrorMessage(null);
         loginForm.setEmail(value);
