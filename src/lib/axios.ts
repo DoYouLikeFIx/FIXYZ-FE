@@ -49,7 +49,7 @@ interface DirectApiErrorPayload {
   path?: string;
   correlationId?: string;
   operatorCode?: string;
-  retryAfterSeconds?: number;
+  retryAfterSeconds?: unknown;
   userMessageKey?: string;
   timestamp?: string;
 }
@@ -111,15 +111,33 @@ export const createNormalizedApiError = (
 };
 
 const parseRetryAfterSeconds = (value: unknown) => {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-    return Math.round(value);
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.ceil(value);
   }
 
-  if (typeof value === 'string' && /^\d+$/.test(value)) {
-    return Number.parseInt(value, 10);
+  if (typeof value !== 'string') {
+    return undefined;
   }
 
-  return undefined;
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const asNumber = Number(trimmed);
+
+  if (Number.isFinite(asNumber) && asNumber >= 0) {
+    return Math.ceil(asNumber);
+  }
+
+  const asDate = Date.parse(trimmed);
+
+  if (Number.isNaN(asDate)) {
+    return undefined;
+  }
+
+  return Math.max(0, Math.ceil((asDate - Date.now()) / 1000));
 };
 
 const getHeaderValue = (headers: unknown, name: string) => {
@@ -151,6 +169,10 @@ const getHeaderValue = (headers: unknown, name: string) => {
   return undefined;
 };
 
+const resolveRetryAfterSeconds = (value: unknown, headers: unknown) =>
+  parseRetryAfterSeconds(value)
+  ?? parseRetryAfterSeconds(getHeaderValue(headers, 'retry-after'));
+
 const unwrapEnvelope = <T>(response: AxiosResponse<T>): AxiosResponse<T> => {
   const payload = response.data;
 
@@ -170,9 +192,10 @@ const unwrapEnvelope = <T>(response: AxiosResponse<T>): AxiosResponse<T> => {
           typeof payload.error?.operatorCode === 'string'
             ? payload.error.operatorCode
             : undefined,
-        retryAfterSeconds:
-          parseRetryAfterSeconds(payload.error?.retryAfterSeconds)
-          ?? parseRetryAfterSeconds(getHeaderValue(response.headers, 'retry-after')),
+        retryAfterSeconds: resolveRetryAfterSeconds(
+          payload.error?.retryAfterSeconds,
+          response.headers,
+        ),
         userMessageKey:
           typeof payload.error?.userMessageKey === 'string'
             ? payload.error.userMessageKey
@@ -205,9 +228,10 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
           typeof responseData.error.operatorCode === 'string'
             ? responseData.error.operatorCode
             : undefined,
-        retryAfterSeconds:
-          parseRetryAfterSeconds(responseData.error.retryAfterSeconds)
-          ?? parseRetryAfterSeconds(getHeaderValue(error.response?.headers, 'retry-after')),
+        retryAfterSeconds: resolveRetryAfterSeconds(
+          responseData.error.retryAfterSeconds,
+          error.response?.headers,
+        ),
         userMessageKey:
           typeof responseData.error.userMessageKey === 'string'
             ? responseData.error.userMessageKey
@@ -228,9 +252,10 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
           typeof responseData.operatorCode === 'string'
             ? responseData.operatorCode
             : undefined,
-        retryAfterSeconds:
-          parseRetryAfterSeconds(responseData.retryAfterSeconds)
-          ?? parseRetryAfterSeconds(getHeaderValue(error.response?.headers, 'retry-after')),
+        retryAfterSeconds: resolveRetryAfterSeconds(
+          responseData.retryAfterSeconds,
+          error.response?.headers,
+        ),
         userMessageKey:
           typeof responseData.userMessageKey === 'string'
             ? responseData.userMessageKey

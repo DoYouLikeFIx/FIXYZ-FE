@@ -18,6 +18,7 @@ const createApiError = (
   error.name = 'ApiClientError';
   error.code = overrides.code;
   error.status = overrides.status;
+  error.retryAfterSeconds = overrides.retryAfterSeconds;
   error.traceId = overrides.traceId;
 
   return error;
@@ -90,5 +91,35 @@ describe('auth error messages', () => {
     expect(
       getAuthErrorMessage(createApiError({ message: NETWORK_ERROR_MESSAGE })),
     ).toBe(NETWORK_ERROR_MESSAGE);
+  });
+
+  it('maps reset-token failures to deterministic recovery guidance', () => {
+    expect(
+      getAuthErrorMessage(
+        createApiError({ code: 'AUTH-012', status: 401 }),
+      ),
+    ).toBe('재설정 링크가 유효하지 않거나 만료되었습니다. 비밀번호 재설정을 다시 요청해 주세요.');
+    expect(
+      getAuthErrorMessage(
+        createApiError({ code: 'AUTH-013', status: 409 }),
+      ),
+    ).toBe('이미 사용된 재설정 링크입니다. 새로운 재설정 링크를 요청해 주세요.');
+    expect(
+      getAuthErrorMessage(
+        createApiError({ code: 'AUTH-015', status: 422 }),
+      ),
+    ).toBe('현재 비밀번호와 다른 새 비밀번호를 입력해 주세요.');
+  });
+
+  it('includes Retry-After guidance for recovery rate limits', () => {
+    expect(
+      getAuthErrorMessage(
+        createApiError({
+          code: 'AUTH-014',
+          retryAfterSeconds: 45,
+          status: 429,
+        }),
+      ),
+    ).toBe('비밀번호 재설정 요청이 너무 많습니다. 45초 후 다시 시도해 주세요.');
   });
 });

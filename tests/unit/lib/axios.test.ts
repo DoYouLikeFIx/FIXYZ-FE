@@ -34,7 +34,7 @@ describe('axios helpers', () => {
         traceId: 'trace-auth-001',
       },
       headers: {
-        'retry-after': '10',
+        'retry-after': '120',
       },
       status: 422,
       statusText: 'Unprocessable Entity',
@@ -48,6 +48,35 @@ describe('axios helpers', () => {
     expect(normalized.traceId).toBe('trace-auth-001');
     expect(normalized.operatorCode).toBe('CIRCUIT_OPEN');
     expect(normalized.retryAfterSeconds).toBe(10);
+  });
+
+  it('falls back to the Retry-After header when the payload omits retry guidance', () => {
+    const err = new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
+      config: {} as never,
+      data: {
+        success: false,
+        data: null,
+        error: {
+          code: 'AUTH-011',
+          message: 'Too many password recovery attempts',
+          detail: 'Please wait before trying again.',
+          timestamp: '2026-03-02T00:00:00Z',
+        },
+        traceId: 'trace-auth-002',
+      },
+      headers: {
+        'retry-after': '120',
+      },
+      status: 429,
+      statusText: 'Too Many Requests',
+    });
+
+    const normalized = normalizeApiError(err);
+
+    expect(normalized.code).toBe('AUTH-011');
+    expect(normalized.status).toBe(429);
+    expect(normalized.retryAfterSeconds).toBe(120);
+    expect(normalized.traceId).toBe('trace-auth-002');
   });
 
   it('normalizes direct backend error responses used by spring security entry points', () => {

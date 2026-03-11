@@ -1,5 +1,14 @@
 import { api, clearCsrfToken, fetchCsrfToken } from '@/lib/axios';
-import type { LoginRequest, Member, RegisterRequest } from '@/types/auth';
+import type {
+  LoginRequest,
+  Member,
+  PasswordForgotRequest,
+  PasswordForgotResponse,
+  PasswordRecoveryChallengeRequest,
+  PasswordRecoveryChallengeResponse,
+  PasswordResetRequest,
+  RegisterRequest,
+} from '@/types/auth';
 
 interface AuthMutationResponse {
   memberId?: number;
@@ -90,4 +99,40 @@ export const registerMember = async (
   }
 
   return createCompatMember(response.data);
+};
+
+export const requestPasswordResetEmail = async (
+  payload: PasswordForgotRequest,
+): Promise<PasswordForgotResponse> => {
+  const response = await api.post<PasswordForgotResponse>(
+    '/api/v1/auth/password/forgot',
+    payload,
+    {
+      _skipAuthHandling: true,
+    },
+  );
+
+  return response.data;
+};
+
+export const requestPasswordRecoveryChallenge = async (
+  payload: PasswordRecoveryChallengeRequest,
+): Promise<PasswordRecoveryChallengeResponse> => {
+  const response = await api.post<PasswordRecoveryChallengeResponse>(
+    '/api/v1/auth/password/forgot/challenge',
+    payload,
+    {
+      _skipAuthHandling: true,
+    },
+  );
+
+  return response.data;
+};
+
+export const resetPassword = async (
+  payload: PasswordResetRequest,
+): Promise<void> => {
+  await api.post('/api/v1/auth/password/reset', payload, {
+    _skipAuthHandling: true,
+  });
 };

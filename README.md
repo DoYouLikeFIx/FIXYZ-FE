@@ -38,6 +38,8 @@ Optional variables:
 
 - `LIVE_REGISTER_PASSWORD`: password used for the fresh-account register/login flow. Default: `LiveTest1!`
 - `LIVE_INVALID_PASSWORD`: wrong password used by the invalid-login check. Default: `DefinitelyWrong1!`
+- `LIVE_RESET_TOKEN`: optional password-reset token for the live reset-success handoff flow.
+- `LIVE_RESET_PASSWORD`: new password used with `LIVE_RESET_TOKEN`. Default: `FreshLive1!`
 - `PLAYWRIGHT_FE_PORT`: local Vite port for Playwright. Default: `4173`
 
 The suite covers:
@@ -45,6 +47,10 @@ The suite covers:
 - fresh account registration against the live backend
 - successful login with an existing live account
 - canonical invalid-credentials error handling from the live backend
+- forgot-password acceptance guidance against the live backend
+- challenge-bootstrap contract rendering against the live backend
+- invalid reset-token guidance against the live backend
+- optional reset-success handoff when `LIVE_RESET_TOKEN` is provided
 
 ## Email-first auth contract
 

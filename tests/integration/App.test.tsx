@@ -9,11 +9,18 @@ import type { Member } from '@/types/auth';
 const mockFetchSession = vi.fn();
 const mockLoginMember = vi.fn();
 const mockRegisterMember = vi.fn();
+const mockRequestPasswordResetEmail = vi.fn();
+const mockRequestPasswordRecoveryChallenge = vi.fn();
+const mockResetPassword = vi.fn();
 
 vi.mock('@/api/authApi', () => ({
   fetchSession: () => mockFetchSession(),
   loginMember: (payload: unknown) => mockLoginMember(payload),
   registerMember: (payload: unknown) => mockRegisterMember(payload),
+  requestPasswordResetEmail: (payload: unknown) => mockRequestPasswordResetEmail(payload),
+  requestPasswordRecoveryChallenge: (payload: unknown) =>
+    mockRequestPasswordRecoveryChallenge(payload),
+  resetPassword: (payload: unknown) => mockResetPassword(payload),
 }));
 
 class MockEventSource {
@@ -110,6 +117,9 @@ describe('App auth flow', () => {
     mockFetchSession.mockReset();
     mockLoginMember.mockReset();
     mockRegisterMember.mockReset();
+    mockRequestPasswordResetEmail.mockReset();
+    mockRequestPasswordRecoveryChallenge.mockReset();
+    mockResetPassword.mockReset();
     MockEventSource.instances = [];
     resetAuthStore();
     window.history.pushState({}, '', '/login');
