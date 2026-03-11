@@ -1611,30 +1611,6 @@ p {
   align-items: end;
 }
 
-.account-symbol-selector__field {
-  display: grid;
-  gap: 0.4rem;
-  min-width: min(100%, 16rem);
-  color: #36506b;
-  font-size: 0.9rem;
-  font-weight: 700;
-}
-
-.account-symbol-selector__field input {
-  min-height: 3rem;
-  padding: 0.75rem 0.95rem;
-  border: 1px solid #c9d9eb;
-  border-radius: 0.95rem;
-  background: rgba(255, 255, 255, 0.92);
-  color: #143b61;
-}
-
-.account-symbol-selector__field input:focus {
-  outline: 2px solid rgba(11, 99, 206, 0.18);
-  outline-offset: 1px;
-  border-color: #0b63ce;
-}
-
 .account-history-toolbar__button {
   border: 1px solid #d9e5f2;
   border-radius: 999px;

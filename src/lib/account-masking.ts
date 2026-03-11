@@ -7,7 +7,7 @@ export const maskAccountNumber = (value?: string | null) => {
     return '계좌 연동 대기';
   }
 
-  if (digits.length >= 7) {
+  if (digits.length >= 8) {
     return `${digits.slice(0, 3)}-****-${digits.slice(-4)}`;
   }
 

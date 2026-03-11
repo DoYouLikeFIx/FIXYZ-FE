@@ -9,6 +9,10 @@ describe('maskAccountNumber', () => {
     expect(maskAccountNumber('1')).toBe('***-***1');
   });
 
+  it('does not expose every digit when the identifier has only seven digits', () => {
+    expect(maskAccountNumber('1234567')).toBe('***-4567');
+  });
+
   it('returns the pending copy when no account identifier is available', () => {
     expect(maskAccountNumber(undefined)).toBe('계좌 연동 대기');
   });

@@ -269,7 +269,7 @@ export function PortfolioPage() {
             </header>
 
             <ul className="account-guidance-list">
-              <li>예수금은 backend canonical `balance` 값을 그대로 노출합니다.</li>
+              <li>예수금은 backend canonical balance 값을 그대로 노출합니다.</li>
               <li>계좌 식별자는 웹 화면 전체에서 동일한 마스킹 규칙을 사용합니다.</li>
               <li>주문 내역은 page/size 계약 변경 시마다 서버에서 다시 조회합니다.</li>
             </ul>
