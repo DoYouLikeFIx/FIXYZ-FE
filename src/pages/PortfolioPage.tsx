@@ -1,4 +1,7 @@
+import { Link } from 'react-router-dom';
+
 import { usePortfolioExperience } from '@/hooks/portfolio/usePortfolioExperience';
+import { hasExternalOrderAccountId } from '@/order/external-order-recovery';
 
 export function PortfolioPage() {
   const {
@@ -18,6 +21,7 @@ export function PortfolioPage() {
     setSelectedHoldingId,
     setSelectedWatchId,
   } = usePortfolioExperience();
+  const hasOrderAccount = hasExternalOrderAccountId(viewer?.accountId);
 
   return (
     <section className="portfolio-grid">
@@ -106,14 +110,24 @@ export function PortfolioPage() {
           </dl>
 
           <div className="portfolio-summary__actions">
-            <button
-              type="button"
-              className="portfolio-action portfolio-action--primary"
-              data-testid="portfolio-demo-order"
-              disabled
-            >
-              주문 연결 준비 중
-            </button>
+            {hasOrderAccount ? (
+              <Link
+                to="/orders"
+                className="portfolio-action portfolio-action--primary"
+                data-testid="portfolio-demo-order"
+              >
+                주문 경계 열기
+              </Link>
+            ) : (
+              <button
+                type="button"
+                className="portfolio-action portfolio-action--primary"
+                data-testid="portfolio-demo-order-unavailable"
+                disabled
+              >
+                주문 계좌 연동 필요
+              </button>
+            )}
             <button
               type="button"
               className="portfolio-action portfolio-action--secondary"

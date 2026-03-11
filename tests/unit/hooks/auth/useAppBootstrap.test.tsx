@@ -23,7 +23,7 @@ const memberFixture: Member = {
   name: 'Demo User',
   role: 'ROLE_USER',
   totpEnrolled: true,
-  accountId: 'ACC-001',
+  accountId: '1',
 };
 
 const createDeferred = <T,>() => {

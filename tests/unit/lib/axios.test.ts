@@ -24,9 +24,11 @@ describe('axios helpers', () => {
         success: false,
         data: null,
         error: {
-          code: 'CORE-002',
-          message: 'Insufficient position',
-          detail: 'Insufficient quantity for requested order',
+          code: 'FEP-001',
+          message: '주문 서비스를 잠시 사용할 수 없습니다',
+          detail: '거래소 연결이 일시적으로 불안정합니다. 주문이 접수되지 않았을 수 있습니다.',
+          operatorCode: 'CIRCUIT_OPEN',
+          retryAfterSeconds: 10,
           timestamp: '2026-03-02T00:00:00Z',
         },
         traceId: 'trace-auth-001',
@@ -40,11 +42,41 @@ describe('axios helpers', () => {
 
     const normalized = normalizeApiError(err);
 
-    expect(normalized.message).toBe('Insufficient position');
-    expect(normalized.code).toBe('CORE-002');
+    expect(normalized.message).toBe('주문 서비스를 잠시 사용할 수 없습니다');
+    expect(normalized.code).toBe('FEP-001');
     expect(normalized.status).toBe(422);
-    expect(normalized.retryAfterSeconds).toBe(120);
     expect(normalized.traceId).toBe('trace-auth-001');
+    expect(normalized.operatorCode).toBe('CIRCUIT_OPEN');
+    expect(normalized.retryAfterSeconds).toBe(10);
+  });
+
+  it('falls back to the Retry-After header when the payload omits retry guidance', () => {
+    const err = new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
+      config: {} as never,
+      data: {
+        success: false,
+        data: null,
+        error: {
+          code: 'AUTH-011',
+          message: 'Too many password recovery attempts',
+          detail: 'Please wait before trying again.',
+          timestamp: '2026-03-02T00:00:00Z',
+        },
+        traceId: 'trace-auth-002',
+      },
+      headers: {
+        'retry-after': '120',
+      },
+      status: 429,
+      statusText: 'Too Many Requests',
+    });
+
+    const normalized = normalizeApiError(err);
+
+    expect(normalized.code).toBe('AUTH-011');
+    expect(normalized.status).toBe(429);
+    expect(normalized.retryAfterSeconds).toBe(120);
+    expect(normalized.traceId).toBe('trace-auth-002');
   });
 
   it('normalizes direct backend error responses used by spring security entry points', () => {
