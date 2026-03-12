@@ -1,30 +1,57 @@
 import { useState, type FormEventHandler } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
-import { loginMember } from '@/api/authApi';
+import { startLoginFlow, verifyLoginOtp } from '@/api/authApi';
+import {
+  isCompleteOtpCode,
+  sanitizeOtpCodeInput,
+  useExpiryCountdown,
+} from '@/hooks/auth/useTotpHelpers';
 import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
 import { useLoginFormState } from '@/hooks/auth/useLoginFormState';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
-import { getAuthErrorMessage } from '@/lib/auth-errors';
 import {
+  getAuthErrorMessage,
+  resolveMfaErrorPresentation,
+} from '@/lib/auth-errors';
+import {
+  buildLoginRedirect,
+  buildTotpEnrollmentRedirect,
+  buildRouteWithRedirect,
   buildForgotPasswordPath,
   hasPasswordResetSuccessQuery,
+  resolveTotpEnrollmentRoute,
   resolveRedirectTarget,
 } from '@/router/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export const useLoginPageController = () => {
   const login = useAuthStore((state) => state.login);
+  const pendingMfa = useAuthStore((state) => state.pendingMfa);
   const reauthMessage = useAuthStore((state) => state.reauthMessage);
   const clearReauthMessage = useAuthStore((state) => state.clearReauthMessage);
+  const startMfaChallenge = useAuthStore((state) => state.startMfaChallenge);
+  const updatePendingMfa = useAuthStore((state) => state.updatePendingMfa);
+  const clearPendingMfa = useAuthStore((state) => state.clearPendingMfa);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const hasPasswordResetSuccess = hasPasswordResetSuccessQuery(searchParams);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPasswordRecoveryHelp, setShowPasswordRecoveryHelp] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
   const loginForm = useLoginFormState();
   const { displayMode, handleTabNavigation } = useAuthTabsNavigation('login');
+  const isMfaStep = pendingMfa?.nextAction === 'VERIFY_TOTP';
+  const countdown = useExpiryCountdown(
+    pendingMfa?.expiresAt ?? new Date().toISOString(),
+  );
+
+  const restartPasswordStep = () => {
+    clearPendingMfa();
+    setOtpCode('');
+    setErrorMessage(null);
+  };
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
     event.preventDefault();
@@ -41,11 +68,23 @@ export const useLoginPageController = () => {
     setIsSubmitting(true);
 
     try {
-      const member = await loginMember(loginForm.getPayload());
-      login(member);
-      navigate(resolveRedirectTarget(searchParams.get('redirect')), {
-        replace: true,
-      });
+      const redirectPath = resolveRedirectTarget(searchParams.get('redirect'));
+      const challenge = await startLoginFlow(loginForm.getPayload());
+      startMfaChallenge(
+        challenge,
+        redirectPath,
+      );
+      setOtpCode('');
+
+      if (challenge.nextAction === 'ENROLL_TOTP') {
+        navigate(buildTotpEnrollmentRedirect(redirectPath), {
+          replace: true,
+        });
+      } else {
+        navigate(buildLoginRedirect(redirectPath), {
+          replace: true,
+        });
+      }
     } catch (error) {
       setErrorMessage(getAuthErrorMessage(error));
     } finally {
@@ -53,13 +92,69 @@ export const useLoginPageController = () => {
     }
   };
 
+  const handleVerifyMfa: FormEventHandler<HTMLFormElement> = async (event) => {
+    event.preventDefault();
+
+    if (!pendingMfa) {
+      restartPasswordStep();
+      return;
+    }
+
+    const normalizedOtp = sanitizeOtpCodeInput(otpCode);
+
+    if (!isCompleteOtpCode(normalizedOtp)) {
+      setErrorMessage('인증 코드는 숫자 6자리로 입력해 주세요.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMessage(null);
+
+    try {
+      const member = await verifyLoginOtp({
+        loginToken: pendingMfa.loginToken,
+        otpCode: normalizedOtp,
+      });
+      login(member);
+      navigate(pendingMfa.redirectPath, {
+        replace: true,
+      });
+    } catch (error) {
+      const presentation = resolveMfaErrorPresentation(error);
+
+      if (presentation.navigateToEnroll) {
+        updatePendingMfa({
+          nextAction: 'ENROLL_TOTP',
+        });
+        navigate(
+          buildRouteWithRedirect(
+            resolveTotpEnrollmentRoute(presentation.enrollUrl),
+            pendingMfa.redirectPath,
+          ),
+          {
+            replace: true,
+          },
+        );
+      } else if (presentation.restartLogin) {
+        useAuthStore.getState().requireReauth(presentation.message);
+        restartPasswordStep();
+      } else {
+        setErrorMessage(presentation.message);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const frameProps: AuthFrameControllerProps = {
     displayMode,
-    feedbackMessage: reauthMessage ?? (
-      hasPasswordResetSuccess
-        ? '비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.'
-        : null
-    ),
+    feedbackMessage: isMfaStep
+      ? null
+      : reauthMessage ?? (
+        hasPasswordResetSuccess
+          ? '비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.'
+          : null
+      ),
     feedbackTone: 'info',
     feedbackTestId: reauthMessage
       ? 'reauth-guidance'
@@ -71,6 +166,10 @@ export const useLoginPageController = () => {
   };
 
   return {
+    isMfaStep,
+    titleLines: isMfaStep
+      ? ['보안 인증을 완료해 주세요']
+      : ['FIX 플랫폼에 오신 것을', '환영합니다!'],
     frameProps,
     formProps: {
       email: loginForm.email,
@@ -95,6 +194,19 @@ export const useLoginPageController = () => {
         setShowPasswordRecoveryHelp((current) => !current);
       },
       onSubmit: handleSubmit,
+    },
+    mfaFormProps: {
+      otpCode,
+      errorMessage,
+      expiresAtLabel: countdown.expiresAtLabel,
+      remainingLabel: countdown.remainingLabel,
+      isSubmitting,
+      onOtpCodeChange: (value: string) => {
+        setErrorMessage(null);
+        setOtpCode(sanitizeOtpCodeInput(value));
+      },
+      onRestartLogin: restartPasswordStep,
+      onSubmit: handleVerifyMfa,
     },
   };
 };
