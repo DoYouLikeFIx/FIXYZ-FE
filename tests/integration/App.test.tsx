@@ -607,9 +607,11 @@ describe('App auth flow', () => {
     await user.type(screen.getByTestId('login-password'), 'Test1234!');
     await user.click(screen.getByTestId('login-submit'));
 
-    expect(await screen.findByTestId('totp-enroll-manual-key')).toHaveTextContent(
-      'SECOND456',
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId('totp-enroll-manual-key')).toHaveTextContent(
+        'SECOND456',
+      );
+    });
     expect(mockStartLoginFlow).toHaveBeenCalledTimes(2);
     expect(mockBeginTotpEnrollment).toHaveBeenNthCalledWith(1, {
       loginToken: 'register-login-token-1',
