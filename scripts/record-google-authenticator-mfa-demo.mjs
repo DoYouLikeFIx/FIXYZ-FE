@@ -191,6 +191,12 @@ const createDirectError = (code, message, pathName) => ({
   correlationId: `corr-${code.toLowerCase()}`,
 });
 
+const createSuccessEnvelope = (data) => ({
+  success: true,
+  data,
+  error: null,
+});
+
 const createPagedOrders = (page, size) => {
   const start = page * size;
   const content = orderHistory.slice(start, start + size);
@@ -271,7 +277,7 @@ const installMockRoutes = async (page) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(member),
+        body: JSON.stringify(createSuccessEnvelope(member)),
       });
       return;
     }
@@ -280,14 +286,10 @@ const installMockRoutes = async (page) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
+        body: JSON.stringify(createSuccessEnvelope({
             csrfToken: nextCsrfToken(),
             headerName: 'X-CSRF-TOKEN',
-          },
-          error: null,
-        }),
+          })),
       });
       return;
     }
@@ -298,7 +300,7 @@ const installMockRoutes = async (page) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(member),
+        body: JSON.stringify(createSuccessEnvelope(member)),
       });
       return;
     }
@@ -308,12 +310,13 @@ const installMockRoutes = async (page) => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({
+          body: JSON.stringify(createSuccessEnvelope({
             loginToken: 'login-token-enroll',
             nextAction: 'ENROLL_TOTP',
+            totpEnrolled: false,
             expiresAt: nextExpiry(),
             enrollUrl: '/settings/totp/enroll',
-          }),
+          })),
         });
         return;
       }
@@ -321,11 +324,12 @@ const installMockRoutes = async (page) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
+        body: JSON.stringify(createSuccessEnvelope({
           loginToken: 'login-token-verify',
           nextAction: 'VERIFY_TOTP',
+          totpEnrolled: true,
           expiresAt: nextExpiry(),
-        }),
+        })),
       });
       return;
     }
@@ -335,12 +339,12 @@ const installMockRoutes = async (page) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
+        body: JSON.stringify(createSuccessEnvelope({
           enrollmentToken: `enrollment-token-${enrollmentAttempt}`,
           qrUri: `otpauth://totp/FIXYZ:${encodeURIComponent(member.email)}?secret=${enrollment.secret}&issuer=FIXYZ&period=30&digits=6`,
           manualEntryKey: enrollment.manualEntryKey,
           expiresAt: nextExpiry(),
-        }),
+        })),
       });
       return;
     }
@@ -351,7 +355,7 @@ const installMockRoutes = async (page) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(member),
+        body: JSON.stringify(createSuccessEnvelope(member)),
       });
       return;
     }
@@ -361,7 +365,7 @@ const installMockRoutes = async (page) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(member),
+        body: JSON.stringify(createSuccessEnvelope(member)),
       });
       return;
     }
@@ -379,7 +383,7 @@ const installMockRoutes = async (page) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(positionRows[0]),
+        body: JSON.stringify(createSuccessEnvelope(positionRows[0])),
       });
       return;
     }
@@ -388,7 +392,7 @@ const installMockRoutes = async (page) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(positionRows),
+        body: JSON.stringify(createSuccessEnvelope(positionRows)),
       });
       return;
     }
@@ -403,7 +407,7 @@ const installMockRoutes = async (page) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(matched),
+        body: JSON.stringify(createSuccessEnvelope(matched)),
       });
       return;
     }
@@ -415,7 +419,7 @@ const installMockRoutes = async (page) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(createPagedOrders(pageNumber, pageSize)),
+        body: JSON.stringify(createSuccessEnvelope(createPagedOrders(pageNumber, pageSize))),
       });
       return;
     }
