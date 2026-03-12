@@ -354,6 +354,12 @@ button:disabled {
   row-gap: 0.9rem;
 }
 
+.auth-form--mfa {
+  grid-template-columns: 1fr;
+  align-items: start;
+  row-gap: 0.9rem;
+}
+
 .auth-submit--register {
   grid-area: auto;
 }
@@ -531,6 +537,80 @@ button:disabled {
 
 .auth-inline-help--challenge {
   gap: 0.35rem;
+}
+
+.auth-inline-help--mfa {
+  gap: 0.38rem;
+  margin-top: 0;
+}
+
+.totp-enroll-panel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.totp-enroll-panel__section {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.95rem;
+  border: 1px solid rgba(60, 109, 191, 0.18);
+  border-radius: 18px;
+  background: rgba(245, 248, 255, 0.9);
+}
+
+.totp-enroll-panel__title {
+  margin: 0;
+  color: #274160;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.totp-enroll-panel__body,
+.totp-enroll-panel__detail {
+  margin: 0;
+  color: #48637f;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.totp-enroll-qr {
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px dashed rgba(39, 65, 96, 0.2);
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.85rem;
+}
+
+.totp-enroll-qr__image {
+  width: min(100%, 192px);
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.totp-enroll-qr__value,
+.totp-enroll-manual-key {
+  display: block;
+  word-break: break-all;
+  color: #1f2937;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.totp-enroll-qr__value {
+  width: 100%;
+}
+
+.totp-enroll-manual-key {
+  padding: 0.8rem 0.9rem;
+  border-radius: 14px;
+  background: rgba(13, 24, 43, 0.06);
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .auth-submit {

@@ -7,9 +7,40 @@ export interface Member {
   accountId?: string;
 }
 
+export type MfaNextAction = 'VERIFY_TOTP' | 'ENROLL_TOTP';
+
+export interface LoginChallenge {
+  loginToken: string;
+  nextAction: MfaNextAction;
+  totpEnrolled: boolean;
+  expiresAt: string;
+}
+
+export interface TotpEnrollmentBootstrap {
+  qrUri: string;
+  manualEntryKey: string;
+  enrollmentToken: string;
+  expiresAt: string;
+}
+
 export interface LoginRequest {
   email: string;
   password: string;
+}
+
+export interface TotpVerificationRequest {
+  loginToken: string;
+  otpCode: string;
+}
+
+export interface TotpEnrollmentRequest {
+  loginToken: string;
+}
+
+export interface TotpEnrollmentConfirmationRequest {
+  loginToken: string;
+  enrollmentToken: string;
+  otpCode: string;
 }
 
 export interface RegisterRequest {
