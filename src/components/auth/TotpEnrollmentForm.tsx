@@ -28,11 +28,16 @@ export function TotpEnrollmentForm({
   onRestartLogin,
   onSubmit,
 }: TotpEnrollmentFormProps) {
-  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
+  const [qrCodeState, setQrCodeState] = useState<{
+    dataUrl: string | null;
+    source: string;
+  }>({
+    dataUrl: null,
+    source: '',
+  });
 
   useEffect(() => {
     if (!qrUri) {
-      setQrCodeDataUrl(null);
       return;
     }
 
@@ -49,12 +54,18 @@ export function TotpEnrollmentForm({
     })
       .then((nextDataUrl) => {
         if (active) {
-          setQrCodeDataUrl(nextDataUrl);
+          setQrCodeState({
+            dataUrl: nextDataUrl,
+            source: qrUri,
+          });
         }
       })
       .catch(() => {
         if (active) {
-          setQrCodeDataUrl(null);
+          setQrCodeState({
+            dataUrl: null,
+            source: qrUri,
+          });
         }
       });
 
@@ -62,6 +73,10 @@ export function TotpEnrollmentForm({
       active = false;
     };
   }, [qrUri]);
+
+  const qrCodeDataUrl = qrCodeState.source === qrUri
+    ? qrCodeState.dataUrl
+    : null;
 
   if (isLoadingBootstrap) {
     return (

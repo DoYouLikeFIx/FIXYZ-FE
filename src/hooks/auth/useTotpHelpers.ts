@@ -27,23 +27,36 @@ const formatRemaining = (remainingSeconds: number) => {
   return `${minutes}분 ${String(seconds).padStart(2, '0')}초 남음`;
 };
 
+const getRemainingSeconds = (expiresAt: string) => {
+  const expiresAtMs = new Date(expiresAt).getTime();
+
+  if (Number.isNaN(expiresAtMs)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.ceil((expiresAtMs - Date.now()) / 1000));
+};
+
 export const useExpiryCountdown = (expiresAt: string) => {
-  const [now, setNow] = useState(Date.now());
+  const [remainingSeconds, setRemainingSeconds] = useState(() =>
+    getRemainingSeconds(expiresAt),
+  );
 
   useEffect(() => {
+    const syncRemaining = () => {
+      setRemainingSeconds(getRemainingSeconds(expiresAt));
+    };
+
+    const initialTimer = window.setTimeout(syncRemaining, 0);
     const timer = window.setInterval(() => {
-      setNow(Date.now());
+      syncRemaining();
     }, 1000);
 
     return () => {
+      window.clearTimeout(initialTimer);
       window.clearInterval(timer);
     };
-  }, []);
-
-  const expiresAtTime = new Date(expiresAt).getTime();
-  const remainingSeconds = Number.isNaN(expiresAtTime)
-    ? 0
-    : Math.max(0, Math.ceil((expiresAtTime - now) / 1000));
+  }, [expiresAt]);
 
   return {
     expiresAtLabel: formatDateTime(expiresAt),
