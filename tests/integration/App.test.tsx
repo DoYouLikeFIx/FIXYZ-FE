@@ -4,22 +4,32 @@ import userEvent from '@testing-library/user-event';
 import App from '@/App';
 import type { NormalizedApiError } from '@/lib/axios';
 import { resetAuthStore } from '@/store/useAuthStore';
-import type { Member } from '@/types/auth';
+import type {
+  LoginChallenge,
+  Member,
+  TotpEnrollmentBootstrap,
+} from '@/types/auth';
 
 const mockFetchAccountPositions = vi.fn();
 const mockFetchAccountSummary = vi.fn();
 const mockFetchAccountOrderHistory = vi.fn();
 const mockFetchSession = vi.fn();
-const mockLoginMember = vi.fn();
+const mockStartLoginFlow = vi.fn();
+const mockVerifyLoginOtp = vi.fn();
 const mockRegisterMember = vi.fn();
+const mockBeginTotpEnrollment = vi.fn();
+const mockConfirmTotpEnrollment = vi.fn();
 const mockRequestPasswordResetEmail = vi.fn();
 const mockRequestPasswordRecoveryChallenge = vi.fn();
 const mockResetPassword = vi.fn();
 
 vi.mock('@/api/authApi', () => ({
   fetchSession: () => mockFetchSession(),
-  loginMember: (payload: unknown) => mockLoginMember(payload),
+  startLoginFlow: (payload: unknown) => mockStartLoginFlow(payload),
+  verifyLoginOtp: (payload: unknown) => mockVerifyLoginOtp(payload),
   registerMember: (payload: unknown) => mockRegisterMember(payload),
+  beginTotpEnrollment: (payload: unknown) => mockBeginTotpEnrollment(payload),
+  confirmTotpEnrollment: (payload: unknown) => mockConfirmTotpEnrollment(payload),
   requestPasswordResetEmail: (payload: unknown) => mockRequestPasswordResetEmail(payload),
   requestPasswordRecoveryChallenge: (payload: unknown) =>
     mockRequestPasswordRecoveryChallenge(payload),
@@ -81,6 +91,20 @@ const memberFixture: Member = {
   accountId: '1',
 };
 
+const loginChallengeFixture: LoginChallenge = {
+  loginToken: 'login-token',
+  nextAction: 'VERIFY_TOTP',
+  totpEnrolled: true,
+  expiresAt: '2026-03-12T10:00:00Z',
+};
+
+const enrollmentBootstrapFixture: TotpEnrollmentBootstrap = {
+  qrUri: 'otpauth://totp/FIX:demo@fix.com?secret=ABC123',
+  manualEntryKey: 'ABC123',
+  enrollmentToken: 'enrollment-token',
+  expiresAt: '2026-03-12T10:05:00Z',
+};
+
 const createApiError = (
   overrides: Partial<NormalizedApiError> & { message?: string } = {},
 ): NormalizedApiError => {
@@ -93,6 +117,8 @@ const createApiError = (
   error.status = overrides.status;
   error.detail = overrides.detail;
   error.traceId = overrides.traceId;
+  error.enrollUrl = overrides.enrollUrl;
+  error.retryAfterSeconds = overrides.retryAfterSeconds;
 
   return error;
 };
@@ -113,6 +139,14 @@ const createDeferred = <T,>() => {
   };
 };
 
+const completeLoginMfaStep = async (
+  user: ReturnType<typeof userEvent.setup>,
+  otpCode = '123456',
+) => {
+  await user.type(await screen.findByTestId('login-mfa-input'), otpCode);
+  await user.click(screen.getByTestId('login-mfa-submit'));
+};
+
 describe('App auth flow', () => {
   beforeAll(() => {
     vi.stubGlobal('EventSource', MockEventSource);
@@ -127,8 +161,11 @@ describe('App auth flow', () => {
     mockFetchAccountSummary.mockReset();
     mockFetchAccountOrderHistory.mockReset();
     mockFetchSession.mockReset();
-    mockLoginMember.mockReset();
+    mockStartLoginFlow.mockReset();
+    mockVerifyLoginOtp.mockReset();
     mockRegisterMember.mockReset();
+    mockBeginTotpEnrollment.mockReset();
+    mockConfirmTotpEnrollment.mockReset();
     mockRequestPasswordResetEmail.mockReset();
     mockRequestPasswordRecoveryChallenge.mockReset();
     mockResetPassword.mockReset();
@@ -231,7 +268,8 @@ describe('App auth flow', () => {
   });
 
   it('navigates to the protected area after successful login', async () => {
-    mockLoginMember.mockResolvedValue(memberFixture);
+    mockStartLoginFlow.mockResolvedValue(loginChallengeFixture);
+    mockVerifyLoginOtp.mockResolvedValue(memberFixture);
     const user = userEvent.setup();
 
     render(<App />);
@@ -240,9 +278,14 @@ describe('App auth flow', () => {
     await user.type(screen.getByTestId('login-password'), 'Test1234!');
     await user.click(screen.getByTestId('login-submit'));
 
-    expect(mockLoginMember).toHaveBeenCalledWith({
+    expect(mockStartLoginFlow).toHaveBeenCalledWith({
       email: 'demo@fix.com',
       password: 'Test1234!',
+    });
+    await completeLoginMfaStep(user);
+    expect(mockVerifyLoginOtp).toHaveBeenCalledWith({
+      loginToken: 'login-token',
+      otpCode: '123456',
     });
     expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
       'Portfolio overview',
@@ -251,7 +294,8 @@ describe('App auth flow', () => {
   });
 
   it('exposes the order boundary link from the protected portfolio page', async () => {
-    mockLoginMember.mockResolvedValue(memberFixture);
+    mockStartLoginFlow.mockResolvedValue(loginChallengeFixture);
+    mockVerifyLoginOtp.mockResolvedValue(memberFixture);
     const user = userEvent.setup();
 
     render(<App />);
@@ -259,6 +303,7 @@ describe('App auth flow', () => {
     await user.type(await screen.findByTestId('login-email'), 'demo@fix.com');
     await user.type(screen.getByTestId('login-password'), 'Test1234!');
     await user.click(screen.getByTestId('login-submit'));
+    await completeLoginMfaStep(user);
 
     expect(await screen.findByTestId('portfolio-demo-order')).toHaveAttribute(
       'href',
@@ -267,7 +312,8 @@ describe('App auth flow', () => {
   });
 
   it('restores the original protected destination after login succeeds', async () => {
-    mockLoginMember.mockResolvedValue(memberFixture);
+    mockStartLoginFlow.mockResolvedValue(loginChallengeFixture);
+    mockVerifyLoginOtp.mockResolvedValue(memberFixture);
     const user = userEvent.setup();
 
     window.history.pushState({}, '', '/portfolio?tab=positions#open-orders');
@@ -284,6 +330,7 @@ describe('App auth flow', () => {
     await user.type(screen.getByLabelText('이메일'), 'demo@fix.com');
     await user.type(screen.getByLabelText('비밀번호'), 'Test1234!');
     await user.click(screen.getByRole('button', { name: '로그인' }));
+    await completeLoginMfaStep(user);
 
     expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
       'Portfolio overview',
@@ -440,9 +487,23 @@ describe('App auth flow', () => {
       ...memberFixture,
       totpEnrolled: false,
     });
-    mockLoginMember.mockResolvedValue({
-      ...memberFixture,
+    mockStartLoginFlow.mockResolvedValue({
+      loginToken: 'register-login-token',
+      nextAction: 'ENROLL_TOTP',
       totpEnrolled: false,
+      expiresAt: '2026-03-12T10:00:00Z',
+    });
+    mockBeginTotpEnrollment.mockResolvedValue({
+      ...enrollmentBootstrapFixture,
+      manualEntryKey: 'NEW123',
+      qrUri: 'otpauth://totp/FIX:new@fix.com?secret=NEW123',
+      enrollmentToken: 'register-enrollment-token',
+    });
+    mockConfirmTotpEnrollment.mockResolvedValue({
+      ...memberFixture,
+      email: 'new@fix.com',
+      name: 'New User',
+      totpEnrolled: true,
     });
     const user = userEvent.setup();
 
@@ -463,13 +524,134 @@ describe('App auth flow', () => {
       email: 'new@fix.com',
       name: 'New User',
     });
-    expect(mockLoginMember).toHaveBeenCalledWith({
+    expect(mockStartLoginFlow).toHaveBeenCalledWith({
       email: 'new@fix.com',
       password: 'Test1234!',
+    });
+    expect(await screen.findByTestId('totp-enroll-qr-image')).toBeInTheDocument();
+    expect(await screen.findByTestId('totp-enroll-manual-key')).toHaveTextContent(
+      'NEW123',
+    );
+    expect(screen.queryByText('otpauth://totp/FIX:new@fix.com?secret=NEW123')).not.toBeInTheDocument();
+    await user.type(screen.getByTestId('totp-enroll-code'), '123456');
+    await user.click(screen.getByTestId('totp-enroll-submit'));
+    expect(mockBeginTotpEnrollment).toHaveBeenCalledWith({
+      loginToken: 'register-login-token',
+    });
+    expect(mockConfirmTotpEnrollment).toHaveBeenCalledWith({
+      loginToken: 'register-login-token',
+      enrollmentToken: 'register-enrollment-token',
+      otpCode: '123456',
     });
     expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
       'Portfolio overview',
     );
+  });
+
+  it('returns an unenrolled registered account to TOTP enrollment on a later login attempt', async () => {
+    mockRegisterMember.mockResolvedValue({
+      ...memberFixture,
+      totpEnrolled: false,
+    });
+    mockStartLoginFlow
+      .mockResolvedValueOnce({
+        loginToken: 'register-login-token-1',
+        nextAction: 'ENROLL_TOTP',
+        totpEnrolled: false,
+        expiresAt: '2026-03-12T10:00:00Z',
+      })
+      .mockResolvedValueOnce({
+        loginToken: 'register-login-token-2',
+        nextAction: 'ENROLL_TOTP',
+        totpEnrolled: false,
+        expiresAt: '2026-03-12T10:10:00Z',
+      });
+    mockBeginTotpEnrollment
+      .mockResolvedValueOnce({
+        ...enrollmentBootstrapFixture,
+        manualEntryKey: 'FIRST123',
+        qrUri: 'otpauth://totp/FIX:new@fix.com?secret=FIRST123',
+        enrollmentToken: 'register-enrollment-token-1',
+      })
+      .mockResolvedValueOnce({
+        ...enrollmentBootstrapFixture,
+        manualEntryKey: 'SECOND456',
+        qrUri: 'otpauth://totp/FIX:new@fix.com?secret=SECOND456',
+        enrollmentToken: 'register-enrollment-token-2',
+      });
+    const user = userEvent.setup();
+
+    window.history.pushState({}, '', '/register');
+    render(<App />);
+
+    await user.type(await screen.findByTestId('register-email'), 'new@fix.com');
+    await user.type(screen.getByTestId('register-name'), 'New User');
+    await user.type(screen.getByTestId('register-password'), 'Test1234!');
+    await user.type(
+      screen.getByTestId('register-password-confirm'),
+      'Test1234!',
+    );
+    await user.click(screen.getByTestId('register-submit'));
+
+    expect(await screen.findByTestId('totp-enroll-manual-key')).toHaveTextContent(
+      'FIRST123',
+    );
+
+    await user.click(screen.getByTestId('totp-enroll-reset'));
+
+    expect(
+      await screen.findByRole('heading', { name: /FIX 플랫폼에 오신 것을/i }),
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByTestId('login-email'), 'new@fix.com');
+    await user.type(screen.getByTestId('login-password'), 'Test1234!');
+    await user.click(screen.getByTestId('login-submit'));
+
+    expect(await screen.findByTestId('totp-enroll-manual-key')).toHaveTextContent(
+      'SECOND456',
+    );
+    expect(mockStartLoginFlow).toHaveBeenCalledTimes(2);
+    expect(mockBeginTotpEnrollment).toHaveBeenNthCalledWith(1, {
+      loginToken: 'register-login-token-1',
+    });
+    expect(mockBeginTotpEnrollment).toHaveBeenNthCalledWith(2, {
+      loginToken: 'register-login-token-2',
+    });
+  });
+
+  it('preserves redirect query when the enrollment route is re-entered without pending MFA state', async () => {
+    window.history.pushState(
+      {},
+      '',
+      '/settings/totp/enroll?redirect=%2Fportfolio%3Ftab%3Dpositions%23open-orders',
+    );
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole('heading', { name: /FIX 플랫폼에 오신 것을/i }),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/login');
+    expect(window.location.search).toContain(
+      'redirect=%2Fportfolio%3Ftab%3Dpositions%23open-orders',
+    );
+  });
+
+  it('returns authenticated users on the enrollment route to the requested protected destination', async () => {
+    mockFetchSession.mockResolvedValue(memberFixture);
+
+    window.history.pushState(
+      {},
+      '',
+      '/settings/totp/enroll?redirect=%2Forders',
+    );
+
+    render(<App />);
+
+    expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
+      'External error handling',
+    );
+    expect(window.location.pathname).toBe('/orders');
   });
 
   it('renders the standardized register error message once when the email is already taken', async () => {
@@ -495,11 +677,11 @@ describe('App auth flow', () => {
       '이미 가입된 이메일입니다. 다른 이메일을 입력해 주세요.',
     );
     expect(screen.getAllByRole('alert')).toHaveLength(1);
-    expect(mockLoginMember).not.toHaveBeenCalled();
+    expect(mockStartLoginFlow).not.toHaveBeenCalled();
   });
 
   it('renders the standardized auth error message when login fails', async () => {
-    mockLoginMember.mockRejectedValue(
+    mockStartLoginFlow.mockRejectedValue(
       createApiError({
         code: 'AUTH-001',
         status: 401,
@@ -526,7 +708,7 @@ describe('App auth flow', () => {
   ])(
     'renders the standardized login recovery guidance for %s',
     async (code, expectedMessage) => {
-      mockLoginMember.mockRejectedValue(
+      mockStartLoginFlow.mockRejectedValue(
         createApiError({
           code,
           status: code === 'RATE-001' ? 429 : 401,
@@ -546,8 +728,33 @@ describe('App auth flow', () => {
     },
   );
 
+  it('ignores unsafe enrollment redirects returned by the MFA error contract', async () => {
+    mockStartLoginFlow.mockResolvedValue(loginChallengeFixture);
+    mockBeginTotpEnrollment.mockResolvedValue(enrollmentBootstrapFixture);
+    mockVerifyLoginOtp.mockRejectedValue(
+      createApiError({
+        code: 'AUTH-009',
+        status: 403,
+        message: 'TOTP enrollment required',
+        enrollUrl: 'https://evil.example/settings/totp/enroll',
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.type(await screen.findByTestId('login-email'), 'demo@fix.com');
+    await user.type(screen.getByTestId('login-password'), 'Test1234!');
+    await user.click(screen.getByTestId('login-submit'));
+    await user.type(await screen.findByTestId('login-mfa-input'), '123456');
+    await user.click(screen.getByTestId('login-mfa-submit'));
+
+    expect(window.location.pathname).toBe('/settings/totp/enroll');
+    expect(window.location.search).toContain('redirect=%2Fportfolio');
+  });
+
   it('shows the safe fallback and visible correlation id for unknown auth codes', async () => {
-    mockLoginMember.mockRejectedValue(
+    mockStartLoginFlow.mockRejectedValue(
       createApiError({
         code: 'AUTH-999',
         status: 500,
@@ -579,7 +786,7 @@ describe('App auth flow', () => {
     expect(await screen.findByTestId('error-message')).toHaveTextContent(
       '비밀번호를 입력해 주세요.',
     );
-    expect(mockLoginMember).not.toHaveBeenCalled();
+    expect(mockStartLoginFlow).not.toHaveBeenCalled();
   });
 
   it('keeps register password visibility toggles independent', async () => {

@@ -1,10 +1,13 @@
 import {
+  beginTotpEnrollment,
+  confirmTotpEnrollment,
   fetchSession,
-  loginMember,
   requestPasswordRecoveryChallenge,
   requestPasswordResetEmail,
   registerMember,
   resetPassword,
+  startLoginFlow,
+  verifyLoginOtp,
 } from '@/api/authApi';
 import type { Member } from '@/types/auth';
 
@@ -48,23 +51,24 @@ describe('auth api', () => {
     });
   });
 
-  it('logs in a member and refreshes the CSRF token for subsequent requests', async () => {
+  it('starts the login challenge using the password-only pre-auth contract', async () => {
     mockPost.mockResolvedValue({
       data: {
-        memberId: 1,
-        email: 'demo@fix.com',
-        name: 'Demo User',
+        loginToken: 'login-token',
+        nextAction: 'VERIFY_TOTP',
+        totpEnrolled: true,
+        expiresAt: '2026-03-12T10:00:00Z',
       },
-    });
-    mockGet.mockResolvedValue({ data: memberFixture });
-    mockFetchCsrfToken.mockResolvedValue({
-      csrfToken: 'csrf-token',
-      headerName: 'X-CSRF-TOKEN',
     });
 
     await expect(
-      loginMember({ email: 'demo@fix.com', password: 'Test1234!' }),
-    ).resolves.toEqual(memberFixture);
+      startLoginFlow({ email: 'demo@fix.com', password: 'Test1234!' }),
+    ).resolves.toEqual({
+      loginToken: 'login-token',
+      nextAction: 'VERIFY_TOTP',
+      totpEnrolled: true,
+      expiresAt: '2026-03-12T10:00:00Z',
+    });
 
     const [url, body, options] = mockPost.mock.calls[0] ?? [];
     expect(url).toBe('/api/v1/auth/login');
@@ -78,10 +82,7 @@ describe('auth api', () => {
       },
       _skipAuthHandling: true,
     });
-    expect(mockFetchCsrfToken).toHaveBeenCalledWith(true);
-    expect(mockGet).toHaveBeenCalledWith('/api/v1/auth/session', {
-      _skipAuthHandling: true,
-    });
+    expect(mockFetchCsrfToken).not.toHaveBeenCalled();
   });
 
   it('registers a member and clears the cached CSRF token', async () => {
@@ -120,6 +121,122 @@ describe('auth api', () => {
       _skipAuthHandling: true,
     });
     expect(mockClearCsrfToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('verifies the submitted OTP and refreshes CSRF for the authenticated session', async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        memberId: 1,
+        email: 'demo@fix.com',
+        name: 'Demo User',
+        totpEnrolled: true,
+      },
+    });
+    mockFetchCsrfToken.mockResolvedValue({
+      csrfToken: 'csrf-token',
+      headerName: 'X-CSRF-TOKEN',
+    });
+
+    await expect(
+      verifyLoginOtp({
+        loginToken: 'login-token',
+        otpCode: '123456',
+      }),
+    ).resolves.toEqual({
+      memberUuid: '1',
+      email: 'demo@fix.com',
+      name: 'Demo User',
+      role: 'ROLE_USER',
+      totpEnrolled: true,
+      accountId: undefined,
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/auth/otp/verify',
+      {
+        loginToken: 'login-token',
+        otpCode: '123456',
+      },
+      {
+        _skipAuthHandling: true,
+      },
+    );
+    expect(mockFetchCsrfToken).toHaveBeenCalledWith(true);
+  });
+
+  it('bootstraps TOTP enrollment with the pending login token', async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        qrUri: 'otpauth://totp/FIX:demo@fix.com?secret=ABC123',
+        manualEntryKey: 'ABC123',
+        enrollmentToken: 'enrollment-token',
+        expiresAt: '2026-03-12T10:05:00Z',
+      },
+    });
+
+    await expect(
+      beginTotpEnrollment({
+        loginToken: 'login-token',
+      }),
+    ).resolves.toEqual({
+      qrUri: 'otpauth://totp/FIX:demo@fix.com?secret=ABC123',
+      manualEntryKey: 'ABC123',
+      enrollmentToken: 'enrollment-token',
+      expiresAt: '2026-03-12T10:05:00Z',
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/members/me/totp/enroll',
+      {
+        loginToken: 'login-token',
+      },
+      {
+        _skipAuthHandling: true,
+      },
+    );
+  });
+
+  it('confirms TOTP enrollment and refreshes CSRF for the new authenticated session', async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        memberId: 1,
+        email: 'demo@fix.com',
+        name: 'Demo User',
+        totpEnrolled: true,
+      },
+    });
+    mockFetchCsrfToken.mockResolvedValue({
+      csrfToken: 'csrf-token',
+      headerName: 'X-CSRF-TOKEN',
+    });
+
+    await expect(
+      confirmTotpEnrollment({
+        loginToken: 'login-token',
+        enrollmentToken: 'enrollment-token',
+        otpCode: '123456',
+      }),
+    ).resolves.toEqual({
+      memberUuid: '1',
+      email: 'demo@fix.com',
+      name: 'Demo User',
+      role: 'ROLE_USER',
+      totpEnrolled: true,
+      accountId: undefined,
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/members/me/totp/confirm',
+      {
+        loginToken: 'login-token',
+        enrollmentToken: 'enrollment-token',
+        otpCode: '123456',
+      },
+      {
+        _skipAuthHandling: true,
+      },
+    );
+    expect(mockFetchCsrfToken).toHaveBeenCalledWith(true);
   });
 
   it('submits the forgot-password request as a JSON body', async () => {
