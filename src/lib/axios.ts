@@ -40,6 +40,7 @@ export interface NormalizedApiError extends Error {
   traceId?: string;
   operatorCode?: string;
   retryAfterSeconds?: number;
+  enrollUrl?: string;
   userMessageKey?: string;
 }
 
@@ -50,6 +51,7 @@ interface DirectApiErrorPayload {
   correlationId?: string;
   operatorCode?: string;
   retryAfterSeconds?: unknown;
+  enrollUrl?: string;
   userMessageKey?: string;
   timestamp?: string;
 }
@@ -94,6 +96,7 @@ export const createNormalizedApiError = (
     traceId?: string;
     operatorCode?: string;
     retryAfterSeconds?: number;
+    enrollUrl?: string;
     userMessageKey?: string;
   },
 ): NormalizedApiError => {
@@ -105,6 +108,7 @@ export const createNormalizedApiError = (
   normalized.traceId = options?.traceId;
   normalized.operatorCode = options?.operatorCode;
   normalized.retryAfterSeconds = options?.retryAfterSeconds;
+  normalized.enrollUrl = options?.enrollUrl;
   normalized.userMessageKey = options?.userMessageKey;
 
   return normalized;
@@ -196,6 +200,10 @@ const unwrapEnvelope = <T>(response: AxiosResponse<T>): AxiosResponse<T> => {
           payload.error?.retryAfterSeconds,
           response.headers,
         ),
+        enrollUrl:
+          typeof payload.error?.enrollUrl === 'string'
+            ? payload.error.enrollUrl
+            : undefined,
         userMessageKey:
           typeof payload.error?.userMessageKey === 'string'
             ? payload.error.userMessageKey
@@ -232,6 +240,10 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
           responseData.error.retryAfterSeconds,
           error.response?.headers,
         ),
+        enrollUrl:
+          typeof responseData.error.enrollUrl === 'string'
+            ? responseData.error.enrollUrl
+            : undefined,
         userMessageKey:
           typeof responseData.error.userMessageKey === 'string'
             ? responseData.error.userMessageKey
@@ -256,6 +268,10 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
           responseData.retryAfterSeconds,
           error.response?.headers,
         ),
+        enrollUrl:
+          typeof responseData.enrollUrl === 'string'
+            ? responseData.enrollUrl
+            : undefined,
         userMessageKey:
           typeof responseData.userMessageKey === 'string'
             ? responseData.userMessageKey
