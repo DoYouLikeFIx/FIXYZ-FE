@@ -1,9 +1,16 @@
 import { AuthFrame } from '@/components/auth/AuthFrame';
+import { LoginMfaForm } from '@/components/auth/LoginMfaForm';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { useLoginPageController } from '@/hooks/auth/useLoginPageController';
 
 export function LoginPage() {
-  const { frameProps, formProps } = useLoginPageController();
+  const {
+    frameProps,
+    formProps,
+    isMfaStep,
+    mfaFormProps,
+    titleLines,
+  } = useLoginPageController();
 
   return (
     <AuthFrame
@@ -11,13 +18,17 @@ export function LoginPage() {
       mode="login"
       title={(
         <>
-          FIX 플랫폼에 오신 것을
-          <br />
-          환영합니다!
+          {titleLines[0]}
+          {titleLines[1] ? (
+            <>
+              <br />
+              {titleLines[1]}
+            </>
+          ) : null}
         </>
       )}
     >
-      <LoginForm {...formProps} />
+      {isMfaStep ? <LoginMfaForm {...mfaFormProps} /> : <LoginForm {...formProps} />}
     </AuthFrame>
   );
 }
