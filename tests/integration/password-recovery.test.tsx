@@ -6,16 +6,22 @@ import type { NormalizedApiError } from '@/lib/axios';
 import { resetAuthStore } from '@/store/useAuthStore';
 
 const mockFetchSession = vi.fn();
-const mockLoginMember = vi.fn();
+const mockStartLoginFlow = vi.fn();
+const mockVerifyLoginOtp = vi.fn();
 const mockRegisterMember = vi.fn();
+const mockBeginTotpEnrollment = vi.fn();
+const mockConfirmTotpEnrollment = vi.fn();
 const mockRequestPasswordResetEmail = vi.fn();
 const mockRequestPasswordRecoveryChallenge = vi.fn();
 const mockResetPassword = vi.fn();
 
 vi.mock('@/api/authApi', () => ({
   fetchSession: () => mockFetchSession(),
-  loginMember: (payload: unknown) => mockLoginMember(payload),
+  startLoginFlow: (payload: unknown) => mockStartLoginFlow(payload),
+  verifyLoginOtp: (payload: unknown) => mockVerifyLoginOtp(payload),
   registerMember: (payload: unknown) => mockRegisterMember(payload),
+  beginTotpEnrollment: (payload: unknown) => mockBeginTotpEnrollment(payload),
+  confirmTotpEnrollment: (payload: unknown) => mockConfirmTotpEnrollment(payload),
   requestPasswordResetEmail: (payload: unknown) => mockRequestPasswordResetEmail(payload),
   requestPasswordRecoveryChallenge: (payload: unknown) =>
     mockRequestPasswordRecoveryChallenge(payload),
@@ -41,8 +47,11 @@ const createApiError = (
 describe('password recovery routes', () => {
   beforeEach(() => {
     mockFetchSession.mockReset();
-    mockLoginMember.mockReset();
+    mockStartLoginFlow.mockReset();
+    mockVerifyLoginOtp.mockReset();
     mockRegisterMember.mockReset();
+    mockBeginTotpEnrollment.mockReset();
+    mockConfirmTotpEnrollment.mockReset();
     mockRequestPasswordResetEmail.mockReset();
     mockRequestPasswordRecoveryChallenge.mockReset();
     mockResetPassword.mockReset();

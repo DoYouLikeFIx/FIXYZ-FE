@@ -1,17 +1,21 @@
 import { useState, type FormEventHandler } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
-import { loginMember, registerMember } from '@/api/authApi';
+import { registerMember, startLoginFlow } from '@/api/authApi';
 import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
 import { useRegisterFormState } from '@/hooks/auth/useRegisterFormState';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
 import { getAuthErrorMessage } from '@/lib/auth-errors';
-import { resolveRedirectTarget } from '@/router/navigation';
+import {
+  buildLoginRedirect,
+  buildTotpEnrollmentRedirect,
+  resolveRedirectTarget,
+} from '@/router/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export const useRegisterPageController = () => {
-  const login = useAuthStore((state) => state.login);
   const clearReauthMessage = useAuthStore((state) => state.clearReauthMessage);
+  const startMfaChallenge = useAuthStore((state) => state.startMfaChallenge);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -38,15 +42,26 @@ export const useRegisterPageController = () => {
 
       await registerMember(registrationPayload);
 
-      const member = await loginMember({
+      const challenge = await startLoginFlow({
         email: registrationPayload.email,
         password: registrationPayload.password,
       });
 
-      login(member);
-      navigate(resolveRedirectTarget(searchParams.get('redirect')), {
-        replace: true,
-      });
+      const redirectPath = resolveRedirectTarget(searchParams.get('redirect'));
+
+      startMfaChallenge(
+        challenge,
+        redirectPath,
+      );
+
+      navigate(
+        challenge.nextAction === 'ENROLL_TOTP'
+          ? buildTotpEnrollmentRedirect(redirectPath)
+          : buildLoginRedirect(redirectPath),
+        {
+          replace: true,
+        },
+      );
     } catch (error) {
       setErrorMessage(getAuthErrorMessage(error));
     } finally {

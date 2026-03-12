@@ -7,9 +7,14 @@ import { OrderPage } from '@/pages/OrderPage';
 import { PasswordResetPage } from '@/pages/PasswordResetPage';
 import { PortfolioPage } from '@/pages/PortfolioPage';
 import { RegisterPage } from '@/pages/RegisterPage';
+import { TotpEnrollmentPage } from '@/pages/TotpEnrollmentPage';
+import { PendingMfaRoute } from '@/router/PendingMfaRoute';
 import { PrivateRoute } from '@/router/PrivateRoute';
 import { PublicOnlyRoute } from '@/router/PublicOnlyRoute';
-import { DEFAULT_PROTECTED_ROUTE } from '@/router/navigation';
+import {
+  DEFAULT_PROTECTED_ROUTE,
+  TOTP_ENROLL_ROUTE,
+} from '@/router/navigation';
 
 export function AppRouter() {
   return (
@@ -44,6 +49,14 @@ export function AppRouter() {
           <PublicOnlyRoute>
             <PasswordResetPage />
           </PublicOnlyRoute>
+        )}
+      />
+      <Route
+        path={TOTP_ENROLL_ROUTE}
+        element={(
+          <PendingMfaRoute requiredAction="ENROLL_TOTP">
+            <TotpEnrollmentPage />
+          </PendingMfaRoute>
         )}
       />
       <Route element={<PrivateRoute />}>

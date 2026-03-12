@@ -1,5 +1,6 @@
 import { api, clearCsrfToken, fetchCsrfToken } from '@/lib/axios';
 import type {
+  LoginChallenge,
   LoginRequest,
   Member,
   PasswordForgotRequest,
@@ -8,9 +9,14 @@ import type {
   PasswordRecoveryChallengeResponse,
   PasswordResetRequest,
   RegisterRequest,
+  TotpEnrollmentBootstrap,
+  TotpEnrollmentConfirmationRequest,
+  TotpEnrollmentRequest,
+  TotpVerificationRequest,
 } from '@/types/auth';
 
 interface AuthMutationResponse {
+  verified?: boolean;
   memberId?: number;
   memberUuid?: string;
   email: string;
@@ -19,15 +25,6 @@ interface AuthMutationResponse {
   totpEnrolled?: boolean;
   accountId?: string | null;
 }
-
-const isMember = (value: unknown): value is Member =>
-  typeof value === 'object'
-  && value !== null
-  && 'memberUuid' in value
-  && 'email' in value
-  && 'name' in value
-  && 'role' in value
-  && 'totpEnrolled' in value;
 
 const createFormBody = (
   payload: Record<string, string>,
@@ -50,8 +47,10 @@ export const fetchSession = async (): Promise<Member> => {
   return response.data;
 };
 
-export const loginMember = async (payload: LoginRequest): Promise<Member> => {
-  const response = await api.post<Member | AuthMutationResponse>(
+export const startLoginFlow = async (
+  payload: LoginRequest,
+): Promise<LoginChallenge> => {
+  const response = await api.post<LoginChallenge>(
     '/api/v1/auth/login',
     createFormBody({
       email: payload.email,
@@ -65,19 +64,13 @@ export const loginMember = async (payload: LoginRequest): Promise<Member> => {
     },
   );
 
-  await fetchCsrfToken(true);
-
-  if (isMember(response.data)) {
-    return response.data;
-  }
-
-  return fetchSession();
+  return response.data;
 };
 
 export const registerMember = async (
   payload: RegisterRequest,
 ): Promise<Member> => {
-  const response = await api.post<Member | AuthMutationResponse>(
+  const response = await api.post<AuthMutationResponse>(
     '/api/v1/auth/register',
     createFormBody({
       email: payload.email,
@@ -94,9 +87,51 @@ export const registerMember = async (
 
   clearCsrfToken();
 
-  if (isMember(response.data)) {
-    return response.data;
-  }
+  return createCompatMember(response.data);
+};
+
+export const verifyLoginOtp = async (
+  payload: TotpVerificationRequest,
+): Promise<Member> => {
+  const response = await api.post<AuthMutationResponse>(
+    '/api/v1/auth/otp/verify',
+    payload,
+    {
+      _skipAuthHandling: true,
+    },
+  );
+
+  await fetchCsrfToken(true);
+
+  return createCompatMember(response.data);
+};
+
+export const beginTotpEnrollment = async (
+  payload: TotpEnrollmentRequest,
+): Promise<TotpEnrollmentBootstrap> => {
+  const response = await api.post<TotpEnrollmentBootstrap>(
+    '/api/v1/members/me/totp/enroll',
+    payload,
+    {
+      _skipAuthHandling: true,
+    },
+  );
+
+  return response.data;
+};
+
+export const confirmTotpEnrollment = async (
+  payload: TotpEnrollmentConfirmationRequest,
+): Promise<Member> => {
+  const response = await api.post<AuthMutationResponse>(
+    '/api/v1/members/me/totp/confirm',
+    payload,
+    {
+      _skipAuthHandling: true,
+    },
+  );
+
+  await fetchCsrfToken(true);
 
   return createCompatMember(response.data);
 };

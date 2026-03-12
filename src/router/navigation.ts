@@ -2,6 +2,7 @@ export const LOGIN_ROUTE = '/login';
 export const DEFAULT_PROTECTED_ROUTE = '/portfolio';
 export const FORGOT_PASSWORD_ROUTE = '/forgot-password';
 export const RESET_PASSWORD_ROUTE = '/reset-password';
+export const TOTP_ENROLL_ROUTE = '/settings/totp/enroll';
 export const PASSWORD_RESET_SUCCESS_QUERY_KEY = 'recovery';
 export const PASSWORD_RESET_SUCCESS_QUERY_VALUE = 'reset-success';
 export const PASSWORD_RESET_SUCCESS_QUERY =
@@ -27,7 +28,8 @@ export const resolveRedirectTarget = (redirectParam: string | null | undefined) 
     redirectParam.startsWith('/login') ||
     redirectParam.startsWith('/register') ||
     redirectParam.startsWith(FORGOT_PASSWORD_ROUTE) ||
-    redirectParam.startsWith(RESET_PASSWORD_ROUTE)
+    redirectParam.startsWith(RESET_PASSWORD_ROUTE) ||
+    redirectParam.startsWith(TOTP_ENROLL_ROUTE)
   ) {
     return DEFAULT_PROTECTED_ROUTE;
   }
@@ -37,6 +39,39 @@ export const resolveRedirectTarget = (redirectParam: string | null | undefined) 
 
 export const buildLoginRedirect = (redirectPath: string) =>
   `${LOGIN_ROUTE}?redirect=${encodeURIComponent(redirectPath)}`;
+
+export const resolveTotpEnrollmentRoute = (routePath: string | null | undefined) => {
+  if (!routePath) {
+    return TOTP_ENROLL_ROUTE;
+  }
+
+  try {
+    const parsed = new URL(routePath, 'http://localhost');
+
+    if (parsed.origin !== 'http://localhost' || parsed.pathname !== TOTP_ENROLL_ROUTE) {
+      return TOTP_ENROLL_ROUTE;
+    }
+
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return TOTP_ENROLL_ROUTE;
+  }
+};
+
+export const buildRouteWithRedirect = (routePath: string, redirectPath: string) => {
+  const [pathnameAndSearch, hash = ''] = routePath.split('#', 2);
+  const [pathname, search = ''] = pathnameAndSearch.split('?', 2);
+  const searchParams = new URLSearchParams(search);
+
+  searchParams.set('redirect', resolveRedirectTarget(redirectPath));
+
+  const nextSearch = searchParams.toString();
+
+  return `${pathname}${nextSearch ? `?${nextSearch}` : ''}${hash ? `#${hash}` : ''}`;
+};
+
+export const buildTotpEnrollmentRedirect = (redirectPath: string) =>
+  buildRouteWithRedirect(TOTP_ENROLL_ROUTE, redirectPath);
 
 export const buildPasswordResetSuccessLoginPath = () =>
   `${LOGIN_ROUTE}?${PASSWORD_RESET_SUCCESS_QUERY}`;

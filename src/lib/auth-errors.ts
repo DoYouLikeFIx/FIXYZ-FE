@@ -57,6 +57,14 @@ export interface AuthErrorPresentation {
   traceId?: string;
 }
 
+export interface MfaErrorPresentation {
+  code?: string;
+  message: string;
+  restartLogin: boolean;
+  navigateToEnroll: boolean;
+  enrollUrl?: string;
+}
+
 const AUTH_TEMPLATE_BY_CODE: Record<string, AuthErrorTemplate> = {
   'AUTH-001': {
     semantic: 'invalid-credentials',
@@ -244,3 +252,107 @@ export const getReauthMessage = (error: unknown) => {
 
 export const getAuthErrorMessage = (error: unknown) =>
   resolveAuthErrorPresentation(error).message;
+
+const getMfaErrorOptions = (error: unknown) =>
+  typeof error === 'object' && error !== null
+    ? {
+        code: canonicalizeContractCode(getErrorCode(error)),
+        traceId: getTraceId(error),
+        retryAfterSeconds:
+          'retryAfterSeconds' in error
+            ? (error as Partial<NormalizedApiError>).retryAfterSeconds
+            : undefined,
+        enrollUrl:
+          'enrollUrl' in error && typeof (error as Partial<NormalizedApiError>).enrollUrl === 'string'
+            ? (error as Partial<NormalizedApiError>).enrollUrl
+            : undefined,
+        message: getErrorMessage(error),
+      }
+    : {
+        code: undefined,
+        traceId: undefined,
+        retryAfterSeconds: undefined,
+        enrollUrl: undefined,
+        message: undefined,
+      };
+
+export const resolveMfaErrorPresentation = (
+  error: unknown,
+): MfaErrorPresentation => {
+  const {
+    code,
+    traceId,
+    retryAfterSeconds,
+    enrollUrl,
+    message,
+  } = getMfaErrorOptions(error);
+
+  if (code === 'AUTH-009') {
+    return {
+      code,
+      message: 'Google Authenticator 등록이 필요합니다. 인증 앱을 연결한 뒤 첫 코드를 확인해 주세요.',
+      restartLogin: false,
+      navigateToEnroll: true,
+      enrollUrl,
+    };
+  }
+
+  if (code === 'AUTH-010') {
+    return {
+      code,
+      message: '인증 코드가 올바르지 않습니다. 앱에 표시된 현재 6자리 코드를 다시 입력해 주세요.',
+      restartLogin: false,
+      navigateToEnroll: false,
+    };
+  }
+
+  if (code === 'AUTH-011') {
+    return {
+      code,
+      message: '방금 사용한 인증 코드는 다시 사용할 수 없습니다. 새로운 6자리 코드를 입력해 주세요.',
+      restartLogin: false,
+      navigateToEnroll: false,
+    };
+  }
+
+  if (code === 'AUTH-018') {
+    return {
+      code,
+      message: '인증 단계가 만료되었습니다. 이메일과 비밀번호부터 다시 로그인해 주세요.',
+      restartLogin: true,
+      navigateToEnroll: false,
+    };
+  }
+
+  if (code === 'RATE-001') {
+    return {
+      code,
+      message:
+        retryAfterSeconds !== undefined
+          ? `인증 시도가 너무 많습니다. ${retryAfterSeconds}초 후 다시 시도해 주세요.`
+          : '인증 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.',
+      restartLogin: false,
+      navigateToEnroll: false,
+    };
+  }
+
+  if (!code && message === FORBIDDEN_ERROR_MESSAGE) {
+    return {
+      message: '보안 토큰을 다시 확인했습니다. 같은 작업을 한 번 더 시도해 주세요.',
+      restartLogin: false,
+      navigateToEnroll: false,
+    };
+  }
+
+  const fallback = resolveAuthErrorPresentation(error);
+
+  return {
+    code: fallback.code,
+    message:
+      fallback.semantic === 'unknown' && traceId
+        ? `${fallback.message} ${SUPPORT_REFERENCE_LABEL}: ${traceId}`
+        : fallback.message,
+    restartLogin: fallback.semantic === 'reauth-required',
+    navigateToEnroll: false,
+  };
+};
