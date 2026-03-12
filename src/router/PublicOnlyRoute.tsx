@@ -9,7 +9,12 @@ interface PublicOnlyRouteProps {
 }
 
 export function PublicOnlyRoute({ children }: PublicOnlyRouteProps) {
-  const { status, redirectPath, isChecking } = usePublicOnlyRouteGuard();
+  const {
+    status,
+    redirectPath,
+    pendingMfaRedirectPath,
+    isChecking,
+  } = usePublicOnlyRouteGuard();
 
   if (isChecking) {
     return (
@@ -22,6 +27,10 @@ export function PublicOnlyRoute({ children }: PublicOnlyRouteProps) {
 
   if (status === 'authenticated') {
     return <Navigate replace to={redirectPath ?? '/portfolio'} />;
+  }
+
+  if (pendingMfaRedirectPath) {
+    return <Navigate replace to={pendingMfaRedirectPath} />;
   }
 
   return <>{children}</>;
