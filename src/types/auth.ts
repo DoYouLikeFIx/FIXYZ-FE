@@ -23,6 +23,14 @@ export interface TotpEnrollmentBootstrap {
   expiresAt: string;
 }
 
+export interface TotpRebindBootstrap {
+  rebindToken: string;
+  qrUri: string;
+  manualEntryKey: string;
+  enrollmentToken: string;
+  expiresAt: string;
+}
+
 export interface LoginRequest {
   email: string;
   password: string;
@@ -41,6 +49,25 @@ export interface TotpEnrollmentConfirmationRequest {
   loginToken: string;
   enrollmentToken: string;
   otpCode: string;
+}
+
+export interface MemberTotpRebindRequest {
+  currentPassword: string;
+}
+
+export interface MfaRecoveryRebindRequest {
+  recoveryProof: string;
+}
+
+export interface MfaRecoveryRebindConfirmRequest {
+  rebindToken: string;
+  enrollmentToken: string;
+  otpCode: string;
+}
+
+export interface MfaRecoveryRebindConfirmResponse {
+  rebindCompleted: boolean;
+  reauthRequired: boolean;
 }
 
 export interface RegisterRequest {
@@ -79,6 +106,11 @@ export interface PasswordRecoveryChallengeResponse {
 export interface PasswordResetRequest {
   token: string;
   newPassword: string;
+}
+
+export interface PasswordResetContinuation {
+  recoveryProof?: string;
+  recoveryProofExpiresInSeconds?: number;
 }
 
 export interface CsrfTokenPayload {
