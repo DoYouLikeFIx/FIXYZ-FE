@@ -13,6 +13,7 @@ const SUPPORT_REFERENCE_LABEL = '문의 코드';
 
 type AuthErrorSemantic =
   | 'invalid-credentials'
+  | 'current-password-mismatch'
   | 'account-locked'
   | 'reauth-required'
   | 'withdrawn-account'
@@ -83,6 +84,11 @@ const AUTH_TEMPLATE_BY_CODE: Record<string, AuthErrorTemplate> = {
     semantic: 'account-locked',
     recoveryAction: 'retry-later',
     message: '로그인 시도가 잠겨 있습니다. 잠시 후 다시 시도해 주세요.',
+  },
+  'AUTH-026': {
+    semantic: 'current-password-mismatch',
+    recoveryAction: 'retry-credentials',
+    message: '현재 비밀번호가 일치하지 않습니다. 다시 입력해 주세요.',
   },
   'AUTH-003': {
     semantic: 'reauth-required',
@@ -329,6 +335,16 @@ export const resolveMfaErrorPresentation = (
       navigateToEnroll: true,
       navigateToRecovery: false,
       enrollUrl,
+    };
+  }
+
+  if (code === 'AUTH-026') {
+    return {
+      code,
+      message: '현재 비밀번호가 일치하지 않습니다. 다시 입력해 주세요.',
+      restartLogin: false,
+      navigateToEnroll: false,
+      navigateToRecovery: false,
     };
   }
 
