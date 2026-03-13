@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useController, useForm } from 'react-hook-form';
 
 import {
   requestPasswordRecoveryChallenge,
@@ -9,8 +11,8 @@ import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
 import { resolveAuthErrorPresentation } from '@/lib/auth-errors';
 import {
-  createForgotPasswordFieldErrors,
-  validateForgotPasswordForm,
+  forgotPasswordSchema,
+  type ForgotPasswordFormValues,
 } from '@/lib/schemas/auth.schema';
 import {
   buildResetPasswordPath,
@@ -24,21 +26,35 @@ interface RecoveryChallengeState extends PasswordRecoveryChallengeResponse {
 
 export const useForgotPasswordPageController = () => {
   const [searchParams] = useSearchParams();
-  const [email, setEmail] = useState(searchParams.get('email') ?? '');
   const redirectPath = searchParams.get('redirect')
     ? resolveRedirectTarget(searchParams.get('redirect'))
     : undefined;
-  const [challengeAnswer, setChallengeAnswer] = useState('');
-  const [fieldErrors, setFieldErrors] = useState(createForgotPasswordFieldErrors);
   const [acceptedMessage, setAcceptedMessage] = useState<string | null>(null);
   const [challengeMayBeRequired, setChallengeMayBeRequired] = useState(false);
   const [challengeState, setChallengeState] = useState<RecoveryChallengeState | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isBootstrappingChallenge, setIsBootstrappingChallenge] = useState(false);
+  const form = useForm<ForgotPasswordFormValues>({
+    defaultValues: {
+      email: searchParams.get('email') ?? '',
+      challengeAnswer: '',
+      requiresChallenge: false,
+    },
+    mode: 'onTouched',
+    reValidateMode: 'onChange',
+    resolver: zodResolver(forgotPasswordSchema),
+  });
+  const { field: emailField } = useController({
+    control: form.control,
+    name: 'email',
+  });
+  const { field: challengeAnswerField } = useController({
+    control: form.control,
+    name: 'challengeAnswer',
+  });
   const { displayMode, handleTabNavigation } = useAuthTabsNavigation('login');
 
-  const normalizedChallengeEmail = challengeState?.email ?? email.trim();
+  const normalizedChallengeEmail = challengeState?.email ?? emailField.value.trim();
 
   const frameProps: AuthFrameControllerProps = useMemo(() => ({
     displayMode,
@@ -46,41 +62,37 @@ export const useForgotPasswordPageController = () => {
     onRegisterTabClick: handleTabNavigation('/register'),
   }), [displayMode, handleTabNavigation]);
 
+  const resetChallengeField = () => {
+    form.resetField('challengeAnswer', {
+      defaultValue: '',
+    });
+    form.setValue('requiresChallenge', false, { shouldDirty: false, shouldTouch: false });
+    form.clearErrors('challengeAnswer');
+  };
+
   const resetFlowState = () => {
     setAcceptedMessage(null);
     setChallengeMayBeRequired(false);
     setChallengeState(null);
-    setChallengeAnswer('');
+    resetChallengeField();
+  };
+
+  const clearActiveChallenge = () => {
+    setChallengeState(null);
+    resetChallengeField();
   };
 
   const clearStaleChallengeState = () => {
-    setAcceptedMessage(null);
-    setChallengeMayBeRequired(false);
-    setChallengeState(null);
-    setChallengeAnswer('');
+    resetFlowState();
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = form.handleSubmit(async (values) => {
     setErrorMessage(null);
-    const validation = validateForgotPasswordForm({
-      email: normalizedChallengeEmail,
-      requiresChallenge: Boolean(challengeState),
-      challengeAnswer,
-    });
-
-    setFieldErrors(validation.fieldErrors);
-
-    if (validation.message) {
-      setErrorMessage(validation.message);
-      return;
-    }
-
-    setIsSubmitting(true);
 
     try {
       const response = await requestPasswordResetEmail({
         email: normalizedChallengeEmail,
-        challengeAnswer: challengeState ? challengeAnswer.trim() : undefined,
+        challengeAnswer: challengeState ? values.challengeAnswer.trim() : undefined,
         challengeToken: challengeState?.challengeToken,
       });
 
@@ -96,19 +108,21 @@ export const useForgotPasswordPageController = () => {
       }
 
       setErrorMessage(presentation.message);
-    } finally {
-      setIsSubmitting(false);
     }
-  };
+  }, (errors) => {
+    setErrorMessage(
+      errors.email?.message
+      ?? errors.challengeAnswer?.message
+      ?? null,
+    );
+  });
 
   const handleBootstrapChallenge = async () => {
     setErrorMessage(null);
-    const validation = validateForgotPasswordForm({ email });
+    const isValid = await form.trigger('email');
 
-    setFieldErrors(validation.fieldErrors);
-
-    if (validation.message) {
-      setErrorMessage(validation.message);
+    if (!isValid) {
+      setErrorMessage(form.formState.errors.email?.message ?? null);
       return;
     }
 
@@ -116,15 +130,20 @@ export const useForgotPasswordPageController = () => {
 
     try {
       const response = await requestPasswordRecoveryChallenge({
-        email: email.trim(),
+        email: emailField.value.trim(),
       });
 
       setChallengeState({
         ...response,
-        email: email.trim(),
+        email: emailField.value.trim(),
       });
+      resetChallengeField();
+      form.setValue('requiresChallenge', true, { shouldDirty: false, shouldTouch: false });
       setChallengeMayBeRequired(true);
     } catch (error) {
+      if (challengeState) {
+        clearActiveChallenge();
+      }
       setErrorMessage(resolveAuthErrorPresentation(error).message);
     } finally {
       setIsBootstrappingChallenge(false);
@@ -134,37 +153,33 @@ export const useForgotPasswordPageController = () => {
   return {
     frameProps,
     formProps: {
-      email,
-      challengeAnswer,
-      emailInvalid: fieldErrors.email,
-      challengeAnswerInvalid: fieldErrors.challengeAnswer,
+      email: emailField.value,
+      challengeAnswer: challengeAnswerField.value,
+      emailInvalid: Boolean(form.formState.errors.email),
+      challengeAnswerInvalid: Boolean(form.formState.errors.challengeAnswer),
       acceptedMessage,
       errorMessage,
-      isSubmitting,
+      isSubmitting: form.formState.isSubmitting,
       isBootstrappingChallenge,
       challengeMayBeRequired,
       challengeState,
       resetPasswordHref: buildResetPasswordPath(undefined, redirectPath),
       onEmailChange: (value: string) => {
-        setEmail(value);
-        setFieldErrors((current) => ({
-          ...current,
-          email: false,
-          challengeAnswer: false,
-        }));
+        emailField.onChange(value);
+        form.clearErrors(['email', 'challengeAnswer']);
         setErrorMessage(null);
         resetFlowState();
       },
+      onEmailBlur: emailField.onBlur,
       onChallengeAnswerChange: (value: string) => {
-        setChallengeAnswer(value);
-        setFieldErrors((current) => ({
-          ...current,
-          challengeAnswer: false,
-        }));
+        challengeAnswerField.onChange(value);
         setErrorMessage(null);
       },
+      onChallengeAnswerBlur: challengeAnswerField.onBlur,
       onBootstrapChallenge: handleBootstrapChallenge,
-      onSubmit: handleSubmit,
+      onSubmit: () => {
+        void handleSubmit();
+      },
     },
   };
 };

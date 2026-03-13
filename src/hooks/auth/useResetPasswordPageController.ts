@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useController, useForm } from 'react-hook-form';
 
 import { resetPassword } from '@/api/authApi';
 import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
 import { resolveAuthErrorPresentation } from '@/lib/auth-errors';
 import {
-  createResetPasswordFieldErrors,
   getResetPasswordState,
-  validateResetPasswordForm,
+  resetPasswordSchema,
+  type ResetPasswordFormValues,
 } from '@/lib/schemas/auth.schema';
 import {
   buildLoginRedirect,
@@ -41,16 +43,25 @@ export const useResetPasswordPageController = () => {
     ? resolveRedirectTarget(searchParams.get('redirect'))
     : undefined;
   const stateToken = getLocationStateToken(location.state).trim();
-  const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState(createResetPasswordFieldErrors);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const form = useForm<ResetPasswordFormValues>({
+    defaultValues: {
+      newPassword: '',
+    },
+    mode: 'onTouched',
+    reValidateMode: 'onChange',
+    resolver: zodResolver(resetPasswordSchema),
+  });
+  const { field: newPasswordField } = useController({
+    control: form.control,
+    name: 'newPassword',
+  });
   const requireReauth = useAuthStore((state) => state.requireReauth);
   const storeMfaRecoveryProof = useAuthStore((state) => state.storeMfaRecoveryProof);
   const resetToken = (queryToken || stateToken).trim();
   const { displayMode, handleTabNavigation } = useAuthTabsNavigation('login');
-  const { isPasswordValid, passwordPolicyMessage } = getResetPasswordState(newPassword);
+  const { isPasswordValid, passwordPolicyMessage } = getResetPasswordState(newPasswordField.value);
 
   useEffect(() => {
     if (!queryToken) {
@@ -71,26 +82,13 @@ export const useResetPasswordPageController = () => {
     onRegisterTabClick: handleTabNavigation('/register'),
   }), [displayMode, handleTabNavigation]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = form.handleSubmit(async ({ newPassword }) => {
     setErrorMessage(null);
 
     if (!resetToken) {
       setErrorMessage('재설정 링크가 유효하지 않거나 만료되었습니다. 비밀번호 재설정을 다시 요청해 주세요.');
       return;
     }
-
-    const validation = validateResetPasswordForm({
-      newPassword,
-    });
-
-    setFieldErrors(validation.fieldErrors);
-
-    if (validation.message) {
-      setErrorMessage(validation.message);
-      return;
-    }
-
-    setIsSubmitting(true);
 
     try {
       const result = await resetPassword({
@@ -123,33 +121,38 @@ export const useResetPasswordPageController = () => {
       }
 
       setErrorMessage(presentation.message);
-      setFieldErrors({
-        newPassword: presentation.recoveryAction === 'fix-password',
-      });
-    } finally {
-      setIsSubmitting(false);
+      if (presentation.recoveryAction === 'fix-password') {
+        form.setError('newPassword', {
+          type: 'server',
+          message: presentation.message,
+        });
+      }
     }
-  };
+  }, (errors) => {
+    setErrorMessage(errors.newPassword?.message ?? null);
+  });
 
   return {
     frameProps,
     formProps: {
       hasToken: Boolean(resetToken),
-      newPassword,
+      newPassword: newPasswordField.value,
       showPassword,
-      passwordInvalid: fieldErrors.newPassword,
+      passwordInvalid: Boolean(form.formState.errors.newPassword),
       passwordPolicyMessage,
       errorMessage,
-      isSubmitting,
+      isSubmitting: form.formState.isSubmitting,
       onPasswordChange: (value: string) => {
-        setNewPassword(value);
-        setFieldErrors(createResetPasswordFieldErrors());
+        newPasswordField.onChange(value);
         setErrorMessage(null);
       },
+      onPasswordBlur: newPasswordField.onBlur,
       onTogglePasswordVisibility: () => {
         setShowPassword((current) => !current);
       },
-      onSubmit: handleSubmit,
+      onSubmit: () => {
+        void handleSubmit();
+      },
     },
     isPasswordValid,
   };

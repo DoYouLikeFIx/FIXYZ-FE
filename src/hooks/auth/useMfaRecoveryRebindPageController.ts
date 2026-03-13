@@ -1,15 +1,20 @@
 import { type FormEventHandler, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useController, useForm } from 'react-hook-form';
 
 import { confirmMfaRecoveryRebind } from '@/api/authApi';
 import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
 import {
-  isCompleteOtpCode,
   sanitizeOtpCodeInput,
   useExpiryCountdown,
 } from '@/hooks/auth/useTotpHelpers';
 import { resolveMfaErrorPresentation } from '@/lib/auth-errors';
+import {
+  mfaRecoveryRebindSchema,
+  type MfaRecoveryRebindFormValues,
+} from '@/lib/schemas/auth.schema';
 import {
   buildMfaRecoveryPath,
   buildMfaRecoverySuccessLoginPath,
@@ -29,23 +34,32 @@ export const useMfaRecoveryRebindPageController = () => {
     ? resolveRedirectTarget(searchParams.get('redirect'))
     : undefined;
   const { displayMode, handleTabNavigation } = useAuthTabsNavigation('login');
-  const [otpCode, setOtpCode] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [isRestartingRecovery, setIsRestartingRecovery] = useState(false);
+  const form = useForm<MfaRecoveryRebindFormValues>({
+    defaultValues: {
+      otpCode: '',
+    },
+    mode: 'onTouched',
+    reValidateMode: 'onChange',
+    resolver: zodResolver(mfaRecoveryRebindSchema),
+  });
+  const { field: otpCodeField } = useController({
+    control: form.control,
+    name: 'otpCode',
+  });
   const countdown = useExpiryCountdown(bootstrap?.expiresAt ?? new Date().toISOString());
 
   useEffect(() => {
-    if (!bootstrap && !isCompleting) {
+    if (!bootstrap && !isCompleting && !isRestartingRecovery) {
       navigate(buildMfaRecoveryPath(mfaRecovery?.suggestedEmail, redirectPath), {
         replace: true,
       });
     }
-  }, [bootstrap, isCompleting, mfaRecovery?.suggestedEmail, navigate, redirectPath]);
+  }, [bootstrap, isCompleting, isRestartingRecovery, mfaRecovery?.suggestedEmail, navigate, redirectPath]);
 
-  const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
-    event.preventDefault();
-
+  const handleSubmit: FormEventHandler<HTMLFormElement> = form.handleSubmit(async ({ otpCode }) => {
     if (!bootstrap) {
       clearMfaRecovery();
       navigate(buildMfaRecoveryPath(mfaRecovery?.suggestedEmail, redirectPath), {
@@ -53,22 +67,13 @@ export const useMfaRecoveryRebindPageController = () => {
       });
       return;
     }
-
-    const normalizedOtp = sanitizeOtpCodeInput(otpCode);
-
-    if (!isCompleteOtpCode(normalizedOtp)) {
-      setErrorMessage('현재 인증 코드는 숫자 6자리로 입력해 주세요.');
-      return;
-    }
-
-    setIsSubmitting(true);
     setErrorMessage(null);
 
     try {
       const result = await confirmMfaRecoveryRebind({
         rebindToken: bootstrap.rebindToken,
         enrollmentToken: bootstrap.enrollmentToken,
-        otpCode: normalizedOtp,
+        otpCode: sanitizeOtpCodeInput(otpCode),
       });
 
       if (result.rebindCompleted) {
@@ -81,11 +86,31 @@ export const useMfaRecoveryRebindPageController = () => {
         });
       }
     } catch (error) {
-      setErrorMessage(resolveMfaErrorPresentation(error).message);
-    } finally {
-      setIsSubmitting(false);
+      const presentation = resolveMfaErrorPresentation(error);
+
+      if (presentation.code === 'AUTH-019' || presentation.code === 'AUTH-020') {
+        setIsRestartingRecovery(true);
+        clearPendingMfa();
+        clearMfaRecovery();
+        navigate(buildMfaRecoveryPath(mfaRecovery?.suggestedEmail, redirectPath), {
+          replace: true,
+          state: {
+            recoveryErrorMessage: presentation.message,
+          },
+        });
+        return;
+      }
+
+      setErrorMessage(presentation.message);
     }
-  };
+  }, (errors) => {
+    const message = errors.otpCode?.message ?? null;
+    setErrorMessage(
+      message === '인증 코드를 입력해 주세요.'
+        ? '현재 인증 코드는 숫자 6자리로 입력해 주세요.'
+        : message,
+    );
+  });
 
   const frameProps: AuthFrameControllerProps = useMemo(() => ({
     displayMode,
@@ -101,16 +126,18 @@ export const useMfaRecoveryRebindPageController = () => {
     formProps: {
       qrUri: bootstrap?.qrUri ?? '',
       manualEntryKey: bootstrap?.manualEntryKey ?? '',
-      otpCode,
+      otpCode: otpCodeField.value,
       errorMessage,
       expiresAtLabel: countdown.expiresAtLabel,
       remainingLabel: countdown.remainingLabel,
-      isSubmitting,
+      isSubmitting: form.formState.isSubmitting,
       onOtpCodeChange: (value: string) => {
         setErrorMessage(null);
-        setOtpCode(sanitizeOtpCodeInput(value));
+        otpCodeField.onChange(sanitizeOtpCodeInput(value));
       },
+      onOtpCodeBlur: otpCodeField.onBlur,
       onRestartRecovery: () => {
+        setIsRestartingRecovery(true);
         clearMfaRecovery();
         navigate(buildMfaRecoveryPath(mfaRecovery?.suggestedEmail, redirectPath), {
           replace: true,

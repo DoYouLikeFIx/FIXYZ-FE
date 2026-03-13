@@ -1,19 +1,25 @@
 import { useState, type FormEventHandler } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useController, useForm } from 'react-hook-form';
 
 import { startLoginFlow, verifyLoginOtp } from '@/api/authApi';
 import {
-  isCompleteOtpCode,
   sanitizeOtpCodeInput,
   useExpiryCountdown,
 } from '@/hooks/auth/useTotpHelpers';
 import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
-import { useLoginFormState } from '@/hooks/auth/useLoginFormState';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
 import {
   getAuthErrorMessage,
   resolveMfaErrorPresentation,
 } from '@/lib/auth-errors';
+import {
+  loginMfaSchema,
+  loginSchema,
+  type LoginFormValues,
+  type LoginMfaFormValues,
+} from '@/lib/schemas/auth.schema';
 import {
   buildLoginRedirect,
   buildMfaRecoveryPath,
@@ -43,10 +49,37 @@ export const useLoginPageController = () => {
   const hasPasswordResetSuccess = hasPasswordResetSuccessQuery(searchParams);
   const hasMfaRecoverySuccess = hasMfaRecoverySuccessQuery(searchParams);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPasswordRecoveryHelp, setShowPasswordRecoveryHelp] = useState(false);
-  const [otpCode, setOtpCode] = useState('');
-  const loginForm = useLoginFormState();
+  const [showPassword, setShowPassword] = useState(false);
+  const loginForm = useForm<LoginFormValues>({
+    defaultValues: {
+      email: '',
+      password: '',
+    },
+    mode: 'onTouched',
+    reValidateMode: 'onChange',
+    resolver: zodResolver(loginSchema),
+  });
+  const loginMfaForm = useForm<LoginMfaFormValues>({
+    defaultValues: {
+      otpCode: '',
+    },
+    mode: 'onTouched',
+    reValidateMode: 'onChange',
+    resolver: zodResolver(loginMfaSchema),
+  });
+  const { field: emailField } = useController({
+    control: loginForm.control,
+    name: 'email',
+  });
+  const { field: passwordField } = useController({
+    control: loginForm.control,
+    name: 'password',
+  });
+  const { field: otpCodeField } = useController({
+    control: loginMfaForm.control,
+    name: 'otpCode',
+  });
   const { displayMode, handleTabNavigation } = useAuthTabsNavigation('login');
   const isMfaStep = pendingMfa?.nextAction === 'VERIFY_TOTP';
   const pendingMfaEmail = pendingMfa?.email?.trim() ?? '';
@@ -56,33 +89,26 @@ export const useLoginPageController = () => {
 
   const restartPasswordStep = () => {
     clearPendingMfa();
-    setOtpCode('');
+    loginMfaForm.reset();
     setErrorMessage(null);
   };
 
-  const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
-    event.preventDefault();
+  const handleSubmit: FormEventHandler<HTMLFormElement> = loginForm.handleSubmit(async (values) => {
     setErrorMessage(null);
     clearReauthMessage();
 
-    const validationResult = loginForm.validate();
-
-    if (validationResult) {
-      setErrorMessage(validationResult.message);
-      return;
-    }
-
-    setIsSubmitting(true);
-
     try {
       const redirectPath = resolveRedirectTarget(searchParams.get('redirect'));
-      const challenge = await startLoginFlow(loginForm.getPayload());
+      const challenge = await startLoginFlow({
+        email: values.email.trim(),
+        password: values.password,
+      });
       startMfaChallenge(
         challenge,
         redirectPath,
-        loginForm.email.trim(),
+        values.email.trim(),
       );
-      setOtpCode('');
+      loginMfaForm.reset();
 
       if (challenge.nextAction === 'ENROLL_TOTP') {
         navigate(buildTotpEnrollmentRedirect(redirectPath), {
@@ -95,33 +121,27 @@ export const useLoginPageController = () => {
       }
     } catch (error) {
       setErrorMessage(getAuthErrorMessage(error));
-    } finally {
-      setIsSubmitting(false);
     }
-  };
+  }, (errors) => {
+    setErrorMessage(
+      errors.email?.message
+      ?? errors.password?.message
+      ?? null,
+    );
+  });
 
-  const handleVerifyMfa: FormEventHandler<HTMLFormElement> = async (event) => {
-    event.preventDefault();
-
+  const handleVerifyMfa: FormEventHandler<HTMLFormElement> = loginMfaForm.handleSubmit(async ({ otpCode }) => {
     if (!pendingMfa) {
       restartPasswordStep();
       return;
     }
 
-    const normalizedOtp = sanitizeOtpCodeInput(otpCode);
-
-    if (!isCompleteOtpCode(normalizedOtp)) {
-      setErrorMessage('인증 코드는 숫자 6자리로 입력해 주세요.');
-      return;
-    }
-
-    setIsSubmitting(true);
     setErrorMessage(null);
 
     try {
       const member = await verifyLoginOtp({
         loginToken: pendingMfa.loginToken,
-        otpCode: normalizedOtp,
+        otpCode: sanitizeOtpCodeInput(otpCode),
       });
       login(member);
       navigate(pendingMfa.redirectPath, {
@@ -147,7 +167,7 @@ export const useLoginPageController = () => {
         useAuthStore.getState().requireReauth(presentation.message);
         restartPasswordStep();
       } else if (presentation.navigateToRecovery) {
-        const recoveryEmail = pendingMfaEmail || loginForm.email.trim();
+        const recoveryEmail = pendingMfaEmail || emailField.value.trim();
         const recoveryRoute = resolveMfaRecoveryRoute(presentation.recoveryUrl)
           === buildMfaRecoveryPath()
           ? buildMfaRecoveryPath(recoveryEmail)
@@ -164,10 +184,15 @@ export const useLoginPageController = () => {
       } else {
         setErrorMessage(presentation.message);
       }
-    } finally {
-      setIsSubmitting(false);
     }
-  };
+  }, (errors) => {
+    const message = errors.otpCode?.message ?? null;
+    setErrorMessage(
+      message === '인증 코드를 입력해 주세요.'
+        ? '인증 코드는 숫자 6자리로 입력해 주세요.'
+        : message,
+    );
+  });
 
   const frameProps: AuthFrameControllerProps = {
     displayMode,
@@ -199,39 +224,44 @@ export const useLoginPageController = () => {
       : ['FIX 플랫폼에 오신 것을', '환영합니다!'],
     frameProps,
     formProps: {
-      email: loginForm.email,
-      password: loginForm.password,
-      showPassword: loginForm.showPassword,
-      emailInvalid: loginForm.fieldErrors.email,
-      passwordInvalid: loginForm.fieldErrors.password,
+      email: emailField.value,
+      password: passwordField.value,
+      showPassword,
+      emailInvalid: Boolean(loginForm.formState.errors.email),
+      passwordInvalid: Boolean(loginForm.formState.errors.password),
       showPasswordRecoveryHelp,
       errorMessage,
-      isSubmitting,
-      forgotPasswordHref: buildForgotPasswordPath(loginForm.email, redirectPath),
+      isSubmitting: loginForm.formState.isSubmitting,
+      forgotPasswordHref: buildForgotPasswordPath(emailField.value, redirectPath),
       onEmailChange: (value: string) => {
         setErrorMessage(null);
-        loginForm.setEmail(value);
+        emailField.onChange(value);
       },
+      onEmailBlur: emailField.onBlur,
       onPasswordChange: (value: string) => {
         setErrorMessage(null);
-        loginForm.setPassword(value);
+        passwordField.onChange(value);
       },
-      onTogglePasswordVisibility: loginForm.togglePasswordVisibility,
+      onPasswordBlur: passwordField.onBlur,
+      onTogglePasswordVisibility: () => {
+        setShowPassword((current) => !current);
+      },
       onTogglePasswordRecoveryHelp: () => {
         setShowPasswordRecoveryHelp((current) => !current);
       },
       onSubmit: handleSubmit,
     },
     mfaFormProps: {
-      otpCode,
+      otpCode: otpCodeField.value,
       errorMessage,
       expiresAtLabel: countdown.expiresAtLabel,
       remainingLabel: countdown.remainingLabel,
-      isSubmitting,
+      isSubmitting: loginMfaForm.formState.isSubmitting,
       onOtpCodeChange: (value: string) => {
         setErrorMessage(null);
-        setOtpCode(sanitizeOtpCodeInput(value));
+        otpCodeField.onChange(sanitizeOtpCodeInput(value));
       },
+      onOtpCodeBlur: otpCodeField.onBlur,
       onRestartLogin: restartPasswordStep,
       onSubmit: handleVerifyMfa,
     },

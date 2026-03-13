@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useController, useForm } from 'react-hook-form';
 
 import {
   bootstrapAuthenticatedTotpRebind,
@@ -9,11 +11,32 @@ import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
 import { resolveMfaErrorPresentation } from '@/lib/auth-errors';
 import {
+  mfaRecoveryEntrySchema,
+  type MfaRecoveryEntryFormValues,
+} from '@/lib/schemas/auth.schema';
+import {
+  buildLoginRedirect,
   buildForgotPasswordPath,
   buildMfaRecoveryRebindPath,
+  DEFAULT_PROTECTED_ROUTE,
   resolveRedirectTarget,
 } from '@/router/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
+
+interface MfaRecoveryLocationState {
+  recoveryErrorMessage?: string;
+}
+
+const getLocationRecoveryError = (state: unknown) => {
+  if (!state || typeof state !== 'object') {
+    return null;
+  }
+
+  const candidate = state as MfaRecoveryLocationState;
+  return typeof candidate.recoveryErrorMessage === 'string'
+    ? candidate.recoveryErrorMessage
+    : null;
+};
 
 export const useMfaRecoveryPageController = () => {
   const status = useAuthStore((state) => state.status);
@@ -22,14 +45,27 @@ export const useMfaRecoveryPageController = () => {
   const clearPendingMfa = useAuthStore((state) => state.clearPendingMfa);
   const clearMfaRecovery = useAuthStore((state) => state.clearMfaRecovery);
   const openMfaRecovery = useAuthStore((state) => state.openMfaRecovery);
+  const requireReauth = useAuthStore((state) => state.requireReauth);
   const storeMfaRecoveryBootstrap = useAuthStore((state) => state.storeMfaRecoveryBootstrap);
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [currentPassword, setCurrentPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasAttemptedProofBootstrap, setHasAttemptedProofBootstrap] = useState(false);
   const proofBootstrapRequestIdRef = useRef(0);
+  const form = useForm<MfaRecoveryEntryFormValues>({
+    defaultValues: {
+      currentPassword: '',
+    },
+    mode: 'onTouched',
+    reValidateMode: 'onChange',
+    resolver: zodResolver(mfaRecoveryEntrySchema),
+  });
+  const { field: currentPasswordField } = useController({
+    control: form.control,
+    name: 'currentPassword',
+  });
   const { displayMode, handleTabNavigation } = useAuthTabsNavigation('login');
   const suggestedEmail = (searchParams.get('email') ?? mfaRecovery?.suggestedEmail ?? '').trim();
   const redirectPath = searchParams.get('redirect')
@@ -37,10 +73,17 @@ export const useMfaRecoveryPageController = () => {
     : undefined;
   const hasRecoveryProof = Boolean(mfaRecovery?.recoveryProof);
   const isAuthenticatedEntry = status === 'authenticated' && Boolean(member);
+  const recoveryErrorMessage = getLocationRecoveryError(location.state);
 
   useEffect(() => {
     openMfaRecovery(suggestedEmail);
   }, [openMfaRecovery, suggestedEmail]);
+
+  useEffect(() => {
+    if (recoveryErrorMessage) {
+      setErrorMessage(recoveryErrorMessage);
+    }
+  }, [recoveryErrorMessage]);
 
   useEffect(() => {
     setHasAttemptedProofBootstrap(false);
@@ -128,7 +171,7 @@ export const useMfaRecoveryPageController = () => {
     suggestedEmail,
   ]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = form.handleSubmit(async ({ currentPassword }) => {
     if (!isAuthenticatedEntry) {
       return;
     }
@@ -147,11 +190,26 @@ export const useMfaRecoveryPageController = () => {
         replace: true,
       });
     } catch (error) {
-      setErrorMessage(resolveMfaErrorPresentation(error).message);
+      const presentation = resolveMfaErrorPresentation(error);
+
+      if (presentation.navigateToEnroll) {
+        clearPendingMfa();
+        clearMfaRecovery();
+        requireReauth('Google Authenticator 등록이 필요합니다. 다시 로그인하면 인증 앱 등록 단계로 이동합니다.');
+        navigate(
+          buildLoginRedirect(redirectPath ?? DEFAULT_PROTECTED_ROUTE),
+          { replace: true },
+        );
+        return;
+      }
+
+      setErrorMessage(presentation.message);
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, (errors) => {
+    setErrorMessage(errors.currentPassword?.message ?? null);
+  });
 
   const frameProps: AuthFrameControllerProps = useMemo(() => ({
     displayMode,
@@ -162,22 +220,25 @@ export const useMfaRecoveryPageController = () => {
   return {
     frameProps,
     formProps: {
-      currentPassword,
+      currentPassword: currentPasswordField.value,
       errorMessage,
       forgotPasswordHref: buildForgotPasswordPath(suggestedEmail, redirectPath),
       hasRecoveryProof,
       isAuthenticatedEntry,
-      isSubmitting,
+      isSubmitting: isSubmitting || form.formState.isSubmitting,
       suggestedEmail,
       onCurrentPasswordChange: (value: string) => {
-        setCurrentPassword(value);
+        currentPasswordField.onChange(value);
         setErrorMessage(null);
       },
+      onCurrentPasswordBlur: currentPasswordField.onBlur,
       onRetryProofBootstrap: () => {
         setHasAttemptedProofBootstrap(false);
         setErrorMessage(null);
       },
-      onSubmit: handleSubmit,
+      onSubmit: () => {
+        void handleSubmit();
+      },
     },
   };
 };

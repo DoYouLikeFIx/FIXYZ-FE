@@ -20,6 +20,7 @@ export const useProtectedSession = () => {
   const requireReauth = useAuthStore((state) => state.requireReauth);
   const {
     sessionExpiryRemainingSeconds: remainingSeconds,
+    sessionExpiryMonitoringUnavailable,
     clearSessionExpiryWarning,
   } = useNotification();
   const navigate = useNavigate();
@@ -61,6 +62,7 @@ export const useProtectedSession = () => {
   return {
     member,
     remainingSeconds,
+    sessionExpiryMonitoringUnavailable,
     isExtending,
     extensionError,
     handleExtendSession,
