@@ -7,6 +7,7 @@ export function ProtectedLayout() {
   const {
     member,
     remainingSeconds,
+    sessionExpiryMonitoringUnavailable,
     isExtending,
     extensionError,
     handleExtendSession,
@@ -26,17 +27,26 @@ export function ProtectedLayout() {
         </div>
       </header>
 
-      {remainingSeconds !== null && (
+      {(remainingSeconds !== null || sessionExpiryMonitoringUnavailable) && (
         <section
           className="session-banner"
-          data-testid="session-expiry-guidance"
+          data-testid={
+            sessionExpiryMonitoringUnavailable
+              ? 'session-expiry-monitoring-unavailable'
+              : 'session-expiry-guidance'
+          }
           role="alert"
         >
           <div>
-            <p className="session-banner__title">Session expiry warning</p>
+            <p className="session-banner__title">
+              {sessionExpiryMonitoringUnavailable
+                ? 'Session monitoring unavailable'
+                : 'Session expiry warning'}
+            </p>
             <p>
-              Your session will expire in {remainingSeconds} seconds. Continue to
-              refresh the secure session before access is interrupted.
+              {sessionExpiryMonitoringUnavailable
+                ? 'This browser cannot receive automatic session expiry warnings. Refresh the secure session manually before access is interrupted.'
+                : `Your session will expire in ${remainingSeconds} seconds. Continue to refresh the secure session before access is interrupted.`}
             </p>
             {extensionError && (
               <p className="session-banner__error" data-testid="session-expiry-error">
@@ -50,7 +60,11 @@ export function ProtectedLayout() {
             disabled={isExtending}
             onClick={handleExtendSession}
           >
-            {isExtending ? 'Refreshing session...' : 'Keep me signed in'}
+            {isExtending
+              ? 'Refreshing session...'
+              : sessionExpiryMonitoringUnavailable
+                ? 'Refresh session now'
+                : 'Keep me signed in'}
           </button>
         </section>
       )}
