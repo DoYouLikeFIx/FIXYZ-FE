@@ -2,6 +2,7 @@ import { createContext } from 'react';
 
 interface NotificationState {
   sessionExpiryRemainingSeconds: number | null;
+  sessionExpiryMonitoringUnavailable: boolean;
 }
 
 export interface NotificationContextValue extends NotificationState {
