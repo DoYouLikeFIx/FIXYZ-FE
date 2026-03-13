@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { ProtectedLayout } from '@/components/layout/ProtectedLayout';
 import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
 import { LoginPage } from '@/pages/LoginPage';
+import { MfaRecoveryPage } from '@/pages/MfaRecoveryPage';
+import { MfaRecoveryRebindPage } from '@/pages/MfaRecoveryRebindPage';
 import { OrderPage } from '@/pages/OrderPage';
 import { PasswordResetPage } from '@/pages/PasswordResetPage';
 import { PortfolioPage } from '@/pages/PortfolioPage';
@@ -13,6 +15,8 @@ import { PrivateRoute } from '@/router/PrivateRoute';
 import { PublicOnlyRoute } from '@/router/PublicOnlyRoute';
 import {
   DEFAULT_PROTECTED_ROUTE,
+  MFA_RECOVERY_REBIND_ROUTE,
+  MFA_RECOVERY_ROUTE,
   TOTP_ENROLL_ROUTE,
 } from '@/router/navigation';
 
@@ -59,6 +63,8 @@ export function AppRouter() {
           </PendingMfaRoute>
         )}
       />
+      <Route path={MFA_RECOVERY_ROUTE} element={<MfaRecoveryPage />} />
+      <Route path={MFA_RECOVERY_REBIND_ROUTE} element={<MfaRecoveryRebindPage />} />
       <Route element={<PrivateRoute />}>
         <Route element={<ProtectedLayout />}>
           <Route path="/portfolio" element={<PortfolioPage />} />
