@@ -41,6 +41,7 @@ export interface NormalizedApiError extends Error {
   operatorCode?: string;
   retryAfterSeconds?: number;
   enrollUrl?: string;
+  recoveryUrl?: string;
   userMessageKey?: string;
 }
 
@@ -52,6 +53,7 @@ interface DirectApiErrorPayload {
   operatorCode?: string;
   retryAfterSeconds?: unknown;
   enrollUrl?: string;
+  recoveryUrl?: string;
   userMessageKey?: string;
   timestamp?: string;
 }
@@ -97,6 +99,7 @@ export const createNormalizedApiError = (
     operatorCode?: string;
     retryAfterSeconds?: number;
     enrollUrl?: string;
+    recoveryUrl?: string;
     userMessageKey?: string;
   },
 ): NormalizedApiError => {
@@ -109,6 +112,7 @@ export const createNormalizedApiError = (
   normalized.operatorCode = options?.operatorCode;
   normalized.retryAfterSeconds = options?.retryAfterSeconds;
   normalized.enrollUrl = options?.enrollUrl;
+  normalized.recoveryUrl = options?.recoveryUrl;
   normalized.userMessageKey = options?.userMessageKey;
 
   return normalized;
@@ -204,6 +208,10 @@ const unwrapEnvelope = <T>(response: AxiosResponse<T>): AxiosResponse<T> => {
           typeof payload.error?.enrollUrl === 'string'
             ? payload.error.enrollUrl
             : undefined,
+        recoveryUrl:
+          typeof payload.error?.recoveryUrl === 'string'
+            ? payload.error.recoveryUrl
+            : undefined,
         userMessageKey:
           typeof payload.error?.userMessageKey === 'string'
             ? payload.error.userMessageKey
@@ -244,6 +252,10 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
           typeof responseData.error.enrollUrl === 'string'
             ? responseData.error.enrollUrl
             : undefined,
+        recoveryUrl:
+          typeof responseData.error.recoveryUrl === 'string'
+            ? responseData.error.recoveryUrl
+            : undefined,
         userMessageKey:
           typeof responseData.error.userMessageKey === 'string'
             ? responseData.error.userMessageKey
@@ -271,6 +283,10 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
         enrollUrl:
           typeof responseData.enrollUrl === 'string'
             ? responseData.enrollUrl
+            : undefined,
+        recoveryUrl:
+          typeof responseData.recoveryUrl === 'string'
+            ? responseData.recoveryUrl
             : undefined,
         userMessageKey:
           typeof responseData.userMessageKey === 'string'
