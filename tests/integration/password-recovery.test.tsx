@@ -14,6 +14,9 @@ const mockConfirmTotpEnrollment = vi.fn();
 const mockRequestPasswordResetEmail = vi.fn();
 const mockRequestPasswordRecoveryChallenge = vi.fn();
 const mockResetPassword = vi.fn();
+const mockBootstrapAuthenticatedTotpRebind = vi.fn();
+const mockBootstrapRecoveryTotpRebind = vi.fn();
+const mockConfirmMfaRecoveryRebind = vi.fn();
 
 vi.mock('@/api/authApi', () => ({
   fetchSession: () => mockFetchSession(),
@@ -26,6 +29,9 @@ vi.mock('@/api/authApi', () => ({
   requestPasswordRecoveryChallenge: (payload: unknown) =>
     mockRequestPasswordRecoveryChallenge(payload),
   resetPassword: (payload: unknown) => mockResetPassword(payload),
+  bootstrapAuthenticatedTotpRebind: (payload: unknown) => mockBootstrapAuthenticatedTotpRebind(payload),
+  bootstrapRecoveryTotpRebind: (payload: unknown) => mockBootstrapRecoveryTotpRebind(payload),
+  confirmMfaRecoveryRebind: (payload: unknown) => mockConfirmMfaRecoveryRebind(payload),
 }));
 
 const createApiError = (
@@ -40,6 +46,7 @@ const createApiError = (
   error.status = overrides.status;
   error.retryAfterSeconds = overrides.retryAfterSeconds;
   error.traceId = overrides.traceId;
+  error.recoveryUrl = overrides.recoveryUrl;
 
   return error;
 };
@@ -55,6 +62,9 @@ describe('password recovery routes', () => {
     mockRequestPasswordResetEmail.mockReset();
     mockRequestPasswordRecoveryChallenge.mockReset();
     mockResetPassword.mockReset();
+    mockBootstrapAuthenticatedTotpRebind.mockReset();
+    mockBootstrapRecoveryTotpRebind.mockReset();
+    mockConfirmMfaRecoveryRebind.mockReset();
     resetAuthStore();
     window.history.pushState({}, '', '/login');
     mockFetchSession.mockRejectedValue(
@@ -68,6 +78,7 @@ describe('password recovery routes', () => {
 
   it('opens the dedicated forgot-password route from login and preserves the typed email', async () => {
     const user = userEvent.setup();
+    window.history.pushState({}, '', '/login?redirect=/orders');
 
     render(<App />);
 
@@ -77,7 +88,12 @@ describe('password recovery routes', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/forgot-password');
     });
+    expect(window.location.search).toBe('?email=demo%40fix.com&redirect=%2Forders');
     expect(await screen.findByTestId('forgot-password-email')).toHaveValue('demo@fix.com');
+    expect(screen.getByTestId('forgot-password-open-reset')).toHaveAttribute(
+      'href',
+      '/reset-password?redirect=%2Forders',
+    );
   });
 
   it.each([
@@ -153,9 +169,9 @@ describe('password recovery routes', () => {
 
   it('returns to login with deterministic success guidance after reset succeeds', async () => {
     const user = userEvent.setup();
-    mockResetPassword.mockResolvedValue(undefined);
+    mockResetPassword.mockResolvedValue({});
 
-    window.history.pushState({}, '', '/reset-password?token=raw-reset-token');
+    window.history.pushState({}, '', '/reset-password?token=raw-reset-token&redirect=%2Forders');
     render(<App />);
 
     await user.type(
@@ -167,6 +183,7 @@ describe('password recovery routes', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/login');
     });
+    expect(window.location.search).toBe('?recovery=reset-success&redirect=%2Forders');
 
     expect(mockResetPassword).toHaveBeenCalledWith({
       token: 'raw-reset-token',
@@ -179,7 +196,7 @@ describe('password recovery routes', () => {
 
   it('uses the latest token when the reset route receives a newer handoff in the same session', async () => {
     const user = userEvent.setup();
-    mockResetPassword.mockResolvedValue(undefined);
+    mockResetPassword.mockResolvedValue({});
 
     window.history.pushState({}, '', '/reset-password?token=first-token');
     render(<App />);
@@ -312,7 +329,7 @@ describe('password recovery routes', () => {
     expect(screen.queryByTestId('forgot-password-bootstrap-challenge')).not.toBeInTheDocument();
   });
 
-  it('routes reset AUTH-016 outcomes back to login with re-auth guidance', async () => {
+  it('routes reset AUTH-016 outcomes back to login with re-auth guidance and preserves redirect intent', async () => {
     const user = userEvent.setup();
     mockResetPassword.mockRejectedValue(
       createApiError({
@@ -322,7 +339,7 @@ describe('password recovery routes', () => {
       }),
     );
 
-    window.history.pushState({}, '', '/reset-password?token=stale-token');
+    window.history.pushState({}, '', '/reset-password?token=stale-token&redirect=%2Forders');
     render(<App />);
 
     await user.type(
@@ -334,6 +351,7 @@ describe('password recovery routes', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/login');
     });
+    expect(window.location.search).toBe('?redirect=%2Forders');
     expect(await screen.findByTestId('reauth-guidance')).toHaveTextContent(
       '세션이 만료되었습니다. 다시 로그인해 주세요.',
     );
@@ -345,5 +363,154 @@ describe('password recovery routes', () => {
 
     await screen.findByTestId('login-email');
     expect(screen.queryByTestId('password-reset-success')).not.toBeInTheDocument();
+  });
+
+  it('routes password reset responses with recovery proof into the MFA recovery flow', async () => {
+    const user = userEvent.setup();
+    const recoveryBootstrap = new Promise(() => {});
+
+    mockResetPassword.mockResolvedValue({
+      recoveryProof: 'recovery-proof-token',
+      recoveryProofExpiresInSeconds: 600,
+    });
+    mockBootstrapRecoveryTotpRebind.mockReturnValue(recoveryBootstrap);
+
+    window.history.pushState({}, '', '/reset-password?token=raw-reset-token');
+    render(<App />);
+
+    await user.type(
+      await screen.findByTestId('reset-password-new-password'),
+      'Test1234!',
+    );
+    await user.click(screen.getByTestId('reset-password-submit'));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/mfa-recovery');
+    });
+    expect(await screen.findByTestId('mfa-recovery-entry')).toHaveTextContent(
+      '비밀번호 재설정이 완료되어 새 authenticator 등록을 준비하고 있습니다.',
+    );
+    expect(mockBootstrapRecoveryTotpRebind).toHaveBeenCalledWith({
+      recoveryProof: 'recovery-proof-token',
+    });
+  });
+
+  it('clears consumed recovery proof state and returns the recovery entry to password-reset restart guidance', async () => {
+    const user = userEvent.setup();
+
+    mockResetPassword.mockResolvedValue({
+      recoveryProof: 'recovery-proof-token',
+      recoveryProofExpiresInSeconds: 600,
+    });
+    mockBootstrapRecoveryTotpRebind.mockRejectedValue(
+      createApiError({
+        code: 'AUTH-020',
+        status: 409,
+        message: 'mfa recovery proof already consumed',
+      }),
+    );
+
+    window.history.pushState({}, '', '/reset-password?token=raw-reset-token&redirect=%2Forders');
+    render(<App />);
+
+    await user.type(
+      await screen.findByTestId('reset-password-new-password'),
+      'Test1234!',
+    );
+    await user.click(screen.getByTestId('reset-password-submit'));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/mfa-recovery');
+    });
+    expect(await screen.findByTestId('mfa-recovery-error')).toHaveTextContent(
+      '이미 사용된 복구 단계입니다. 비밀번호 재설정을 다시 진행해 주세요.',
+    );
+    expect(screen.getByTestId('mfa-recovery-open-forgot-password')).toHaveAttribute(
+      'href',
+      '/forgot-password?redirect=%2Forders',
+    );
+    expect(screen.queryByTestId('mfa-recovery-retry')).not.toBeInTheDocument();
+  });
+
+  it('routes MFA verification recovery-required errors into the recovery entry flow with the typed email', async () => {
+    const user = userEvent.setup();
+    mockStartLoginFlow.mockResolvedValue({
+      loginToken: 'login-token',
+      nextAction: 'VERIFY_TOTP',
+      totpEnrolled: true,
+      expiresAt: '2026-03-12T10:00:00Z',
+    });
+    mockVerifyLoginOtp.mockRejectedValue(
+      createApiError({
+        code: 'AUTH-021',
+        status: 403,
+        message: 'MFA recovery required',
+        recoveryUrl: '/mfa-recovery',
+      }),
+    );
+
+    window.history.pushState({}, '', '/login?redirect=/orders');
+    render(<App />);
+
+    await user.type(await screen.findByTestId('login-email'), 'demo@fix.com');
+    await user.type(screen.getByTestId('login-password'), 'Test1234!');
+    await user.click(screen.getByTestId('login-submit'));
+    await user.type(await screen.findByTestId('login-mfa-input'), '123456');
+    await user.click(screen.getByTestId('login-mfa-submit'));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/mfa-recovery');
+    });
+    expect(window.location.search).toBe('?email=demo%40fix.com&redirect=%2Forders');
+    expect(await screen.findByTestId('mfa-recovery-open-forgot-password')).toHaveAttribute(
+      'href',
+      '/forgot-password?email=demo%40fix.com&redirect=%2Forders',
+    );
+  });
+
+  it('returns to login with the MFA recovery success banner after rebind confirmation', async () => {
+    const user = userEvent.setup();
+    mockResetPassword.mockResolvedValue({
+      recoveryProof: 'recovery-proof-token',
+      recoveryProofExpiresInSeconds: 600,
+    });
+    mockBootstrapRecoveryTotpRebind.mockResolvedValue({
+      rebindToken: 'rebind-token',
+      qrUri: 'otpauth://totp/FIX:demo@fix.com?secret=ABC123',
+      manualEntryKey: 'ABC123',
+      enrollmentToken: 'enrollment-token',
+      expiresAt: '2026-03-12T10:05:00Z',
+    });
+    mockConfirmMfaRecoveryRebind.mockResolvedValue({
+      rebindCompleted: true,
+      reauthRequired: true,
+    });
+
+    window.history.pushState({}, '', '/reset-password?token=raw-reset-token&redirect=%2Forders');
+    render(<App />);
+
+    await user.type(
+      await screen.findByTestId('reset-password-new-password'),
+      'Test1234!',
+    );
+    await user.click(screen.getByTestId('reset-password-submit'));
+
+    expect(await screen.findByTestId('mfa-recovery-manual-key')).toHaveTextContent('ABC123');
+
+    await user.type(screen.getByTestId('mfa-recovery-code'), '123456');
+    await user.click(screen.getByTestId('mfa-recovery-confirm-submit'));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/login');
+    });
+    expect(window.location.search).toBe('?mfaRecovery=rebound&redirect=%2Forders');
+    expect(await screen.findByTestId('mfa-recovery-success')).toHaveTextContent(
+      '새 authenticator 등록이 완료되었습니다. 새 비밀번호와 현재 인증 코드로 다시 로그인해 주세요.',
+    );
+    expect(mockConfirmMfaRecoveryRebind).toHaveBeenCalledWith({
+      rebindToken: 'rebind-token',
+      enrollmentToken: 'enrollment-token',
+      otpCode: '123456',
+    });
   });
 });
