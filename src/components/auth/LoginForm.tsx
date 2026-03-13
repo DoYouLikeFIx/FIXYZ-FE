@@ -14,7 +14,9 @@ interface LoginFormProps {
   isSubmitting: boolean;
   forgotPasswordHref: string;
   onEmailChange: (value: string) => void;
+  onEmailBlur?: () => void;
   onPasswordChange: (value: string) => void;
+  onPasswordBlur?: () => void;
   onTogglePasswordVisibility: () => void;
   onTogglePasswordRecoveryHelp: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
@@ -31,7 +33,9 @@ export function LoginForm({
   isSubmitting,
   forgotPasswordHref,
   onEmailChange,
+  onEmailBlur,
   onPasswordChange,
+  onPasswordBlur,
   onTogglePasswordVisibility,
   onTogglePasswordRecoveryHelp,
   onSubmit,
@@ -39,7 +43,7 @@ export function LoginForm({
   const passwordRecoveryGuidance = buildPasswordRecoveryGuidance(email);
 
   return (
-    <form className="auth-form auth-form--login" noValidate onSubmit={onSubmit}>
+    <form aria-busy={isSubmitting} className="auth-form auth-form--login" noValidate onSubmit={onSubmit}>
       <div className="field">
         <label className="field-label" htmlFor="login-email">
           이메일
@@ -50,6 +54,7 @@ export function LoginForm({
           data-testid="login-email"
           id="login-email"
           name="email"
+          onBlur={onEmailBlur}
           onChange={(event) => onEmailChange(event.target.value)}
           placeholder="이메일"
           required
@@ -69,6 +74,7 @@ export function LoginForm({
             data-testid="login-password"
             id="login-password"
             name="password"
+            onBlur={onPasswordBlur}
             onChange={(event) => onPasswordChange(event.target.value)}
             placeholder="비밀번호"
             required

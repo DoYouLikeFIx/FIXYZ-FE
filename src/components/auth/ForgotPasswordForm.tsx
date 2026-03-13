@@ -15,7 +15,9 @@ interface ForgotPasswordFormProps {
   challengeState: PasswordRecoveryChallengeResponse | null;
   resetPasswordHref: string;
   onEmailChange: (value: string) => void;
+  onEmailBlur?: () => void;
   onChallengeAnswerChange: (value: string) => void;
+  onChallengeAnswerBlur?: () => void;
   onBootstrapChallenge: () => void;
   onSubmit: () => void;
 }
@@ -33,12 +35,15 @@ export function ForgotPasswordForm({
   challengeState,
   resetPasswordHref,
   onEmailChange,
+  onEmailBlur,
   onChallengeAnswerChange,
+  onChallengeAnswerBlur,
   onBootstrapChallenge,
   onSubmit,
 }: ForgotPasswordFormProps) {
   return (
     <form
+      aria-busy={isSubmitting || isBootstrappingChallenge}
       className="auth-form auth-form--recovery"
       noValidate
       onSubmit={(event) => {
@@ -56,6 +61,7 @@ export function ForgotPasswordForm({
           data-testid="forgot-password-email"
           id="forgot-password-email"
           name="email"
+          onBlur={onEmailBlur}
           onChange={(event) => onEmailChange(event.target.value)}
           placeholder="가입한 이메일"
           required
@@ -117,6 +123,7 @@ export function ForgotPasswordForm({
             data-testid="forgot-password-challenge-answer"
             id="forgot-password-challenge-answer"
             name="challengeAnswer"
+            onBlur={onChallengeAnswerBlur}
             onChange={(event) => onChallengeAnswerChange(event.target.value)}
             placeholder="보안 확인 응답"
             required

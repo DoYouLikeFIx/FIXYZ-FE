@@ -9,6 +9,7 @@ interface MfaRecoveryEntryFormProps {
   isSubmitting: boolean;
   suggestedEmail: string;
   onCurrentPasswordChange: (value: string) => void;
+  onCurrentPasswordBlur?: () => void;
   onRetryProofBootstrap: () => void;
   onSubmit: () => void;
 }
@@ -22,6 +23,7 @@ export function MfaRecoveryEntryForm({
   isSubmitting,
   suggestedEmail,
   onCurrentPasswordChange,
+  onCurrentPasswordBlur,
   onRetryProofBootstrap,
   onSubmit,
 }: MfaRecoveryEntryFormProps) {
@@ -29,6 +31,7 @@ export function MfaRecoveryEntryForm({
 
   return (
     <form
+      aria-busy={isSubmitting}
       className="auth-form auth-form--recovery"
       noValidate
       onSubmit={(event) => {
@@ -80,6 +83,7 @@ export function MfaRecoveryEntryForm({
             data-testid="mfa-recovery-current-password"
             id="mfa-recovery-current-password"
             name="currentPassword"
+            onBlur={onCurrentPasswordBlur}
             onChange={(event) => onCurrentPasswordChange(event.target.value)}
             placeholder="현재 비밀번호"
             required

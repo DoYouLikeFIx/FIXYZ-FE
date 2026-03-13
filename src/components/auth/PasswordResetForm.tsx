@@ -11,6 +11,7 @@ interface PasswordResetFormProps {
   errorMessage: string | null;
   isSubmitting: boolean;
   onPasswordChange: (value: string) => void;
+  onPasswordBlur?: () => void;
   onTogglePasswordVisibility: () => void;
   onSubmit: () => void;
 }
@@ -24,6 +25,7 @@ export function PasswordResetForm({
   errorMessage,
   isSubmitting,
   onPasswordChange,
+  onPasswordBlur,
   onTogglePasswordVisibility,
   onSubmit,
 }: PasswordResetFormProps) {
@@ -48,6 +50,7 @@ export function PasswordResetForm({
 
   return (
     <form
+      aria-busy={isSubmitting}
       className="auth-form auth-form--recovery"
       noValidate
       onSubmit={(event) => {
@@ -66,6 +69,7 @@ export function PasswordResetForm({
             data-testid="reset-password-new-password"
             id="reset-password-new-password"
             name="newPassword"
+            onBlur={onPasswordBlur}
             onChange={(event) => onPasswordChange(event.target.value)}
             placeholder="새 비밀번호"
             required

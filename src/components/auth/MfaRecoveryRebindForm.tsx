@@ -10,6 +10,7 @@ interface MfaRecoveryRebindFormProps {
   isSubmitting: boolean;
   errorMessage: string | null;
   onOtpCodeChange: (value: string) => void;
+  onOtpCodeBlur?: () => void;
   onRestartRecovery: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
 }
@@ -23,6 +24,7 @@ export function MfaRecoveryRebindForm({
   isSubmitting,
   errorMessage,
   onOtpCodeChange,
+  onOtpCodeBlur,
   onRestartRecovery,
   onSubmit,
 }: MfaRecoveryRebindFormProps) {
@@ -77,7 +79,7 @@ export function MfaRecoveryRebindForm({
     : null;
 
   return (
-    <form className="auth-form auth-form--mfa" noValidate onSubmit={onSubmit}>
+    <form aria-busy={isSubmitting} className="auth-form auth-form--mfa" noValidate onSubmit={onSubmit}>
       <div className="totp-enroll-panel">
         <div className="totp-enroll-panel__section">
           <h2 className="totp-enroll-panel__title">새 authenticator 등록</h2>
@@ -125,6 +127,7 @@ export function MfaRecoveryRebindForm({
           inputMode="numeric"
           maxLength={6}
           name="otpCode"
+          onBlur={onOtpCodeBlur}
           onChange={(event) => onOtpCodeChange(event.target.value)}
           pattern="[0-9]*"
           placeholder="6자리 코드"
