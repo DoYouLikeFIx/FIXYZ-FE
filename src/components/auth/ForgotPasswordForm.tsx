@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom';
 
 import type { PasswordRecoveryChallengeResponse } from '@/types/auth';
-import { buildResetPasswordPath } from '@/router/navigation';
 
 interface ForgotPasswordFormProps {
   email: string;
@@ -14,6 +13,7 @@ interface ForgotPasswordFormProps {
   isBootstrappingChallenge: boolean;
   challengeMayBeRequired: boolean;
   challengeState: PasswordRecoveryChallengeResponse | null;
+  resetPasswordHref: string;
   onEmailChange: (value: string) => void;
   onChallengeAnswerChange: (value: string) => void;
   onBootstrapChallenge: () => void;
@@ -31,6 +31,7 @@ export function ForgotPasswordForm({
   isBootstrappingChallenge,
   challengeMayBeRequired,
   challengeState,
+  resetPasswordHref,
   onEmailChange,
   onChallengeAnswerChange,
   onBootstrapChallenge,
@@ -141,7 +142,7 @@ export function ForgotPasswordForm({
       </button>
 
       <div className="auth-secondary-links">
-        <Link data-testid="forgot-password-open-reset" to={buildResetPasswordPath()}>
+        <Link data-testid="forgot-password-open-reset" to={resetPasswordHref}>
           이미 링크를 받으셨나요? 비밀번호 재설정으로 이동
         </Link>
       </div>
