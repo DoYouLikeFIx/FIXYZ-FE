@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "cases": [
+    {
+      "codes": ["AUTH-022", "AUTH_022"],
+      "semantic": "recovery-challenge-invalid",
+      "recoveryAction": "refresh-challenge",
+      "message": "보안 확인이 유효하지 않거나 만료되었습니다. 새 보안 확인을 다시 진행해 주세요."
+    },
+    {
+      "codes": ["AUTH-023", "AUTH_023"],
+      "semantic": "recovery-challenge-bootstrap-unavailable",
+      "recoveryAction": "retry-later",
+      "message": "지금은 보안 확인을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요."
+    },
+    {
+      "codes": ["AUTH-024", "AUTH_024"],
+      "semantic": "recovery-challenge-replayed",
+      "recoveryAction": "refresh-challenge",
+      "message": "이미 사용된 보안 확인입니다. 새 보안 확인을 다시 받아 주세요."
+    },
+    {
+      "codes": ["AUTH-025", "AUTH_025"],
+      "semantic": "recovery-challenge-verify-unavailable",
+      "recoveryAction": "restart-recovery-challenge",
+      "message": "보안 확인을 검증하는 중 문제가 발생했습니다. 현재 보안 확인을 지우고 다시 시작해 주세요."
+    }
+  ]
+}
