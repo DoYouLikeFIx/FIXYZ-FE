@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom';
 
 import type { PasswordRecoveryChallengeResponse } from '@/types/auth';
-import { buildResetPasswordPath } from '@/router/navigation';
 
 interface ForgotPasswordFormProps {
   email: string;
@@ -14,8 +13,11 @@ interface ForgotPasswordFormProps {
   isBootstrappingChallenge: boolean;
   challengeMayBeRequired: boolean;
   challengeState: PasswordRecoveryChallengeResponse | null;
+  resetPasswordHref: string;
   onEmailChange: (value: string) => void;
+  onEmailBlur?: () => void;
   onChallengeAnswerChange: (value: string) => void;
+  onChallengeAnswerBlur?: () => void;
   onBootstrapChallenge: () => void;
   onSubmit: () => void;
 }
@@ -31,13 +33,17 @@ export function ForgotPasswordForm({
   isBootstrappingChallenge,
   challengeMayBeRequired,
   challengeState,
+  resetPasswordHref,
   onEmailChange,
+  onEmailBlur,
   onChallengeAnswerChange,
+  onChallengeAnswerBlur,
   onBootstrapChallenge,
   onSubmit,
 }: ForgotPasswordFormProps) {
   return (
     <form
+      aria-busy={isSubmitting || isBootstrappingChallenge}
       className="auth-form auth-form--recovery"
       noValidate
       onSubmit={(event) => {
@@ -55,6 +61,7 @@ export function ForgotPasswordForm({
           data-testid="forgot-password-email"
           id="forgot-password-email"
           name="email"
+          onBlur={onEmailBlur}
           onChange={(event) => onEmailChange(event.target.value)}
           placeholder="가입한 이메일"
           required
@@ -116,6 +123,7 @@ export function ForgotPasswordForm({
             data-testid="forgot-password-challenge-answer"
             id="forgot-password-challenge-answer"
             name="challengeAnswer"
+            onBlur={onChallengeAnswerBlur}
             onChange={(event) => onChallengeAnswerChange(event.target.value)}
             placeholder="보안 확인 응답"
             required
@@ -141,7 +149,7 @@ export function ForgotPasswordForm({
       </button>
 
       <div className="auth-secondary-links">
-        <Link data-testid="forgot-password-open-reset" to={buildResetPasswordPath()}>
+        <Link data-testid="forgot-password-open-reset" to={resetPasswordHref}>
           이미 링크를 받으셨나요? 비밀번호 재설정으로 이동
         </Link>
       </div>

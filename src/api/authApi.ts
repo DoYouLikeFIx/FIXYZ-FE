@@ -2,13 +2,19 @@ import { api, clearCsrfToken, fetchCsrfToken } from '@/lib/axios';
 import type {
   LoginChallenge,
   LoginRequest,
+  MemberTotpRebindRequest,
   Member,
+  MfaRecoveryRebindConfirmRequest,
+  MfaRecoveryRebindConfirmResponse,
+  MfaRecoveryRebindRequest,
   PasswordForgotRequest,
   PasswordForgotResponse,
   PasswordRecoveryChallengeRequest,
   PasswordRecoveryChallengeResponse,
+  PasswordResetContinuation,
   PasswordResetRequest,
   RegisterRequest,
+  TotpRebindBootstrap,
   TotpEnrollmentBootstrap,
   TotpEnrollmentConfirmationRequest,
   TotpEnrollmentRequest,
@@ -25,6 +31,38 @@ interface AuthMutationResponse {
   totpEnrolled?: boolean;
   accountId?: string | null;
 }
+
+const getHeaderValue = (
+  headers: unknown,
+  name: string,
+) => {
+  if (!headers) {
+    return undefined;
+  }
+
+  if (
+    typeof headers === 'object'
+    && headers !== null
+    && 'get' in headers
+    && typeof (headers as { get: (headerName: string) => unknown }).get === 'function'
+  ) {
+    const value = (headers as { get: (headerName: string) => unknown }).get(name);
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  if (typeof headers === 'object' && headers !== null) {
+    const record = headers as Record<string, unknown>;
+    const direct = record[name] ?? record[name.toLowerCase()] ?? record[name.toUpperCase()];
+
+    if (Array.isArray(direct)) {
+      return typeof direct[0] === 'string' ? direct[0] : undefined;
+    }
+
+    return typeof direct === 'string' ? direct : undefined;
+  }
+
+  return undefined;
+};
 
 const createFormBody = (
   payload: Record<string, string>,
@@ -166,8 +204,65 @@ export const requestPasswordRecoveryChallenge = async (
 
 export const resetPassword = async (
   payload: PasswordResetRequest,
-): Promise<void> => {
-  await api.post('/api/v1/auth/password/reset', payload, {
+): Promise<PasswordResetContinuation> => {
+  const response = await api.post('/api/v1/auth/password/reset', payload, {
     _skipAuthHandling: true,
   });
+
+  const recoveryProof = getHeaderValue(response.headers, 'X-MFA-Recovery-Proof');
+  const rawExpiresIn = getHeaderValue(response.headers, 'X-MFA-Recovery-Proof-Expires-In');
+  const recoveryProofExpiresInSeconds = rawExpiresIn ? Number(rawExpiresIn) : undefined;
+
+  return {
+    recoveryProof: recoveryProof?.trim() ? recoveryProof : undefined,
+    recoveryProofExpiresInSeconds:
+      recoveryProofExpiresInSeconds !== undefined && Number.isFinite(recoveryProofExpiresInSeconds)
+        ? recoveryProofExpiresInSeconds
+        : undefined,
+  };
+};
+
+export const bootstrapAuthenticatedTotpRebind = async (
+  payload: MemberTotpRebindRequest,
+): Promise<TotpRebindBootstrap> => {
+  const response = await api.post<TotpRebindBootstrap>(
+    '/api/v1/members/me/totp/rebind',
+    payload,
+    {
+      _skipAuthHandling: true,
+    },
+  );
+
+  return response.data;
+};
+
+export const bootstrapRecoveryTotpRebind = async (
+  payload: MfaRecoveryRebindRequest,
+): Promise<TotpRebindBootstrap> => {
+  const response = await api.post<TotpRebindBootstrap>(
+    '/api/v1/auth/mfa-recovery/rebind',
+    payload,
+    {
+      _skipAuthHandling: true,
+    },
+  );
+
+  return response.data;
+};
+
+export const confirmMfaRecoveryRebind = async (
+  payload: MfaRecoveryRebindConfirmRequest,
+): Promise<MfaRecoveryRebindConfirmResponse> => {
+  const response = await api.post<MfaRecoveryRebindConfirmResponse>(
+    '/api/v1/auth/mfa-recovery/rebind/confirm',
+    payload,
+    {
+      _skipAuthHandling: true,
+    },
+  );
+
+  clearCsrfToken();
+  await Promise.resolve(fetchCsrfToken(true)).catch(() => undefined);
+
+  return response.data;
 };

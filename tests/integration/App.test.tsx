@@ -873,6 +873,41 @@ describe('App auth flow', () => {
     });
   });
 
+  it('shows a visible manual-refresh fallback when EventSource is unavailable', async () => {
+    const originalEventSource = globalThis.EventSource;
+    const user = userEvent.setup();
+
+    try {
+      vi.stubGlobal('EventSource', undefined);
+      mockFetchSession.mockResolvedValue(memberFixture);
+
+      window.history.pushState({}, '', '/portfolio');
+      render(<App />);
+
+      expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
+        'Portfolio overview',
+      );
+      expect(
+        await screen.findByTestId('session-expiry-monitoring-unavailable'),
+      ).toHaveTextContent(
+        'This browser cannot receive automatic session expiry warnings.',
+      );
+      expect(screen.getByTestId('session-expiry-extend')).toHaveTextContent(
+        'Refresh session now',
+      );
+
+      await user.click(screen.getByTestId('session-expiry-extend'));
+
+      await waitFor(() => {
+        expect(mockFetchSession).toHaveBeenCalledTimes(2);
+      });
+    } finally {
+      if (originalEventSource) {
+        vi.stubGlobal('EventSource', originalEventSource);
+      }
+    }
+  });
+
   it('redirects to login with re-auth guidance when session extension falls back to auth failure', async () => {
     mockFetchSession.mockResolvedValueOnce(memberFixture).mockRejectedValueOnce(
       createApiError({

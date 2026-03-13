@@ -16,6 +16,7 @@ const RECONNECT_DELAY_MS = 3_000;
 
 interface NotificationState {
   sessionExpiryRemainingSeconds: number | null;
+  sessionExpiryMonitoringUnavailable: boolean;
 }
 
 type NotificationAction =
@@ -25,10 +26,17 @@ type NotificationAction =
     }
   | {
       type: 'SESSION_EXPIRY_CLEARED';
+    }
+  | {
+      type: 'SESSION_EXPIRY_MONITORING_UNAVAILABLE';
+    }
+  | {
+      type: 'SESSION_EXPIRY_MONITORING_RESTORED';
     };
 
 const initialNotificationState: NotificationState = {
   sessionExpiryRemainingSeconds: null,
+  sessionExpiryMonitoringUnavailable: false,
 };
 
 const notificationReducer = (
@@ -38,10 +46,25 @@ const notificationReducer = (
   switch (action.type) {
     case 'SESSION_EXPIRY_RECEIVED':
       return {
+        ...state,
         sessionExpiryRemainingSeconds: action.remainingSeconds,
+        sessionExpiryMonitoringUnavailable: false,
       };
     case 'SESSION_EXPIRY_CLEARED':
-      return initialNotificationState;
+      return {
+        ...state,
+        sessionExpiryRemainingSeconds: null,
+      };
+    case 'SESSION_EXPIRY_MONITORING_UNAVAILABLE':
+      return {
+        sessionExpiryRemainingSeconds: null,
+        sessionExpiryMonitoringUnavailable: true,
+      };
+    case 'SESSION_EXPIRY_MONITORING_RESTORED':
+      return {
+        ...state,
+        sessionExpiryMonitoringUnavailable: false,
+      };
     default:
       return state;
   }
@@ -74,8 +97,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (authStatus !== 'authenticated') {
       dispatch({ type: 'SESSION_EXPIRY_CLEARED' });
+      dispatch({ type: 'SESSION_EXPIRY_MONITORING_RESTORED' });
       return undefined;
     }
+
+    if (typeof EventSource === 'undefined') {
+      dispatch({ type: 'SESSION_EXPIRY_MONITORING_UNAVAILABLE' });
+      return undefined;
+    }
+
+    dispatch({ type: 'SESSION_EXPIRY_MONITORING_RESTORED' });
 
     let active = true;
     let reconnectHandle: number | null = null;
@@ -98,26 +129,30 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     };
 
     const connect = () => {
-      stream = new EventSource(resolveNotificationStreamUrl(), {
-        withCredentials: true,
-      });
-      stream.addEventListener(
-        'session-expiry',
-        handleSessionExpiry as EventListener,
-      );
-      stream.onerror = () => {
-        stream?.removeEventListener(
+      try {
+        stream = new EventSource(resolveNotificationStreamUrl(), {
+          withCredentials: true,
+        });
+        stream.addEventListener(
           'session-expiry',
           handleSessionExpiry as EventListener,
         );
-        stream?.close();
+        stream.onerror = () => {
+          stream?.removeEventListener(
+            'session-expiry',
+            handleSessionExpiry as EventListener,
+          );
+          stream?.close();
 
-        if (!active) {
-          return;
-        }
+          if (!active) {
+            return;
+          }
 
-        reconnectHandle = window.setTimeout(connect, RECONNECT_DELAY_MS);
-      };
+          reconnectHandle = window.setTimeout(connect, RECONNECT_DELAY_MS);
+        };
+      } catch {
+        dispatch({ type: 'SESSION_EXPIRY_MONITORING_UNAVAILABLE' });
+      }
     };
 
     connect();

@@ -1,6 +1,9 @@
 import {
   beginTotpEnrollment,
+  bootstrapAuthenticatedTotpRebind,
+  bootstrapRecoveryTotpRebind,
   confirmTotpEnrollment,
+  confirmMfaRecoveryRebind,
   fetchSession,
   requestPasswordRecoveryChallenge,
   requestPasswordResetEmail,
@@ -305,10 +308,11 @@ describe('auth api', () => {
     );
   });
 
-  it('submits the password reset payload as JSON and resolves without a body', async () => {
+  it('submits the password reset payload as JSON and returns empty recovery continuation by default', async () => {
     mockPost.mockResolvedValue({
       status: 204,
       data: null,
+      headers: {},
     });
 
     await expect(
@@ -316,7 +320,10 @@ describe('auth api', () => {
         token: 'reset-token',
         newPassword: 'Test1234!',
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({
+      recoveryProof: undefined,
+      recoveryProofExpiresInSeconds: undefined,
+    });
 
     expect(mockPost).toHaveBeenCalledWith(
       '/api/v1/auth/password/reset',
@@ -328,5 +335,152 @@ describe('auth api', () => {
         _skipAuthHandling: true,
       },
     );
+  });
+
+  it('returns MFA recovery continuation when the password reset response includes proof headers', async () => {
+    mockPost.mockResolvedValue({
+      status: 204,
+      data: null,
+      headers: {
+        'x-mfa-recovery-proof': 'recovery-proof-token',
+        'x-mfa-recovery-proof-expires-in': '600',
+      },
+    });
+
+    await expect(
+      resetPassword({
+        token: 'reset-token',
+        newPassword: 'Test1234!',
+      }),
+    ).resolves.toEqual({
+      recoveryProof: 'recovery-proof-token',
+      recoveryProofExpiresInSeconds: 600,
+    });
+  });
+
+  it('bootstraps authenticated TOTP rebind as JSON', async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        rebindToken: 'rebind-token',
+        qrUri: 'otpauth://totp/FIX:demo@fix.com?secret=ABC123',
+        manualEntryKey: 'ABC123',
+        enrollmentToken: 'enrollment-token',
+        expiresAt: '2026-03-12T10:05:00Z',
+      },
+    });
+
+    await expect(
+      bootstrapAuthenticatedTotpRebind({
+        currentPassword: 'Test1234!',
+      }),
+    ).resolves.toEqual({
+      rebindToken: 'rebind-token',
+      qrUri: 'otpauth://totp/FIX:demo@fix.com?secret=ABC123',
+      manualEntryKey: 'ABC123',
+      enrollmentToken: 'enrollment-token',
+      expiresAt: '2026-03-12T10:05:00Z',
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/members/me/totp/rebind',
+      {
+        currentPassword: 'Test1234!',
+      },
+      {
+        _skipAuthHandling: true,
+      },
+    );
+  });
+
+  it('bootstraps recovery-driven TOTP rebind as JSON', async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        rebindToken: 'rebind-token',
+        qrUri: 'otpauth://totp/FIX:demo@fix.com?secret=ABC123',
+        manualEntryKey: 'ABC123',
+        enrollmentToken: 'enrollment-token',
+        expiresAt: '2026-03-12T10:05:00Z',
+      },
+    });
+
+    await expect(
+      bootstrapRecoveryTotpRebind({
+        recoveryProof: 'recovery-proof-token',
+      }),
+    ).resolves.toEqual({
+      rebindToken: 'rebind-token',
+      qrUri: 'otpauth://totp/FIX:demo@fix.com?secret=ABC123',
+      manualEntryKey: 'ABC123',
+      enrollmentToken: 'enrollment-token',
+      expiresAt: '2026-03-12T10:05:00Z',
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/auth/mfa-recovery/rebind',
+      {
+        recoveryProof: 'recovery-proof-token',
+      },
+      {
+        _skipAuthHandling: true,
+      },
+    );
+  });
+
+  it('confirms MFA recovery rebind as JSON', async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        rebindCompleted: true,
+        reauthRequired: true,
+      },
+    });
+
+    await expect(
+      confirmMfaRecoveryRebind({
+        rebindToken: 'rebind-token',
+        enrollmentToken: 'enrollment-token',
+        otpCode: '123456',
+      }),
+    ).resolves.toEqual({
+      rebindCompleted: true,
+      reauthRequired: true,
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/auth/mfa-recovery/rebind/confirm',
+      {
+        rebindToken: 'rebind-token',
+        enrollmentToken: 'enrollment-token',
+        otpCode: '123456',
+      },
+      {
+        _skipAuthHandling: true,
+      },
+    );
+    expect(mockClearCsrfToken).toHaveBeenCalledTimes(1);
+    expect(mockFetchCsrfToken).toHaveBeenCalledWith(true);
+  });
+
+  it('does not mask a successful MFA recovery rebind when csrf bootstrap refresh fails', async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        rebindCompleted: true,
+        reauthRequired: true,
+      },
+    });
+    mockFetchCsrfToken.mockRejectedValue(new Error('csrf bootstrap unavailable'));
+
+    await expect(
+      confirmMfaRecoveryRebind({
+        rebindToken: 'rebind-token',
+        enrollmentToken: 'enrollment-token',
+        otpCode: '123456',
+      }),
+    ).resolves.toEqual({
+      rebindCompleted: true,
+      reauthRequired: true,
+    });
+
+    expect(mockClearCsrfToken).toHaveBeenCalledTimes(1);
+    expect(mockFetchCsrfToken).toHaveBeenCalledWith(true);
   });
 });

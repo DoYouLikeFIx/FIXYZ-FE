@@ -7,6 +7,7 @@ interface LoginMfaFormProps {
   remainingLabel: string;
   isSubmitting: boolean;
   onOtpCodeChange: (value: string) => void;
+  onOtpCodeBlur?: () => void;
   onRestartLogin: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
 }
@@ -18,11 +19,12 @@ export function LoginMfaForm({
   remainingLabel,
   isSubmitting,
   onOtpCodeChange,
+  onOtpCodeBlur,
   onRestartLogin,
   onSubmit,
 }: LoginMfaFormProps) {
   return (
-    <form className="auth-form auth-form--mfa" noValidate onSubmit={onSubmit}>
+    <form aria-busy={isSubmitting} className="auth-form auth-form--mfa" noValidate onSubmit={onSubmit}>
       <div className="auth-inline-help auth-inline-help--mfa" data-testid="login-mfa-guidance">
         <strong className="auth-inline-help__title">비밀번호 확인이 완료되었습니다</strong>
         <p className="auth-inline-help__body">
@@ -44,6 +46,7 @@ export function LoginMfaForm({
           inputMode="numeric"
           maxLength={6}
           name="otpCode"
+          onBlur={onOtpCodeBlur}
           onChange={(event) => onOtpCodeChange(event.target.value)}
           pattern="[0-9]*"
           placeholder="6자리 코드"
