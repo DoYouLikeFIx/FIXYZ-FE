@@ -16,10 +16,13 @@ import {
 } from '@/lib/auth-errors';
 import {
   buildLoginRedirect,
+  buildMfaRecoveryPath,
   buildTotpEnrollmentRedirect,
   buildRouteWithRedirect,
   buildForgotPasswordPath,
+  hasMfaRecoverySuccessQuery,
   hasPasswordResetSuccessQuery,
+  resolveMfaRecoveryRoute,
   resolveTotpEnrollmentRoute,
   resolveRedirectTarget,
 } from '@/router/navigation';
@@ -33,9 +36,12 @@ export const useLoginPageController = () => {
   const startMfaChallenge = useAuthStore((state) => state.startMfaChallenge);
   const updatePendingMfa = useAuthStore((state) => state.updatePendingMfa);
   const clearPendingMfa = useAuthStore((state) => state.clearPendingMfa);
+  const openMfaRecovery = useAuthStore((state) => state.openMfaRecovery);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const redirectPath = resolveRedirectTarget(searchParams.get('redirect'));
   const hasPasswordResetSuccess = hasPasswordResetSuccessQuery(searchParams);
+  const hasMfaRecoverySuccess = hasMfaRecoverySuccessQuery(searchParams);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPasswordRecoveryHelp, setShowPasswordRecoveryHelp] = useState(false);
@@ -43,6 +49,7 @@ export const useLoginPageController = () => {
   const loginForm = useLoginFormState();
   const { displayMode, handleTabNavigation } = useAuthTabsNavigation('login');
   const isMfaStep = pendingMfa?.nextAction === 'VERIFY_TOTP';
+  const pendingMfaEmail = pendingMfa?.email?.trim() ?? '';
   const countdown = useExpiryCountdown(
     pendingMfa?.expiresAt ?? new Date().toISOString(),
   );
@@ -73,6 +80,7 @@ export const useLoginPageController = () => {
       startMfaChallenge(
         challenge,
         redirectPath,
+        loginForm.email.trim(),
       );
       setOtpCode('');
 
@@ -138,6 +146,21 @@ export const useLoginPageController = () => {
       } else if (presentation.restartLogin) {
         useAuthStore.getState().requireReauth(presentation.message);
         restartPasswordStep();
+      } else if (presentation.navigateToRecovery) {
+        const recoveryEmail = pendingMfaEmail || loginForm.email.trim();
+        const recoveryRoute = resolveMfaRecoveryRoute(presentation.recoveryUrl)
+          === buildMfaRecoveryPath()
+          ? buildMfaRecoveryPath(recoveryEmail)
+          : resolveMfaRecoveryRoute(presentation.recoveryUrl);
+
+        clearPendingMfa();
+        openMfaRecovery(recoveryEmail);
+        navigate(
+          buildRouteWithRedirect(recoveryRoute, pendingMfa.redirectPath),
+          {
+            replace: true,
+          },
+        );
       } else {
         setErrorMessage(presentation.message);
       }
@@ -153,6 +176,8 @@ export const useLoginPageController = () => {
       : reauthMessage ?? (
         hasPasswordResetSuccess
           ? '비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.'
+          : hasMfaRecoverySuccess
+            ? '새 authenticator 등록이 완료되었습니다. 새 비밀번호와 현재 인증 코드로 다시 로그인해 주세요.'
           : null
       ),
     feedbackTone: 'info',
@@ -160,6 +185,8 @@ export const useLoginPageController = () => {
       ? 'reauth-guidance'
       : hasPasswordResetSuccess
         ? 'password-reset-success'
+        : hasMfaRecoverySuccess
+          ? 'mfa-recovery-success'
         : undefined,
     onLoginTabClick: handleTabNavigation('/login'),
     onRegisterTabClick: handleTabNavigation('/register'),
@@ -180,7 +207,7 @@ export const useLoginPageController = () => {
       showPasswordRecoveryHelp,
       errorMessage,
       isSubmitting,
-      forgotPasswordHref: buildForgotPasswordPath(loginForm.email),
+      forgotPasswordHref: buildForgotPasswordPath(loginForm.email, redirectPath),
       onEmailChange: (value: string) => {
         setErrorMessage(null);
         loginForm.setEmail(value);

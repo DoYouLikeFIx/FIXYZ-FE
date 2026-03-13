@@ -12,6 +12,10 @@ import {
   createForgotPasswordFieldErrors,
   validateForgotPasswordForm,
 } from '@/lib/schemas/auth.schema';
+import {
+  buildResetPasswordPath,
+  resolveRedirectTarget,
+} from '@/router/navigation';
 import type { PasswordRecoveryChallengeResponse } from '@/types/auth';
 
 interface RecoveryChallengeState extends PasswordRecoveryChallengeResponse {
@@ -21,6 +25,9 @@ interface RecoveryChallengeState extends PasswordRecoveryChallengeResponse {
 export const useForgotPasswordPageController = () => {
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState(searchParams.get('email') ?? '');
+  const redirectPath = searchParams.get('redirect')
+    ? resolveRedirectTarget(searchParams.get('redirect'))
+    : undefined;
   const [challengeAnswer, setChallengeAnswer] = useState('');
   const [fieldErrors, setFieldErrors] = useState(createForgotPasswordFieldErrors);
   const [acceptedMessage, setAcceptedMessage] = useState<string | null>(null);
@@ -137,6 +144,7 @@ export const useForgotPasswordPageController = () => {
       isBootstrappingChallenge,
       challengeMayBeRequired,
       challengeState,
+      resetPasswordHref: buildResetPasswordPath(undefined, redirectPath),
       onEmailChange: (value: string) => {
         setEmail(value);
         setFieldErrors((current) => ({

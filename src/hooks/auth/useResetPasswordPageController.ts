@@ -11,8 +11,11 @@ import {
   validateResetPasswordForm,
 } from '@/lib/schemas/auth.schema';
 import {
+  buildLoginRedirect,
+  buildMfaRecoveryPath,
   buildPasswordResetSuccessLoginPath,
   buildResetPasswordPath,
+  resolveRedirectTarget,
 } from '@/router/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 
@@ -34,6 +37,9 @@ export const useResetPasswordPageController = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const queryToken = searchParams.get('token')?.trim() ?? '';
+  const redirectPath = searchParams.get('redirect')
+    ? resolveRedirectTarget(searchParams.get('redirect'))
+    : undefined;
   const stateToken = getLocationStateToken(location.state).trim();
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -41,6 +47,7 @@ export const useResetPasswordPageController = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const requireReauth = useAuthStore((state) => state.requireReauth);
+  const storeMfaRecoveryProof = useAuthStore((state) => state.storeMfaRecoveryProof);
   const resetToken = (queryToken || stateToken).trim();
   const { displayMode, handleTabNavigation } = useAuthTabsNavigation('login');
   const { isPasswordValid, passwordPolicyMessage } = getResetPasswordState(newPassword);
@@ -50,13 +57,13 @@ export const useResetPasswordPageController = () => {
       return;
     }
 
-    navigate(buildResetPasswordPath(), {
+    navigate(buildResetPasswordPath(undefined, redirectPath), {
       replace: true,
       state: {
         resetToken: queryToken,
       },
     });
-  }, [navigate, queryToken]);
+  }, [navigate, queryToken, redirectPath]);
 
   const frameProps: AuthFrameControllerProps = useMemo(() => ({
     displayMode,
@@ -86,20 +93,30 @@ export const useResetPasswordPageController = () => {
     setIsSubmitting(true);
 
     try {
-      await resetPassword({
+      const result = await resetPassword({
         token: resetToken,
         newPassword,
       });
 
-      navigate(buildPasswordResetSuccessLoginPath(), {
-        replace: true,
-      });
+      if (result.recoveryProof) {
+        storeMfaRecoveryProof(
+          result.recoveryProof,
+          result.recoveryProofExpiresInSeconds,
+        );
+        navigate(buildMfaRecoveryPath(undefined, redirectPath), {
+          replace: true,
+        });
+      } else {
+        navigate(buildPasswordResetSuccessLoginPath(redirectPath), {
+          replace: true,
+        });
+      }
     } catch (error) {
       const presentation = resolveAuthErrorPresentation(error);
 
       if (presentation.semantic === 'reauth-required') {
         requireReauth(presentation.message);
-        navigate('/login', {
+        navigate(redirectPath ? buildLoginRedirect(redirectPath) : '/login', {
           replace: true,
         });
         return;
