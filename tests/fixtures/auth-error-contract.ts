@@ -1,95 +1,37 @@
-export const authErrorContract = {
-  supportReferenceLabel: '문의 코드',
-  cases: [
-    {
-      codes: ['AUTH-001', 'AUTH_001'],
-      semantic: 'invalid-credentials',
-      recoveryAction: 'retry-credentials',
-      message: '이메일 또는 비밀번호가 올바르지 않습니다.',
-    },
-    {
-      codes: ['AUTH-002', 'AUTH_002'],
-      semantic: 'account-locked',
-      recoveryAction: 'retry-later',
-      message: '로그인 시도가 잠겨 있습니다. 잠시 후 다시 시도해 주세요.',
-    },
-    {
-      codes: ['AUTH-003', 'CHANNEL-001', 'AUTH-016'],
-      semantic: 'reauth-required',
-      recoveryAction: 'reauthenticate',
-      message: '세션이 만료되었습니다. 다시 로그인해 주세요.',
-    },
-    {
-      codes: ['AUTH-004', 'AUTH_004'],
-      semantic: 'withdrawn-account',
-      recoveryAction: 'switch-account',
-      message: '탈퇴한 계정은 로그인할 수 없습니다.',
-    },
-    {
-      codes: ['AUTH-007', 'AUTH_007'],
-      semantic: 'password-policy',
-      recoveryAction: 'fix-password',
-      message: '비밀번호는 8자 이상이며 대문자, 숫자, 특수문자를 포함해야 합니다.',
-    },
-    {
-      codes: ['AUTH-017', 'AUTH_017'],
-      semantic: 'duplicate-email',
-      recoveryAction: 'change-email',
-      message: '이미 가입된 이메일입니다. 다른 이메일을 입력해 주세요.',
-    },
-    {
-      codes: ['RATE-001', 'RATE_001'],
-      semantic: 'rate-limited',
-      recoveryAction: 'retry-later',
-      message: '로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.',
-    },
-    {
-      codes: ['AUTH-022', 'AUTH_022'],
-      semantic: 'recovery-challenge-invalid',
-      recoveryAction: 'refresh-challenge',
-      message: '보안 확인이 유효하지 않거나 만료되었습니다. 새 보안 확인을 다시 진행해 주세요.',
-    },
-    {
-      codes: ['AUTH-023', 'AUTH_023'],
-      semantic: 'recovery-challenge-bootstrap-unavailable',
-      recoveryAction: 'retry-later',
-      message: '지금은 보안 확인을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요.',
-    },
-    {
-      codes: ['AUTH-024', 'AUTH_024'],
-      semantic: 'recovery-challenge-replayed',
-      recoveryAction: 'refresh-challenge',
-      message: '이미 사용된 보안 확인입니다. 새 보안 확인을 다시 받아 주세요.',
-    },
-    {
-      codes: ['AUTH-025', 'AUTH_025'],
-      semantic: 'recovery-challenge-verify-unavailable',
-      recoveryAction: 'restart-recovery-challenge',
-      message: '보안 확인을 검증하는 중 문제가 발생했습니다. 현재 보안 확인을 지우고 다시 시작해 주세요.',
-    },
-    {
-      codes: ['VALIDATION-001', 'VALIDATION_001'],
-      semantic: 'validation',
-      recoveryAction: 'check-input',
-      message: '입력값을 다시 확인해 주세요.',
-    },
-    {
-      codes: ['CORE-001', 'CORE_001'],
-      semantic: 'register-failed',
-      recoveryAction: 'retry-register',
-      message: '회원 가입을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.',
-    },
-    {
-      codes: ['SYS-001', 'SYS_001'],
-      semantic: 'service-unavailable',
-      recoveryAction: 'retry-later',
-      message: '현재 인증 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.',
-    },
-  ],
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const candidateFiles = [
+  resolve(currentDir, '../../docs/contracts/auth-error-standardization.json'),
+  resolve(currentDir, '../../../docs/contracts/auth-error-standardization.json'),
+];
+const file = candidateFiles.find((candidate) => existsSync(candidate));
+
+if (!file) {
+  throw new Error(
+    `Missing auth error contract. Checked: ${candidateFiles.join(', ')}`,
+  );
+}
+
+export interface AuthErrorContractCase {
+  codes: string[];
+  semantic: string;
+  recoveryAction: string;
+  message: string;
+}
+
+export interface AuthErrorContract {
+  supportReferenceLabel: string;
+  cases: AuthErrorContractCase[];
   unknownFallback: {
-    semantic: 'unknown',
-    recoveryAction: 'contact-support',
-    message:
-      '로그인을 완료할 수 없습니다. 잠시 후 다시 시도해 주세요. 문제가 계속되면 고객센터에 문의해 주세요.',
-  },
-} as const;
+    semantic: string;
+    recoveryAction: string;
+    message: string;
+  };
+}
+
+export const authErrorContract = JSON.parse(
+  readFileSync(file, 'utf8'),
+) as AuthErrorContract;

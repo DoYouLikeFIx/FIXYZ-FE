@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import App from '@/App';
 import type { NormalizedApiError } from '@/lib/axios';
 import { resetAuthStore } from '@/store/useAuthStore';
+import type { Member } from '@/types/auth';
 
 const mockFetchSession = vi.fn();
 const mockStartLoginFlow = vi.fn();
@@ -17,6 +18,15 @@ const mockResetPassword = vi.fn();
 const mockBootstrapAuthenticatedTotpRebind = vi.fn();
 const mockBootstrapRecoveryTotpRebind = vi.fn();
 const mockConfirmMfaRecoveryRebind = vi.fn();
+
+const memberFixture: Member = {
+  memberUuid: 'member-001',
+  email: 'demo@fix.com',
+  name: 'Demo User',
+  role: 'ROLE_USER',
+  totpEnrolled: true,
+  accountId: '1',
+};
 
 vi.mock('@/api/authApi', () => ({
   fetchSession: () => mockFetchSession(),
@@ -46,6 +56,7 @@ const createApiError = (
   error.status = overrides.status;
   error.retryAfterSeconds = overrides.retryAfterSeconds;
   error.traceId = overrides.traceId;
+  error.enrollUrl = overrides.enrollUrl;
   error.recoveryUrl = overrides.recoveryUrl;
 
   return error;
@@ -165,6 +176,112 @@ describe('password recovery routes', () => {
       challengeAnswer: 'ready',
       challengeToken: 'challenge-token',
     });
+  });
+
+  it('clears touched challenge validation before bootstrapping a fresh challenge after the email changes', async () => {
+    const user = userEvent.setup();
+    mockRequestPasswordRecoveryChallenge
+      .mockResolvedValueOnce({
+        challengeToken: 'challenge-token-1',
+        challengeType: 'captcha',
+        challengeTtlSeconds: 300,
+      })
+      .mockResolvedValueOnce({
+        challengeToken: 'challenge-token-2',
+        challengeType: 'captcha',
+        challengeTtlSeconds: 300,
+      });
+    mockRequestPasswordResetEmail
+      .mockResolvedValueOnce({
+        accepted: true,
+        message: 'If the account is eligible, a reset email will be sent.',
+        recovery: {
+          challengeEndpoint: '/api/v1/auth/password/forgot/challenge',
+          challengeMayBeRequired: true,
+        },
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        message: 'If the account is eligible, a reset email will be sent.',
+        recovery: {
+          challengeEndpoint: '/api/v1/auth/password/forgot/challenge',
+          challengeMayBeRequired: true,
+        },
+      });
+
+    window.history.pushState({}, '', '/forgot-password');
+    render(<App />);
+
+    await user.type(await screen.findByTestId('forgot-password-email'), 'demo@fix.com');
+    await user.click(screen.getByTestId('forgot-password-submit'));
+    await user.click(await screen.findByTestId('forgot-password-bootstrap-challenge'));
+    await user.click(screen.getByTestId('forgot-password-submit'));
+
+    expect(await screen.findByTestId('forgot-password-error')).toHaveTextContent(
+      '보안 확인 응답을 입력해 주세요.',
+    );
+    expect(screen.getByTestId('forgot-password-challenge-answer')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+
+    await user.clear(screen.getByTestId('forgot-password-email'));
+    await user.type(screen.getByTestId('forgot-password-email'), 'next@fix.com');
+    expect(screen.queryByTestId('forgot-password-error')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('forgot-password-challenge-state')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('forgot-password-submit'));
+    await user.click(await screen.findByTestId('forgot-password-bootstrap-challenge'));
+
+    expect(await screen.findByTestId('forgot-password-challenge-answer')).toHaveAttribute(
+      'aria-invalid',
+      'false',
+    );
+  });
+
+  it('clears the previous challenge token when replacement bootstrap fails', async () => {
+    const user = userEvent.setup();
+    mockRequestPasswordRecoveryChallenge
+      .mockResolvedValueOnce({
+        challengeToken: 'challenge-token-1',
+        challengeType: 'captcha',
+        challengeTtlSeconds: 300,
+      })
+      .mockRejectedValueOnce(
+        createApiError({
+          code: 'AUTH-023',
+          status: 503,
+          message: 'challenge bootstrap unavailable',
+        }),
+      );
+    mockRequestPasswordResetEmail.mockResolvedValue({
+      accepted: true,
+      message: 'If the account is eligible, a reset email will be sent.',
+      recovery: {
+        challengeEndpoint: '/api/v1/auth/password/forgot/challenge',
+        challengeMayBeRequired: true,
+      },
+    });
+
+    window.history.pushState({}, '', '/forgot-password');
+    render(<App />);
+
+    await user.type(await screen.findByTestId('forgot-password-email'), 'demo@fix.com');
+    await user.click(screen.getByTestId('forgot-password-submit'));
+    await user.click(await screen.findByTestId('forgot-password-bootstrap-challenge'));
+    expect(await screen.findByTestId('forgot-password-challenge-state')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('forgot-password-bootstrap-challenge'));
+
+    expect(await screen.findByTestId('forgot-password-error')).toHaveTextContent(
+      '지금은 보안 확인을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요.',
+    );
+    expect(screen.getByTestId('forgot-password-accepted')).toHaveTextContent(
+      'If the account is eligible, a reset email will be sent.',
+    );
+    expect(screen.getByTestId('forgot-password-bootstrap-challenge')).toBeInTheDocument();
+    expect(screen.queryByTestId('forgot-password-challenge-state')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('forgot-password-challenge-answer')).not.toBeInTheDocument();
   });
 
   it('returns to login with deterministic success guidance after reset succeeds', async () => {
@@ -468,6 +585,64 @@ describe('password recovery routes', () => {
     );
   });
 
+  it('shows AUTH-026 guidance when authenticated MFA recovery bootstrap rejects the current password', async () => {
+    const user = userEvent.setup();
+    mockFetchSession.mockResolvedValue(memberFixture);
+    mockBootstrapAuthenticatedTotpRebind.mockRejectedValue(
+      createApiError({
+        code: 'AUTH-026',
+        status: 401,
+        message: 'current password mismatch',
+      }),
+    );
+
+    window.history.pushState({}, '', '/mfa-recovery');
+    render(<App />);
+
+    await user.type(
+      await screen.findByTestId('mfa-recovery-current-password'),
+      'Wrong1234!',
+    );
+    await user.click(screen.getByTestId('mfa-recovery-submit'));
+
+    expect(await screen.findByTestId('mfa-recovery-error')).toHaveTextContent(
+      '현재 비밀번호가 일치하지 않습니다. 다시 입력해 주세요.',
+    );
+    expect(mockBootstrapAuthenticatedTotpRebind).toHaveBeenCalledWith({
+      currentPassword: 'Wrong1234!',
+    });
+  });
+
+  it('shows canonical enrollment guidance when authenticated MFA recovery finds no existing TOTP enrollment', async () => {
+    const user = userEvent.setup();
+    mockFetchSession.mockResolvedValue(memberFixture);
+    mockBootstrapAuthenticatedTotpRebind.mockRejectedValue(
+      createApiError({
+        code: 'AUTH-009',
+        status: 403,
+        message: 'totp enrollment required',
+        enrollUrl: '/settings/totp/enroll?source=mfa-recovery',
+      }),
+    );
+
+    window.history.pushState({}, '', '/mfa-recovery?redirect=/orders');
+    render(<App />);
+
+    await user.type(
+      await screen.findByTestId('mfa-recovery-current-password'),
+      'Test1234!',
+    );
+    await user.click(screen.getByTestId('mfa-recovery-submit'));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/login');
+    });
+    expect(await screen.findByTestId('reauth-guidance')).toHaveTextContent(
+      'Google Authenticator 등록이 필요합니다. 다시 로그인하면 인증 앱 등록 단계로 이동합니다.',
+    );
+    expect(window.location.search).toBe('?redirect=%2Forders');
+  });
+
   it('returns to login with the MFA recovery success banner after rebind confirmation', async () => {
     const user = userEvent.setup();
     mockResetPassword.mockResolvedValue({
@@ -512,5 +687,49 @@ describe('password recovery routes', () => {
       enrollmentToken: 'enrollment-token',
       otpCode: '123456',
     });
+  });
+
+  it('returns stale rebind confirmations to the recovery entry with restart guidance', async () => {
+    const user = userEvent.setup();
+    mockResetPassword.mockResolvedValue({
+      recoveryProof: 'recovery-proof-token',
+      recoveryProofExpiresInSeconds: 600,
+    });
+    mockBootstrapRecoveryTotpRebind.mockResolvedValue({
+      rebindToken: 'rebind-token',
+      qrUri: 'otpauth://totp/FIX:demo@fix.com?secret=ABC123',
+      manualEntryKey: 'ABC123',
+      enrollmentToken: 'enrollment-token',
+      expiresAt: '2026-03-12T10:05:00Z',
+    });
+    mockConfirmMfaRecoveryRebind.mockRejectedValue(
+      createApiError({
+        code: 'AUTH-020',
+        status: 409,
+        message: 'mfa recovery proof already consumed',
+      }),
+    );
+
+    window.history.pushState({}, '', '/reset-password?token=raw-reset-token&redirect=%2Forders');
+    render(<App />);
+
+    await user.type(
+      await screen.findByTestId('reset-password-new-password'),
+      'Test1234!',
+    );
+    await user.click(screen.getByTestId('reset-password-submit'));
+    await user.type(await screen.findByTestId('mfa-recovery-code'), '123456');
+    await user.click(screen.getByTestId('mfa-recovery-confirm-submit'));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/mfa-recovery');
+    });
+    expect(await screen.findByTestId('mfa-recovery-error')).toHaveTextContent(
+      '이미 사용된 복구 단계입니다. 비밀번호 재설정을 다시 진행해 주세요.',
+    );
+    expect(screen.getByTestId('mfa-recovery-open-forgot-password')).toHaveAttribute(
+      'href',
+      '/forgot-password?redirect=%2Forders',
+    );
   });
 });
