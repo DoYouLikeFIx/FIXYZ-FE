@@ -124,7 +124,7 @@ const resolveFinalResultGuidance = (session: OrderSessionResponse) => {
 const formatOtpError = (error: NormalizedApiError) => {
   const code = canonicalizeErrorCode(error.code);
 
-  if (error.code === 'CHANNEL-002' && typeof error.remainingAttempts === 'number') {
+  if (code === 'CHANNEL-002' && typeof error.remainingAttempts === 'number') {
     return `OTP 코드가 일치하지 않습니다. 남은 시도 ${error.remainingAttempts}회`;
   }
 

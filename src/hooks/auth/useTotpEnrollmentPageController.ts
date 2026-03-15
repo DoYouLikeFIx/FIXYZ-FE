@@ -30,7 +30,9 @@ export const useTotpEnrollmentPageController = () => {
   const [bootstrap, setBootstrap] = useState<TotpEnrollmentBootstrap | null>(null);
   const [otpCode, setOtpCode] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isLoadingBootstrap, setIsLoadingBootstrap] = useState(false);
+  const [isLoadingBootstrap, setIsLoadingBootstrap] = useState(
+    pendingMfa?.nextAction === 'ENROLL_TOTP',
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const redirectPath = pendingMfa?.redirectPath ?? resolveRedirectTarget(searchParams.get('redirect'));
