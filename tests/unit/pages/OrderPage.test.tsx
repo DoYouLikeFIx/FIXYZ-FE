@@ -189,6 +189,39 @@ describe('OrderPage', () => {
     expect(createOrderSession).not.toHaveBeenCalled();
   });
 
+  it('normalizes embedded spaces in symbol input before submit', async () => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-normalized-symbol',
+      clOrdId: 'cl-normalized-symbol',
+      status: 'PENDING_NEW',
+      challengeRequired: true,
+      authorizationReason: 'ELEVATED_ORDER_RISK',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 1,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    const symbolInput = screen.getByTestId('order-input-symbol');
+    await user.clear(symbolInput);
+    await user.type(symbolInput, '005 930');
+    await user.click(screen.getByTestId('order-session-create'));
+
+    await waitFor(() => {
+      expect(createOrderSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          symbol: '005930',
+        }),
+      );
+    });
+  });
+
   it('moves to Step B with authorization guidance when the created session requires challenge', async () => {
     vi.mocked(createOrderSession).mockResolvedValue({
       orderSessionId: 'sess-step-b',
