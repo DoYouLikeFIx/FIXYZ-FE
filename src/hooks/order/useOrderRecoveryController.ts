@@ -1,4 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useController, useForm } from 'react-hook-form';
 
 import {
   createOrderSession,
@@ -17,10 +19,14 @@ import {
   draftFromPreset,
   externalOrderPresetOptions,
   matchPresetIdFromDraft,
+  normalizeExternalOrderSymbol,
   type ExternalOrderPresetId,
   type ExternalOrderFieldErrors,
-  validateExternalOrderDraft,
 } from '@/order/external-order-recovery';
+import {
+  externalOrderDraftSchema,
+  type ExternalOrderDraftFormValues,
+} from '@/lib/schemas/order.schema';
 import {
   clearPersistedOrderSessionId,
   persistOrderSessionId,
@@ -148,10 +154,23 @@ const buildServerValidationGuidance = (errors: ExternalOrderFieldErrors) => {
 export const useOrderRecoveryController = ({
   accountId,
 }: UseOrderRecoveryControllerInput) => {
+  const form = useForm<ExternalOrderDraftFormValues>({
+    defaultValues: createInitialExternalOrderDraft(),
+    mode: 'onChange',
+    reValidateMode: 'onChange',
+    resolver: zodResolver(externalOrderDraftSchema),
+  });
+  const { field: symbolField, fieldState: symbolFieldState } = useController({
+    control: form.control,
+    name: 'symbol',
+  });
+  const { field: quantityField, fieldState: quantityFieldState } = useController({
+    control: form.control,
+    name: 'quantity',
+  });
   const [selectedPresetId, setSelectedPresetId] = useState<ExternalOrderPresetId | null>(
     externalOrderPresetOptions[0].id,
   );
-  const [draft, setDraft] = useState(createInitialExternalOrderDraft);
   const [step, setStep] = useState<OrderFlowStep>('A');
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
@@ -166,16 +185,20 @@ export const useOrderRecoveryController = ({
   const [isRestoring, setIsRestoring] = useState(false);
   const [isExtending, setIsExtending] = useState(false);
   const operationVersionRef = useRef(0);
-  const fieldErrors = validateExternalOrderDraft(draft);
+  const draft = {
+    symbol: symbolField.value ?? '',
+    quantity: quantityField.value ?? '',
+  };
   const mergedFieldErrors: ExternalOrderFieldErrors = {
-    symbol: fieldErrors.symbol ?? serverFieldErrors.symbol,
-    quantity: fieldErrors.quantity ?? serverFieldErrors.quantity,
+    symbol: symbolFieldState.error?.message ?? serverFieldErrors.symbol,
+    quantity: quantityFieldState.error?.message ?? serverFieldErrors.quantity,
   };
   const isInteractionLocked =
     isSubmitting || isVerifyingOtp || isExecuting || isRestoring || isExtending;
   const canSubmit =
-    !mergedFieldErrors.symbol
-    && !mergedFieldErrors.quantity
+    externalOrderDraftSchema.safeParse(draft).success
+    && !serverFieldErrors.symbol
+    && !serverFieldErrors.quantity
     && !isInteractionLocked;
 
   const clearTransientFeedback = () => {
@@ -226,7 +249,7 @@ export const useOrderRecoveryController = ({
     setIsExecuting(false);
     setIsExtending(false);
     if (!options?.keepPreset) {
-      setDraft(createInitialExternalOrderDraft());
+      form.reset(createInitialExternalOrderDraft());
       setSelectedPresetId(externalOrderPresetOptions[0].id);
     }
   };
@@ -270,7 +293,7 @@ export const useOrderRecoveryController = ({
   const applySessionState = (session: OrderSessionResponse, options?: { restoring?: boolean }) => {
     setOrderSession(session);
     clearServerFieldErrors();
-    setDraft({
+    form.reset({
       symbol: session.symbol,
       quantity: String(session.qty),
     });
@@ -355,69 +378,67 @@ export const useOrderRecoveryController = ({
   }, [accountId]);
 
   const handleSubmit = async () => {
-    if (isSubmitting || isVerifyingOtp || isExecuting) {
-      return;
-    }
-
-    if (mergedFieldErrors.symbol || mergedFieldErrors.quantity) {
-      setInlineError(null);
-      setPresentation(null);
-      return;
-    }
-
-    const request = buildExternalOrderRequest({
-      accountId,
-      symbol: draft.symbol,
-      quantity: draft.quantity,
-    });
-
-    if (!request) {
-      setInlineError('주문에 사용할 계좌 정보를 확인할 수 없습니다.');
-      setPresentation(null);
-      return;
-    }
-
-    clearTransientFeedback();
-    clearServerFieldErrors();
-    setIsSubmitting(true);
-    const operationVersion = ++operationVersionRef.current;
-
-    try {
-      const session = await createOrderSession(request);
-      if (operationVersion === operationVersionRef.current) {
-        applySessionState(session);
-      }
-    } catch (error) {
-      if (operationVersion !== operationVersionRef.current) {
+    void form.handleSubmit(async (values) => {
+      if (isSubmitting || isVerifyingOtp || isExecuting) {
         return;
       }
 
-      const validationPresentation = resolveServerValidationFieldErrors(error);
-      if (
-        validationPresentation.fieldErrors.symbol
-        || validationPresentation.fieldErrors.quantity
-      ) {
-        setServerFieldErrors(validationPresentation.fieldErrors);
-        setInlineError(validationPresentation.inlineError);
-        setFeedbackMessage(
-          validationPresentation.guidance
-          ?? buildServerValidationGuidance(validationPresentation.fieldErrors),
-        );
+      const request = buildExternalOrderRequest({
+        accountId,
+        symbol: values.symbol,
+        quantity: values.quantity,
+      });
+
+      if (!request) {
+        setInlineError('주문에 사용할 계좌 정보를 확인할 수 없습니다.');
+        setPresentation(null);
         return;
       }
 
-      if (validationPresentation.guidance || validationPresentation.inlineError) {
-        setFeedbackMessage(validationPresentation.guidance);
-        setInlineError(validationPresentation.inlineError);
-        return;
-      }
+      clearTransientFeedback();
+      clearServerFieldErrors();
+      setIsSubmitting(true);
+      const operationVersion = ++operationVersionRef.current;
 
-      setInlineError(getErrorMessage(error));
-    } finally {
-      if (operationVersion === operationVersionRef.current) {
-        setIsSubmitting(false);
+      try {
+        const session = await createOrderSession(request);
+        if (operationVersion === operationVersionRef.current) {
+          applySessionState(session);
+        }
+      } catch (error) {
+        if (operationVersion !== operationVersionRef.current) {
+          return;
+        }
+
+        const validationPresentation = resolveServerValidationFieldErrors(error);
+        if (
+          validationPresentation.fieldErrors.symbol
+          || validationPresentation.fieldErrors.quantity
+        ) {
+          setServerFieldErrors(validationPresentation.fieldErrors);
+          setInlineError(validationPresentation.inlineError);
+          setFeedbackMessage(
+            validationPresentation.guidance
+            ?? buildServerValidationGuidance(validationPresentation.fieldErrors),
+          );
+          return;
+        }
+
+        if (validationPresentation.guidance || validationPresentation.inlineError) {
+          setFeedbackMessage(validationPresentation.guidance);
+          setInlineError(validationPresentation.inlineError);
+          return;
+        }
+
+        setInlineError(getErrorMessage(error));
+      } finally {
+        if (operationVersion === operationVersionRef.current) {
+          setIsSubmitting(false);
+        }
       }
-    }
+    }, () => {
+      clearTransientFeedback();
+    })();
   };
 
   const handleVerifyOtp = async (value: string) => {
@@ -541,7 +562,7 @@ export const useOrderRecoveryController = ({
     selectPreset: (presetId: ExternalOrderPresetId) => {
       clearTransientFeedback();
       setSelectedPresetId(presetId);
-      setDraft(draftFromPreset(presetId));
+      form.reset(draftFromPreset(presetId));
       if (orderSession !== null) {
         resetFlow({ keepPreset: true });
       }
@@ -553,11 +574,12 @@ export const useOrderRecoveryController = ({
       if (orderSession !== null && step === 'A') {
         discardDraftSessionContext();
       }
+      const normalizedSymbol = normalizeExternalOrderSymbol(value).slice(0, 6);
       const nextDraft = {
         ...draft,
-        symbol: value,
+        symbol: normalizedSymbol,
       };
-      setDraft(nextDraft);
+      symbolField.onChange(normalizedSymbol);
       setSelectedPresetId(matchPresetIdFromDraft(nextDraft));
     },
     setQuantityValue: (value: string) => {
@@ -570,7 +592,7 @@ export const useOrderRecoveryController = ({
         ...draft,
         quantity: value.replace(/[^\d]/g, '').slice(0, 6),
       };
-      setDraft(nextDraft);
+      quantityField.onChange(nextDraft.quantity);
       setSelectedPresetId(matchPresetIdFromDraft(nextDraft));
     },
     setOtpValue: (value: string) => {
