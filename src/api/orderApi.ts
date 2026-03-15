@@ -1,36 +1,103 @@
 import { api } from '@/lib/axios';
 import type { ExternalOrderRequest } from '@/order/external-order-recovery';
 
-export interface OrderSubmissionResponse {
-  orderId: number;
+export interface OrderSessionResponse {
+  orderSessionId: string;
   clOrdId: string;
   status: string;
-  idempotent: boolean;
-  orderQuantity: number;
+  challengeRequired: boolean;
+  authorizationReason: string;
+  accountId: number;
+  symbol: string;
+  side: string;
+  orderType: string;
+  qty: number;
+  price: number | null;
+  executionResult?: string | null;
+  executedQty?: number | null;
+  leavesQty?: number | null;
+  executedPrice?: number | null;
+  externalOrderId?: string | null;
+  failureReason?: string | null;
+  executedAt?: string | null;
+  canceledAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  expiresAt: string;
+  remainingSeconds?: number | null;
 }
 
-const createFormBody = (payload: Record<string, string>) =>
-  new URLSearchParams(payload);
+interface OrderSessionOtpVerifyResponse {
+  otpCode: string;
+}
 
-export const submitExternalOrder = async (
+const createOrderSessionBody = (payload: ExternalOrderRequest) => ({
+  accountId: payload.accountId,
+  symbol: payload.symbol,
+  side: payload.side,
+  orderType: 'LIMIT',
+  qty: payload.quantity,
+  price: payload.price,
+});
+
+export const createOrderSession = async (
   payload: ExternalOrderRequest,
-): Promise<OrderSubmissionResponse> => {
-  const response = await api.post<OrderSubmissionResponse>(
-    '/api/v1/orders',
-    createFormBody({
-      accountId: String(payload.accountId),
-      clOrdId: payload.clOrdId,
-      symbol: payload.symbol,
-      side: payload.side,
-      quantity: String(payload.quantity),
-      price: String(payload.price),
-    }),
+): Promise<OrderSessionResponse> => {
+  const response = await api.post<OrderSessionResponse>(
+    '/api/v1/orders/sessions',
+    createOrderSessionBody(payload),
     {
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': 'application/json',
         'X-ClOrdID': payload.clOrdId,
       },
     },
+  );
+
+  return response.data;
+};
+
+export const verifyOrderSessionOtp = async (
+  orderSessionId: string,
+  otpCode: string,
+): Promise<OrderSessionResponse> => {
+  const response = await api.post<OrderSessionResponse>(
+    `/api/v1/orders/sessions/${orderSessionId}/otp/verify`,
+    {
+      otpCode,
+    } satisfies OrderSessionOtpVerifyResponse,
+  );
+
+  return response.data;
+};
+
+export const extendOrderSession = async (
+  orderSessionId: string,
+): Promise<OrderSessionResponse> => {
+  const response = await api.post<OrderSessionResponse>(
+    `/api/v1/orders/sessions/${orderSessionId}/extend`,
+    {},
+  );
+
+  return response.data;
+};
+
+export const executeOrderSession = async (
+  orderSessionId: string,
+): Promise<OrderSessionResponse> => {
+  const response = await api.post<OrderSessionResponse>(
+    `/api/v1/orders/sessions/${orderSessionId}/execute`,
+    {},
+  );
+
+  return response.data;
+};
+
+export const getOrderSession = async (
+  orderSessionId: string,
+): Promise<OrderSessionResponse> => {
+  const response = await api.get<OrderSessionResponse>(
+    `/api/v1/orders/sessions/${orderSessionId}`,
   );
 
   return response.data;
