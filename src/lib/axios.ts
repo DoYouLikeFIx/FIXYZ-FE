@@ -12,7 +12,10 @@ import {
 } from '@/lib/api-error-messages';
 import { getReauthMessage, isReauthError } from '@/lib/auth-errors';
 import { useAuthStore } from '@/store/useAuthStore';
-import type { ApiResponseEnvelope } from '@/types/api';
+import type {
+  ApiResponseEnvelope,
+  LenientApiResponseEnvelope,
+} from '@/types/api';
 import type { CsrfTokenPayload } from '@/types/auth';
 
 export {
@@ -62,7 +65,7 @@ interface DirectApiErrorPayload {
 
 export const isApiResponseEnvelope = (
   value: unknown,
-): value is ApiResponseEnvelope<unknown> => {
+): value is LenientApiResponseEnvelope<unknown> => {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
@@ -390,7 +393,7 @@ export const fetchCsrfToken = async (
   }
 
   csrfRequest = csrfClient
-    .get<ApiResponseEnvelope<CsrfTokenPayload>>('/api/v1/auth/csrf')
+    .get<LenientApiResponseEnvelope<CsrfTokenPayload>>('/api/v1/auth/csrf')
     .then((response) => {
       const payload = response.data;
 
