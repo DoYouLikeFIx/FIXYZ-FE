@@ -19,6 +19,16 @@ export interface ExternalOrderRequest {
   price: number;
 }
 
+export interface ExternalOrderDraft {
+  symbol: string;
+  quantity: string;
+}
+
+export interface ExternalOrderFieldErrors {
+  symbol?: string;
+  quantity?: string;
+}
+
 interface ExternalOrderPresetDefinition extends ExternalOrderPresetOption {
   symbol: string;
   side: 'BUY' | 'SELL';
@@ -72,11 +82,47 @@ export const externalOrderPresetOptions: readonly ExternalOrderPresetOption[] =
     summary,
   }));
 
+const supportedSymbols = {
+  '005930': {
+    name: '삼성전자',
+    price: 70_100,
+    side: 'BUY' as const,
+  },
+  '000660': {
+    name: 'SK하이닉스',
+    price: 194_000,
+    side: 'BUY' as const,
+  },
+  '035420': {
+    name: 'NAVER',
+    price: 223_000,
+    side: 'BUY' as const,
+  },
+} as const;
+
+const defaultPreset = presetDefinitions[0];
+
 const getPresetDefinition = (
   presetId: ExternalOrderPresetId,
 ): ExternalOrderPresetDefinition =>
   presetDefinitions.find((preset) => preset.id === presetId)
   ?? presetDefinitions[0];
+
+const normalizeSymbol = (symbol: string) =>
+  symbol.replace(/\s+/g, '').trim();
+
+const parseQuantity = (quantity: string) => {
+  if (!/^\d+$/.test(quantity)) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(quantity, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    return null;
+  }
+
+  return parsed;
+};
 
 const createFallbackUuid = () =>
   'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
@@ -122,23 +168,106 @@ export const resolveExternalOrderAccountId = (
 export const hasExternalOrderAccountId = (accountId?: string) =>
   resolveExternalOrderAccountId(accountId) !== null;
 
+export const createInitialExternalOrderDraft = (): ExternalOrderDraft => ({
+  symbol: defaultPreset.symbol,
+  quantity: String(defaultPreset.quantity),
+});
+
+export const draftFromPreset = (
+  presetId: ExternalOrderPresetId,
+): ExternalOrderDraft => {
+  const preset = getPresetDefinition(presetId);
+
+  return {
+    symbol: preset.symbol,
+    quantity: String(preset.quantity),
+  };
+};
+
+export const matchPresetIdFromDraft = (
+  draft: ExternalOrderDraft,
+): ExternalOrderPresetId | null => {
+  const normalizedSymbol = normalizeSymbol(draft.symbol);
+  const parsedQuantity = parseQuantity(draft.quantity);
+  const preset = presetDefinitions.find(
+    (candidate) =>
+      candidate.symbol === normalizedSymbol
+      && candidate.quantity === parsedQuantity,
+  );
+
+  return preset?.id ?? null;
+};
+
+export const validateExternalOrderDraft = (
+  draft: ExternalOrderDraft,
+): ExternalOrderFieldErrors => {
+  const errors: ExternalOrderFieldErrors = {};
+  const normalizedSymbol = normalizeSymbol(draft.symbol);
+
+  if (!normalizedSymbol) {
+    errors.symbol = '종목코드를 입력해 주세요.';
+  } else if (!/^\d{6}$/.test(normalizedSymbol)) {
+    errors.symbol = '종목코드는 숫자 6자리여야 합니다.';
+  } else if (!(normalizedSymbol in supportedSymbols)) {
+    errors.symbol = '지원하지 않는 종목코드입니다.';
+  }
+
+  if (!draft.quantity.trim()) {
+    errors.quantity = '수량을 입력해 주세요.';
+  } else if (!/^\d+$/.test(draft.quantity)) {
+    errors.quantity = '수량은 1 이상의 정수여야 합니다.';
+  } else if (parseQuantity(draft.quantity) === null) {
+    errors.quantity = '수량은 1 이상의 정수여야 합니다.';
+  }
+
+  return errors;
+};
+
+export const buildExternalOrderDraftSummary = (
+  draft: ExternalOrderDraft,
+): string => {
+  const normalizedSymbol = normalizeSymbol(draft.symbol);
+  const parsedQuantity = parseQuantity(draft.quantity);
+  const symbolLabel = supportedSymbols[normalizedSymbol as keyof typeof supportedSymbols]?.name;
+
+  if (!normalizedSymbol && parsedQuantity === null) {
+    return '종목코드와 수량을 입력해 주세요.';
+  }
+
+  if (!normalizedSymbol) {
+    return `${parsedQuantity ?? '-'}주`;
+  }
+
+  if (parsedQuantity === null) {
+    return `${normalizedSymbol}${symbolLabel ? ` · ${symbolLabel}` : ''}`;
+  }
+
+  return `${normalizedSymbol}${symbolLabel ? ` · ${symbolLabel}` : ''} · ${parsedQuantity}주`;
+};
+
 export const buildExternalOrderRequest = (input: {
   accountId?: string;
-  presetId: ExternalOrderPresetId;
+  symbol: string;
+  quantity: string;
 }): ExternalOrderRequest | null => {
   const resolvedAccountId = resolveExternalOrderAccountId(input.accountId);
   if (resolvedAccountId === null) {
     return null;
   }
 
-  const preset = getPresetDefinition(input.presetId);
+  const normalizedSymbol = normalizeSymbol(input.symbol);
+  const parsedQuantity = parseQuantity(input.quantity);
+  const symbolDefinition = supportedSymbols[normalizedSymbol as keyof typeof supportedSymbols];
+  if (!symbolDefinition || parsedQuantity === null) {
+    return null;
+  }
 
   return {
     accountId: resolvedAccountId,
     clOrdId: createClOrdId(),
-    symbol: preset.symbol,
-    side: preset.side,
-    quantity: preset.quantity,
-    price: preset.price,
+    symbol: normalizedSymbol,
+    side: symbolDefinition.side,
+    quantity: parsedQuantity,
+    price: symbolDefinition.price,
   };
 };
