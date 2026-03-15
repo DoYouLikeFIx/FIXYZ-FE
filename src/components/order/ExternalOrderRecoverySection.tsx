@@ -6,10 +6,14 @@ import type {
   ExternalOrderPresetOption,
 } from '@/order/external-order-recovery';
 import type { ExternalOrderErrorPresentation } from '@/order/external-errors';
-import type { OrderSessionResponse } from '@/api/orderApi';
+import {
+  resolveOrderFinalResultContent,
+  resolveOrderProcessingContent,
+} from '@/order/order-session-guidance';
+import type { OrderFlowStep, OrderSessionResponse } from '@/types/order';
 
 interface ExternalOrderRecoverySectionProps {
-  step: 'A' | 'B' | 'C' | 'COMPLETE';
+  step: OrderFlowStep;
   feedbackMessage: string | null;
   inlineError: string | null;
   symbolValue: string;
@@ -27,7 +31,7 @@ interface ExternalOrderRecoverySectionProps {
   presentation: ExternalOrderErrorPresentation | null;
   orderSession: OrderSessionResponse | null;
   hasDetectedSessionExpiry: boolean;
-  authorizationReasonMessage: string;
+  authorizationReasonMessage: string | null;
   otpValue: string;
   presets: readonly ExternalOrderPresetOption[];
   selectedPresetId: ExternalOrderPresetId | null;
@@ -46,82 +50,22 @@ interface ExternalOrderRecoverySectionProps {
 
 const EMPTY_EXPIRY = '1970-01-01T00:00:00Z';
 
-const stepLabel = (step: 'A' | 'B' | 'C' | 'COMPLETE') => {
+const stepLabel = (step: OrderFlowStep) => {
   if (step === 'COMPLETE') {
     return 'Complete';
   }
   return `Step ${step}`;
 };
 
-const isProcessingStatus = (status?: string) =>
+const isProcessingStatus = (status?: OrderSessionResponse['status']) =>
   status === 'EXECUTING' || status === 'REQUERYING';
 
-const isManualReviewStatus = (status?: string) => status === 'ESCALATED';
+const isManualReviewStatus = (status?: OrderSessionResponse['status']) => status === 'ESCALATED';
 
-const isFinalResultStatus = (status?: string) =>
+const isFinalResultStatus = (status?: OrderSessionResponse['status']) =>
   status === 'COMPLETED'
   || status === 'FAILED'
   || status === 'CANCELED';
-
-const resolveProcessingTitle = (status?: string) => {
-  if (status === 'REQUERYING') {
-    return '주문 체결 결과를 다시 확인하고 있어요';
-  }
-
-  return '주문을 거래소에 전송했어요';
-};
-
-const resolveProcessingBody = (status?: string) => {
-  if (status === 'REQUERYING') {
-    return '체결 결과를 재조회하는 중입니다. 완료로 간주하지 말고 상태가 바뀔 때까지 기다려 주세요.';
-  }
-
-  return '체결 결과가 아직 확정되지 않았습니다. 잠시 후 상태가 자동으로 갱신됩니다.';
-};
-
-const resolveResultTitle = (session: OrderSessionResponse) => {
-  if (session.status === 'FAILED') {
-    return '주문이 실패했습니다';
-  }
-
-  if (session.status === 'CANCELED') {
-    if (session.executionResult === 'PARTIAL_FILL_CANCEL') {
-      return '일부 체결 후 나머지 수량이 취소되었습니다';
-    }
-
-    return '주문이 취소되었습니다';
-  }
-
-  if (session.executionResult === 'PARTIAL_FILL') {
-    return '주문이 일부 체결되었습니다';
-  }
-
-  if (session.executionResult === 'VIRTUAL_FILL') {
-    return '주문이 승인 처리되었습니다';
-  }
-
-  return '주문이 체결되었습니다';
-};
-
-const resolveResultBody = (session: OrderSessionResponse) => {
-  if (session.status === 'FAILED') {
-    return '실패 사유를 확인한 뒤 주문 조건을 조정해 다시 시도해 주세요.';
-  }
-
-  if (session.status === 'CANCELED') {
-    if (session.executionResult === 'PARTIAL_FILL_CANCEL') {
-      return '체결된 수량과 취소된 잔여 수량을 함께 확인해 주세요.';
-    }
-
-    return '취소 결과를 확인한 뒤 필요하면 새 주문을 시작해 주세요.';
-  }
-
-  if (session.executionResult === 'PARTIAL_FILL') {
-    return '체결 수량과 남은 수량을 확인한 뒤 필요하면 새 주문을 시작해 주세요.';
-  }
-
-  return '주문 결과 요약을 확인해 주세요.';
-};
 
 export function ExternalOrderRecoverySection({
   step,
@@ -159,6 +103,8 @@ export function ExternalOrderRecoverySection({
   onExtend,
 }: ExternalOrderRecoverySectionProps) {
   const countdown = useExpiryCountdown(orderSession?.expiresAt ?? EMPTY_EXPIRY);
+  const processingContent = orderSession ? resolveOrderProcessingContent(orderSession.status) : null;
+  const finalResultContent = orderSession ? resolveOrderFinalResultContent(orderSession) : null;
   const hasExpiry = orderSession?.expiresAt != null;
   const hasActiveSession = orderSession != null && step !== 'COMPLETE';
   const showExpiredModal =
@@ -339,9 +285,14 @@ export function ExternalOrderRecoverySection({
 
       {step === 'B' ? (
         <>
-          <div className="external-order-recovery__feedback" data-testid="order-session-authorization-message">
-            {authorizationReasonMessage}
-          </div>
+          {authorizationReasonMessage ? (
+            <div
+              className="external-order-recovery__feedback"
+              data-testid="order-session-authorization-message"
+            >
+              {authorizationReasonMessage}
+            </div>
+          ) : null}
           <label className="portfolio-guidance-note" htmlFor="order-session-otp-input">
             Step B OTP 6자리
           </label>
@@ -371,9 +322,14 @@ export function ExternalOrderRecoverySection({
 
       {step === 'C' ? (
         <>
-          <div className="external-order-recovery__feedback" data-testid="order-session-authorization-message">
-            {authorizationReasonMessage}
-          </div>
+          {authorizationReasonMessage ? (
+            <div
+              className="external-order-recovery__feedback"
+              data-testid="order-session-authorization-message"
+            >
+              {authorizationReasonMessage}
+            </div>
+          ) : null}
           <div className="external-order-recovery__actions">
             <button
               type="button"
@@ -404,10 +360,8 @@ export function ExternalOrderRecoverySection({
               className="external-order-recovery__feedback"
               data-testid="order-session-processing"
             >
-              <p data-testid="order-session-processing-title">
-                {resolveProcessingTitle(orderSession.status)}
-              </p>
-              <p>{resolveProcessingBody(orderSession.status)}</p>
+              <p data-testid="order-session-processing-title">{processingContent?.title}</p>
+              <p data-testid="order-session-processing-body">{processingContent?.body}</p>
               <p data-testid="order-result-clordid">ClOrdID · {orderSession.clOrdId}</p>
             </div>
           ) : null}
@@ -417,16 +371,16 @@ export function ExternalOrderRecoverySection({
               className="external-order-recovery__feedback"
               data-testid="order-session-manual-review"
             >
-              <p>처리 중 문제가 발생해 수동 확인이 필요합니다.</p>
-              <p>주문 번호를 확인한 뒤 고객센터에 문의해 주세요.</p>
+              <p data-testid="order-session-processing-title">{processingContent?.title}</p>
+              <p data-testid="order-session-processing-body">{processingContent?.body}</p>
               <p data-testid="order-result-clordid">ClOrdID · {orderSession.clOrdId}</p>
             </div>
           ) : null}
 
           {showResultState ? (
             <div className="external-order-recovery__feedback" data-testid="order-session-result">
-              <p data-testid="order-session-result-title">{resolveResultTitle(orderSession)}</p>
-              <p>{resolveResultBody(orderSession)}</p>
+              <p data-testid="order-session-result-title">{finalResultContent?.title}</p>
+              <p data-testid="order-session-result-body">{finalResultContent?.body}</p>
               <p data-testid="order-result-clordid">ClOrdID · {orderSession.clOrdId}</p>
               {orderSession.externalOrderId ? (
                 <p data-testid="order-result-external-id">
@@ -489,7 +443,7 @@ export function ExternalOrderRecoverySection({
           data-testid="order-session-expired-modal"
         >
           <div className="external-order-recovery__modal" role="dialog" aria-modal="true">
-            <p className="external-order-recovery__modal-title">주문 세션이 만료되었어요</p>
+            <p className="external-order-recovery__modal-title">세션이 만료되었습니다</p>
             <p className="external-order-recovery__modal-body">{expiredModalMessage}</p>
             <div className="external-order-recovery__modal-actions">
               <button

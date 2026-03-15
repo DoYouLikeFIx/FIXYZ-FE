@@ -17,3 +17,7 @@ export interface ApiResponseEnvelope<T> {
   error: ApiErrorPayload | null;
   traceId?: string;
 }
+
+export type LenientApiResponseEnvelope<T> = Omit<ApiResponseEnvelope<T>, 'error'> & {
+  error?: ApiErrorPayload | null;
+};

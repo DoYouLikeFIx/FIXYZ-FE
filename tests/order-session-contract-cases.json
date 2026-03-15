@@ -1,4 +1,47 @@
 {
+  "authorizationScenarios": [
+    {
+      "scenarioKey": "challenge-required-step-up",
+      "status": "PENDING_NEW",
+      "challengeRequired": true,
+      "authorizationReason": "ELEVATED_ORDER_RISK",
+      "clientStep": "STEP_UP",
+      "nextAction": "submit-otp",
+      "title": "OTP 인증이 필요합니다",
+      "body": "고위험 주문으로 분류되어 주문 실행 전에 OTP 인증을 완료해야 합니다."
+    },
+    {
+      "scenarioKey": "auto-authorized-confirm",
+      "status": "AUTHED",
+      "challengeRequired": false,
+      "authorizationReason": "TRUSTED_AUTH_SESSION",
+      "clientStep": "CONFIRM",
+      "nextAction": "execute-order",
+      "title": "추가 인증 없이 바로 주문할 수 있습니다",
+      "body": "현재 인증 세션이 신뢰되어 추가 OTP 없이 바로 주문을 실행할 수 있습니다."
+    },
+    {
+      "scenarioKey": "expired-session-reset",
+      "status": "EXPIRED",
+      "challengeRequired": true,
+      "authorizationReason": "ELEVATED_ORDER_RISK",
+      "clientStep": "AUTH_EXPIRED",
+      "nextAction": "restart-order",
+      "title": "세션이 만료되었습니다",
+      "body": "입력한 주문을 확인한 뒤 다시 시작해 주세요."
+    },
+    {
+      "scenarioKey": "failed-session-reset",
+      "status": "FAILED",
+      "challengeRequired": true,
+      "authorizationReason": "ELEVATED_ORDER_RISK",
+      "failureReason": "OTP_EXCEEDED",
+      "clientStep": "FAILED",
+      "nextAction": "restart-order",
+      "title": "주문 인증에 실패했습니다",
+      "body": "OTP 시도 횟수를 초과했습니다. 주문을 다시 시작해 주세요."
+    }
+  ],
   "processingStates": [
     {
       "name": "executing",

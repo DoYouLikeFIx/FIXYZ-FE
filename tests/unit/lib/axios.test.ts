@@ -14,6 +14,9 @@ describe('axios helpers', () => {
     expect(
       isApiResponseEnvelope({ success: true, data: { value: 1 }, error: null }),
     ).toBe(true);
+    expect(
+      isApiResponseEnvelope({ success: true, data: { value: 1 }, timestamp: '2026-03-16T00:00:00Z' }),
+    ).toBe(true);
     expect(isApiResponseEnvelope({ message: 'oops' })).toBe(false);
   });
 

@@ -17,10 +17,15 @@ const outputDir = path.resolve(
   process.cwd(),
   process.argv[2] ?? path.join(repoRoot, '_bmad-output/implementation-artifacts/demos'),
 );
-const outputPath = path.join(outputDir, 'fe-order-session-demo.mp4');
+const outputBasename = process.env.FE_ORDER_DEMO_OUTPUT_BASENAME ?? 'fe-order-session-demo';
+const outputPath = path.join(outputDir, `${outputBasename}.mp4`);
 const host = '127.0.0.1';
 const port = Number(process.env.FE_DEMO_PORT ?? '4276');
 const baseURL = `http://${host}:${port}`;
+const orderScenario = process.env.FE_ORDER_DEMO_SCENARIO === 'trusted'
+  ? 'trusted'
+  : 'step-up';
+const startAuthenticated = process.env.FE_ORDER_DEMO_START_AUTHENTICATED !== '0';
 
 let viteProcess = null;
 let createdViteProcess = false;
@@ -160,7 +165,7 @@ const createSuccessEnvelope = (data) => ({
 });
 
 const installMockRoutes = async (page) => {
-  let sessionAuthenticated = false;
+  let sessionAuthenticated = startAuthenticated;
   let csrfCounter = 0;
   let orderSession = null;
   let pendingLoginToken = null;
@@ -277,12 +282,16 @@ const installMockRoutes = async (page) => {
     if (method === 'POST' && pathname === '/api/v1/orders/sessions') {
       const body = request.postDataJSON();
       const now = new Date().toISOString();
+      const requiresChallenge = orderScenario === 'step-up';
+
       orderSession = {
         orderSessionId: 'ord-sess-fe-demo',
         clOrdId: request.headers()['x-clordid'] ?? 'cl-fe-demo',
-        status: 'PENDING_NEW',
-        challengeRequired: true,
-        authorizationReason: 'ELEVATED_ORDER_RISK',
+        status: requiresChallenge ? 'PENDING_NEW' : 'AUTHED',
+        challengeRequired: requiresChallenge,
+        authorizationReason: requiresChallenge
+          ? 'ELEVATED_ORDER_RISK'
+          : 'TRUSTED_AUTH_SESSION',
         accountId: Number(body.accountId ?? 12),
         symbol: String(body.symbol ?? '005930'),
         side: String(body.side ?? 'BUY'),
@@ -417,37 +426,47 @@ const recordDemo = async (videoTempDir) => {
     const page = await context.newPage();
     await installMockRoutes(page);
 
-    await page.goto('/login?redirect=/orders');
-    await page.getByTestId('login-email').waitFor();
-    await wait(500);
+    if (startAuthenticated) {
+      await page.goto('/orders');
+    } else {
+      await page.goto('/login?redirect=/orders');
+      await page.getByTestId('login-email').waitFor();
+      await wait(500);
 
-    await page.getByTestId('login-email').click();
-    await page.getByTestId('login-email').pressSequentially(demoCredentials.email, { delay: 60 });
-    await wait(180);
-    await page.getByTestId('login-password').click();
-    await page.getByTestId('login-password').pressSequentially(demoCredentials.password, { delay: 60 });
-    await wait(180);
-    await page.getByTestId('login-submit').click();
-    await page.getByTestId('login-mfa-input').waitFor();
-    await wait(800);
+      await page.getByTestId('login-email').click();
+      await page.getByTestId('login-email').pressSequentially(demoCredentials.email, { delay: 60 });
+      await wait(180);
+      await page.getByTestId('login-password').click();
+      await page.getByTestId('login-password').pressSequentially(demoCredentials.password, { delay: 60 });
+      await wait(180);
+      await page.getByTestId('login-submit').click();
+      await page.getByTestId('login-mfa-input').waitFor();
+      await wait(800);
 
-    await page.getByTestId('login-mfa-input').click();
-    await page.getByTestId('login-mfa-input').pressSequentially('123456', { delay: 85 });
-    await wait(180);
-    await page.getByTestId('login-mfa-submit').click();
+      await page.getByTestId('login-mfa-input').click();
+      await page.getByTestId('login-mfa-input').pressSequentially('123456', { delay: 85 });
+      await wait(180);
+      await page.getByTestId('login-mfa-submit').click();
+    }
+
     await page.getByTestId('order-session-create').waitFor();
     await wait(800);
     await page.getByTestId('order-session-create').click();
-    await page.getByTestId('order-session-otp-input').waitFor();
-    await wait(900);
 
-    await page.getByTestId('order-session-otp-input').click();
-    await page.getByTestId('order-session-otp-input').pressSequentially('123456', { delay: 85 });
-    await page.getByTestId('order-session-execute').waitFor();
-    await wait(900);
+    if (orderScenario === 'step-up') {
+      await page.getByTestId('order-session-otp-input').waitFor();
+      await wait(900);
+      await page.getByTestId('order-session-otp-input').click();
+      await page.getByTestId('order-session-otp-input').pressSequentially('123456', { delay: 85 });
+      await page.getByTestId('order-session-execute').waitFor();
+      await wait(900);
+    } else {
+      await page.getByTestId('order-session-execute').waitFor();
+      await wait(1_000);
+    }
 
     await page.getByTestId('order-session-execute').click();
-    await page.getByTestId('external-order-feedback').waitFor();
+    await page.getByTestId('order-session-result-body').waitFor();
     await wait(1_300);
 
     await page.close();
