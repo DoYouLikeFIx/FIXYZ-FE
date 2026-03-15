@@ -890,7 +890,7 @@ describe('App auth flow', () => {
       expect(
         await screen.findByTestId('session-expiry-monitoring-unavailable'),
       ).toHaveTextContent(
-        'This browser cannot receive automatic session expiry warnings.',
+        'Automatic session expiry monitoring is currently unavailable.',
       );
       expect(screen.getByTestId('session-expiry-extend')).toHaveTextContent(
         'Refresh session now',
@@ -1037,6 +1037,73 @@ describe('App auth flow', () => {
 
     expect(MockEventSource.instances).toHaveLength(2);
     expect(MockEventSource.instances.at(-1)).not.toBe(originalStream);
+  });
+
+  it('backs off reconnect attempts and surfaces unavailable monitoring after repeated stream failures', async () => {
+    mockFetchSession.mockResolvedValue(memberFixture);
+
+    window.history.pushState({}, '', '/portfolio');
+    render(<App />);
+
+    expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
+      'Portfolio overview',
+    );
+
+    vi.useFakeTimers();
+
+    const firstStream = MockEventSource.instances.at(-1);
+    expect(firstStream).toBeDefined();
+
+    act(() => {
+      firstStream?.onerror?.(new Event('error'));
+      vi.advanceTimersByTime(3_000);
+    });
+
+    const secondStream = MockEventSource.instances.at(-1);
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(secondStream).not.toBe(firstStream);
+
+    act(() => {
+      secondStream?.onerror?.(new Event('error'));
+      vi.advanceTimersByTime(5_000);
+    });
+
+    expect(MockEventSource.instances).toHaveLength(2);
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    const thirdStream = MockEventSource.instances.at(-1);
+    expect(MockEventSource.instances).toHaveLength(3);
+    expect(thirdStream).not.toBe(secondStream);
+
+    act(() => {
+      thirdStream?.onerror?.(new Event('error'));
+      vi.advanceTimersByTime(11_000);
+    });
+
+    expect(MockEventSource.instances).toHaveLength(3);
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    const fourthStream = MockEventSource.instances.at(-1);
+    expect(MockEventSource.instances).toHaveLength(4);
+    expect(fourthStream).not.toBe(thirdStream);
+
+    act(() => {
+      fourthStream?.onerror?.(new Event('error'));
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(
+      screen.getByTestId('session-expiry-monitoring-unavailable'),
+    ).toHaveTextContent('Automatic session expiry monitoring is currently unavailable.');
+    expect(MockEventSource.instances).toHaveLength(4);
+
+    vi.useRealTimers();
   });
 
   it('cancels pending stream reconnect work when the protected view unmounts', async () => {

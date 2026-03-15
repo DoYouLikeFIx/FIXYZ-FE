@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -48,6 +51,50 @@ const createDeferred = <T,>() => {
   };
 };
 
+const testFileUrl = import.meta.url.startsWith('file:')
+  ? import.meta.url
+  : `file://${import.meta.url}`;
+
+type SharedProcessingStateCase = {
+  name: string;
+  status: string;
+  title: string;
+  body: string;
+};
+
+type SharedFinalResultCase = {
+  name: string;
+  status: string;
+  executionResult?: string;
+  title: string;
+  body: string;
+  externalOrderId?: string;
+  executionResultLabel?: string;
+  executedQty?: number;
+  executedQtyLabel?: string;
+  executedPrice?: number;
+  executedPriceLabel?: string;
+  failureReason?: string;
+  failureReasonLabel?: string;
+  leavesQty?: number;
+  leavesQtyLabel?: string;
+  canceledAt?: string;
+  canceledAtLabel?: string;
+};
+
+const sharedOrderSessionContractCases = JSON.parse(
+  readFileSync(
+    fileURLToPath(`${new URL('../../../../tests/order-session-contract-cases.json', testFileUrl)}`),
+    'utf8',
+  ),
+) as {
+  processingStates: SharedProcessingStateCase[];
+  finalResults: SharedFinalResultCase[];
+};
+
+const sharedProcessingStateCases = sharedOrderSessionContractCases.processingStates;
+const sharedFinalResultCases = sharedOrderSessionContractCases.finalResults;
+
 describe('OrderPage', () => {
   beforeEach(() => {
     resetAuthStore();
@@ -60,7 +107,7 @@ describe('OrderPage', () => {
     window.sessionStorage.clear();
   });
 
-  it('shows the external recovery panel when execute returns an FEP error', async () => {
+  it('preserves the external recovery panel when execute returns an FEP error and session refresh succeeds', async () => {
     vi.mocked(createOrderSession).mockResolvedValue({
       orderSessionId: 'sess-001',
       clOrdId: 'cl-001',
@@ -83,6 +130,20 @@ describe('OrderPage', () => {
         traceId: 'trace-fep-002',
       }),
     );
+    vi.mocked(getOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-001',
+      clOrdId: 'cl-001',
+      status: 'EXECUTING',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 71000,
+      expiresAt: futureIso(),
+    });
     const user = userEvent.setup();
 
     render(<OrderPage />);
@@ -90,11 +151,17 @@ describe('OrderPage', () => {
     await user.click(screen.getByTestId('order-session-create'));
     await user.click(await screen.findByTestId('order-session-execute'));
 
+    await waitFor(() => {
+      expect(getOrderSession).toHaveBeenCalledWith('sess-001');
+    });
     expect(await screen.findByTestId('external-order-error-title')).toHaveTextContent(
       '주문 결과를 확인하고 있습니다',
     );
     expect(screen.getByTestId('external-order-error-support-reference')).toHaveTextContent(
       '문의 코드: trace-fep-002',
+    );
+    expect(screen.getByTestId('order-session-processing')).toHaveTextContent(
+      '주문을 거래소에 전송했어요',
     );
   });
 
@@ -249,6 +316,78 @@ describe('OrderPage', () => {
     );
   });
 
+  it('maps replayed OTP verification into deterministic guidance', async () => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-step-b',
+      clOrdId: 'cl-step-b',
+      status: 'PENDING_NEW',
+      challengeRequired: true,
+      authorizationReason: 'ELEVATED_ORDER_RISK',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 3,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+    vi.mocked(verifyOrderSessionOtp).mockRejectedValue(
+      Object.assign(new Error('otp code already used in current window'), {
+        name: 'ApiClientError',
+        code: 'AUTH-011',
+        status: 401,
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+    fireEvent.change(await screen.findByTestId('order-session-otp-input'), {
+      target: { value: '123456' },
+    });
+
+    expect(await screen.findByTestId('order-session-error')).toHaveTextContent(
+      '이미 사용한 OTP 코드입니다. 새 코드가 표시되면 다시 입력해 주세요.',
+    );
+  });
+
+  it('maps throttled OTP verification into retry guidance', async () => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-step-b',
+      clOrdId: 'cl-step-b',
+      status: 'PENDING_NEW',
+      challengeRequired: true,
+      authorizationReason: 'ELEVATED_ORDER_RISK',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 3,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+    vi.mocked(verifyOrderSessionOtp).mockRejectedValue(
+      Object.assign(new Error('rate limit exceeded'), {
+        name: 'ApiClientError',
+        code: 'RATE_001',
+        status: 429,
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+    fireEvent.change(await screen.findByTestId('order-session-otp-input'), {
+      target: { value: '123456' },
+    });
+
+    expect(await screen.findByTestId('order-session-error')).toHaveTextContent(
+      'OTP를 너무 빠르게 연속 제출했습니다. 잠시 후 다시 시도해 주세요.',
+    );
+  });
+
   it('shows the 60-second warning bar and extends an active order session', async () => {
     vi.mocked(createOrderSession).mockResolvedValue({
       orderSessionId: 'sess-step-b',
@@ -317,6 +456,48 @@ describe('OrderPage', () => {
       expect(screen.queryByTestId('order-session-expired-modal')).not.toBeInTheDocument();
     });
     expect(screen.getByTestId('order-session-create')).toBeInTheDocument();
+    expect(screen.getByTestId('order-session-error')).toHaveTextContent(
+      '주문 세션이 만료되었습니다. 입력한 주문을 확인한 뒤 다시 시작해 주세요.',
+    );
+  });
+
+  it('shows a blocking expired-session modal when Step B verify detects a stale session', async () => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-expired-verify',
+      clOrdId: 'cl-expired-verify',
+      status: 'PENDING_NEW',
+      challengeRequired: true,
+      authorizationReason: 'ELEVATED_ORDER_RISK',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+    vi.mocked(verifyOrderSessionOtp).mockRejectedValue(
+      Object.assign(new Error('Order session not found.'), {
+        name: 'ApiClientError',
+        code: 'ORD-008',
+        status: 404,
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+    fireEvent.change(await screen.findByTestId('order-session-otp-input'), {
+      target: { value: '123456' },
+    });
+
+    expect(await screen.findByTestId('order-session-expired-modal')).toBeInTheDocument();
+    await user.click(screen.getByTestId('order-session-expired-restart'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('order-session-expired-modal')).not.toBeInTheDocument();
+    });
     expect(screen.getByTestId('order-session-error')).toHaveTextContent(
       '주문 세션이 만료되었습니다. 입력한 주문을 확인한 뒤 다시 시작해 주세요.',
     );
@@ -445,6 +626,350 @@ describe('OrderPage', () => {
     });
 
     await screen.findByTestId('order-session-reset');
+  });
+
+  it('refreshes processing guidance from polled order-session status', async () => {
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    const requeryingState = sharedProcessingStateCases.find(
+      (candidate) => candidate.status === 'REQUERYING',
+    );
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-processing',
+      clOrdId: 'cl-processing',
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+    vi.mocked(executeOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-processing',
+      clOrdId: 'cl-processing',
+      status: 'EXECUTING',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      expiresAt: null,
+    });
+    vi.mocked(getOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-processing',
+      clOrdId: 'cl-processing',
+      status: 'REQUERYING',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      expiresAt: null,
+    });
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+    await user.click(await screen.findByTestId('order-session-execute'));
+
+    await waitFor(() => {
+      expect(getOrderSession).toHaveBeenCalledWith('sess-processing');
+    });
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
+    expect(await screen.findByTestId('order-session-processing')).toHaveTextContent(
+      requeryingState?.title ?? '주문 체결 결과를 다시 확인하고 있어요',
+    );
+    expect(screen.getByTestId('order-session-processing')).toHaveTextContent(
+      requeryingState?.body
+        ?? '체결 결과를 재조회하는 중입니다. 완료로 간주하지 말고 상태가 바뀔 때까지 기다려 주세요.',
+    );
+    expect(screen.getByTestId('order-result-clordid')).toHaveTextContent('cl-processing');
+    setIntervalSpy.mockRestore();
+  });
+
+  it('transitions a polled processing session into a final result without losing context', async () => {
+    const filledResult = sharedFinalResultCases.find(
+      (candidate) => candidate.executionResult === 'FILLED',
+    );
+    const processingDeferred = createDeferred<Awaited<ReturnType<typeof getOrderSession>>>();
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-processing-transition',
+      clOrdId: 'cl-processing-transition',
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+    vi.mocked(executeOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-processing-transition',
+      clOrdId: 'cl-processing-transition',
+      status: 'EXECUTING',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      expiresAt: null,
+    });
+    vi.mocked(getOrderSession)
+      .mockResolvedValueOnce({
+        orderSessionId: 'sess-processing-transition',
+        clOrdId: 'cl-processing-transition',
+        status: 'REQUERYING',
+        challengeRequired: false,
+        authorizationReason: 'TRUSTED_AUTH_SESSION',
+        accountId: 1,
+        symbol: '005930',
+        side: 'BUY',
+        orderType: 'LIMIT',
+        qty: 2,
+        price: 70100,
+        expiresAt: null,
+      })
+      .mockImplementationOnce(() => processingDeferred.promise)
+      .mockResolvedValueOnce({
+        orderSessionId: 'sess-processing-transition',
+        clOrdId: 'cl-processing-transition',
+        status: filledResult?.status ?? 'COMPLETED',
+        challengeRequired: false,
+        authorizationReason: 'TRUSTED_AUTH_SESSION',
+        accountId: 1,
+        symbol: '005930',
+        side: 'BUY',
+        orderType: 'LIMIT',
+        qty: 2,
+        price: 70100,
+        executionResult: filledResult?.executionResult,
+        externalOrderId: filledResult?.externalOrderId,
+        executedPrice: filledResult?.executedPrice,
+        canceledAt: filledResult?.canceledAt,
+        expiresAt: null,
+      });
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+    await user.click(await screen.findByTestId('order-session-execute'));
+
+    await waitFor(() => {
+      expect(getOrderSession).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByTestId('order-session-processing')).toBeInTheDocument();
+
+    processingDeferred.resolve({
+      orderSessionId: 'sess-processing-transition',
+      clOrdId: 'cl-processing-transition',
+      status: 'EXECUTING',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      expiresAt: null,
+    });
+    await waitFor(() => {
+      expect(getOrderSession).toHaveBeenCalledTimes(3);
+    });
+
+    expect(await screen.findByTestId('order-session-result-title')).toHaveTextContent(
+      filledResult?.title ?? '주문이 체결되었습니다',
+    );
+    expect(screen.getByTestId('order-result-clordid')).toHaveTextContent('cl-processing-transition');
+    expect(screen.getByTestId('order-result-execution-result')).toHaveTextContent(
+      filledResult?.executionResultLabel ?? 'FILLED',
+    );
+  });
+
+  it('shows manual-review guidance for escalated order sessions', async () => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-escalated',
+      clOrdId: 'cl-escalated',
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+    vi.mocked(executeOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-escalated',
+      clOrdId: 'cl-escalated',
+      status: 'ESCALATED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+        failureReason: 'ESCALATED_MANUAL_REVIEW',
+        expiresAt: null,
+    });
+    vi.mocked(getOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-escalated',
+      clOrdId: 'cl-escalated',
+      status: 'ESCALATED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      failureReason: 'ESCALATED_MANUAL_REVIEW',
+      expiresAt: null,
+    });
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+    await user.click(await screen.findByTestId('order-session-execute'));
+
+    const manualReview = await screen.findByTestId('order-session-manual-review');
+    expect(manualReview).toHaveTextContent('처리 중 문제가 발생해 수동 확인이 필요합니다.');
+    expect(manualReview).toHaveTextContent('주문 번호를 확인한 뒤 고객센터에 문의해 주세요.');
+    expect(screen.getByTestId('order-result-clordid')).toHaveTextContent('cl-escalated');
+  });
+
+  it.each(sharedFinalResultCases)('renders final result details for $name', async ({
+    executionResult,
+    executedQty,
+    failureReason,
+    leavesQty,
+    status,
+    title,
+    body,
+    executionResultLabel,
+    externalOrderId,
+    executedQtyLabel,
+    executedPrice,
+    executedPriceLabel,
+    failureReasonLabel,
+    leavesQtyLabel,
+    canceledAt,
+    canceledAtLabel,
+  }) => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-final-result',
+      clOrdId: 'cl-final-result',
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 10,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+    vi.mocked(executeOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-final-result',
+      clOrdId: 'cl-final-result',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 10,
+      price: 70100,
+      expiresAt: null,
+      status,
+      executionResult,
+      executedQty,
+      executedPrice,
+      externalOrderId,
+      failureReason,
+      leavesQty,
+      canceledAt,
+    });
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+    await user.click(await screen.findByTestId('order-session-execute'));
+
+    expect(await screen.findByTestId('order-session-result-title')).toHaveTextContent(title);
+    expect(screen.getByTestId('order-session-result')).toHaveTextContent(body);
+    expect(screen.getByTestId('order-result-clordid')).toHaveTextContent('cl-final-result');
+
+    if (executionResultLabel) {
+      expect(screen.getByTestId('order-result-execution-result')).toHaveTextContent(
+        executionResultLabel,
+      );
+    } else {
+      expect(screen.queryByTestId('order-result-execution-result')).not.toBeInTheDocument();
+    }
+
+    if (externalOrderId) {
+      expect(screen.getByTestId('order-result-external-id')).toHaveTextContent(externalOrderId);
+    } else {
+      expect(screen.queryByTestId('order-result-external-id')).not.toBeInTheDocument();
+    }
+
+    if (executedQtyLabel) {
+      expect(screen.getByTestId('order-result-executed-qty')).toHaveTextContent(executedQtyLabel);
+    } else {
+      expect(screen.queryByTestId('order-result-executed-qty')).not.toBeInTheDocument();
+    }
+
+    if (executedPriceLabel) {
+      expect(screen.getByTestId('order-result-executed-price')).toHaveTextContent(executedPriceLabel);
+    } else {
+      expect(screen.queryByTestId('order-result-executed-price')).not.toBeInTheDocument();
+    }
+
+    if (leavesQtyLabel) {
+      expect(screen.getByTestId('order-result-leaves-qty')).toHaveTextContent(leavesQtyLabel);
+    } else {
+      expect(screen.queryByTestId('order-result-leaves-qty')).not.toBeInTheDocument();
+    }
+
+    if (canceledAtLabel) {
+      expect(screen.getByTestId('order-result-canceled-at')).toHaveTextContent(canceledAtLabel);
+    } else {
+      expect(screen.queryByTestId('order-result-canceled-at')).not.toBeInTheDocument();
+    }
+
+    if (failureReasonLabel) {
+      expect(screen.getByTestId('order-result-failure-reason')).toHaveTextContent(
+        failureReasonLabel,
+      );
+    } else {
+      expect(screen.queryByTestId('order-result-failure-reason')).not.toBeInTheDocument();
+    }
   });
 
   it('restores a pending order session into Step B from sessionStorage', async () => {
