@@ -20,7 +20,8 @@ describe('external order recovery account id handling', () => {
     expect(
       buildExternalOrderRequest({
         accountId: 'ACC-001',
-        presetId: 'krx-buy-1',
+        symbol: '005930',
+        quantity: '1',
       }),
     ).toBeNull();
   });
