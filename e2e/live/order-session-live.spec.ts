@@ -1,9 +1,43 @@
 import { createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { expect, test, type Page } from '@playwright/test';
 
 const DEFAULT_REGISTER_PASSWORD = 'LiveOrder1!';
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+const canonicalOrderSessionContract = JSON.parse(
+  readFileSync(
+    fileURLToPath(new URL('../../../docs/contracts/order-session-ux.json', import.meta.url)),
+    'utf8',
+  ),
+) as {
+  authorizationScenarios: Array<{
+    scenarioKey: string;
+    body: string;
+  }>;
+  finalResults: Array<{
+    title: string;
+    body: string;
+  }>;
+};
+
+const authorizationScenario = (scenarioKey: string) => {
+  const scenario = canonicalOrderSessionContract.authorizationScenarios.find(
+    (candidate) => candidate.scenarioKey === scenarioKey,
+  );
+
+  if (!scenario) {
+    throw new Error(`Missing authorization scenario: ${scenarioKey}`);
+  }
+
+  return scenario;
+};
+
+const isCanonicalFinalResult = (title: string, body: string) =>
+  canonicalOrderSessionContract.finalResults.some(
+    (candidate) => candidate.title === title && candidate.body === body,
+  );
 
 const createLiveIdentity = () => {
   const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -173,6 +207,15 @@ const registerEnrollAndLoginToOrders = async (page: Page) => {
   };
 };
 
+const expectCanonicalFinalResultCard = async (page: Page) => {
+  const title = (await page.getByTestId('order-session-result-title').textContent())?.trim();
+  const body = (await page.getByTestId('order-session-result-body').textContent())?.trim();
+
+  expect(title).toBeTruthy();
+  expect(body).toBeTruthy();
+  expect(isCanonicalFinalResult(title!, body!)).toBe(true);
+};
+
 test.describe.serial('live backend order session flow', () => {
   test('creates and executes a low-risk order session after a fresh MFA login', async ({ page }) => {
     test.slow();
@@ -185,15 +228,15 @@ test.describe.serial('live backend order session flow', () => {
     await expect(page.getByTestId('order-session-execute')).toBeVisible();
     await expect(page.getByTestId('order-session-summary')).toContainText('상태 AUTHED');
     await expect(page.getByTestId('order-session-authorization-message')).toContainText(
-      '현재 신뢰 세션이 유효하여 추가 OTP 없이 바로 주문을 실행할 수 있습니다.',
+      authorizationScenario('auto-authorized-confirm').body,
     );
 
     await page.getByTestId('order-session-execute').click();
 
     await expect(page.getByTestId('order-session-summary')).toContainText('상태 COMPLETED');
-    await expect(page.getByTestId('external-order-feedback')).toContainText(
-      '주문이 접수되었습니다. 주문 요약을 확인해 주세요.',
-    );
+    await expect(page.getByTestId('order-session-result')).toBeVisible();
+    await expectCanonicalFinalResultCard(page);
+    await expect(page.getByTestId('external-order-feedback')).toHaveCount(0);
   });
 
   test('requires Step B for elevated-risk orders and maps same-window replay before recovering', async ({
@@ -212,7 +255,7 @@ test.describe.serial('live backend order session flow', () => {
     await expect(page.getByTestId('order-session-otp-input')).toBeVisible();
     await expect(page.getByTestId('order-session-summary')).toContainText('상태 PENDING_NEW');
     await expect(page.getByTestId('order-session-authorization-message')).toContainText(
-      '고위험 주문으로 분류되어 주문 실행 전에 OTP 인증이 필요합니다.',
+      authorizationScenario('challenge-required-step-up').body,
     );
 
     const firstOrderOtpCode = await waitForNextTotp(manualEntryKey, lastUsedTotp);
@@ -244,8 +287,7 @@ test.describe.serial('live backend order session flow', () => {
 
     await expect(page.getByTestId('order-session-summary')).toContainText('상태 COMPLETED');
     await expect(page.getByTestId('order-session-result')).toBeVisible();
-    await expect(page.getByTestId('external-order-feedback')).toContainText(
-      '주문이 접수되었습니다. 주문 요약을 확인해 주세요.',
-    );
+    await expectCanonicalFinalResultCard(page);
+    await expect(page.getByTestId('external-order-feedback')).toHaveCount(0);
   });
 });
