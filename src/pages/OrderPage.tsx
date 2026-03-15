@@ -48,6 +48,7 @@ export function OrderPage() {
           isRestoring={orderRecovery.isRestoring}
           presentation={orderRecovery.presentation}
           orderSession={orderRecovery.orderSession}
+          hasDetectedSessionExpiry={orderRecovery.hasDetectedSessionExpiry}
           authorizationReasonMessage={orderRecovery.authorizationReasonMessage}
           otpValue={orderRecovery.otpValue}
           presets={orderRecovery.presets}
