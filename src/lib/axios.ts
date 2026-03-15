@@ -40,6 +40,7 @@ export interface NormalizedApiError extends Error {
   traceId?: string;
   operatorCode?: string;
   retryAfterSeconds?: number;
+  remainingAttempts?: number;
   enrollUrl?: string;
   recoveryUrl?: string;
   userMessageKey?: string;
@@ -52,6 +53,7 @@ interface DirectApiErrorPayload {
   correlationId?: string;
   operatorCode?: string;
   retryAfterSeconds?: unknown;
+  remainingAttempts?: unknown;
   enrollUrl?: string;
   recoveryUrl?: string;
   userMessageKey?: string;
@@ -98,6 +100,7 @@ export const createNormalizedApiError = (
     traceId?: string;
     operatorCode?: string;
     retryAfterSeconds?: number;
+    remainingAttempts?: number;
     enrollUrl?: string;
     recoveryUrl?: string;
     userMessageKey?: string;
@@ -111,6 +114,7 @@ export const createNormalizedApiError = (
   normalized.traceId = options?.traceId;
   normalized.operatorCode = options?.operatorCode;
   normalized.retryAfterSeconds = options?.retryAfterSeconds;
+  normalized.remainingAttempts = options?.remainingAttempts;
   normalized.enrollUrl = options?.enrollUrl;
   normalized.recoveryUrl = options?.recoveryUrl;
   normalized.userMessageKey = options?.userMessageKey;
@@ -146,6 +150,18 @@ const parseRetryAfterSeconds = (value: unknown) => {
   }
 
   return Math.max(0, Math.ceil((asDate - Date.now()) / 1000));
+};
+
+const parseRemainingAttempts = (value: unknown) => {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.trunc(value);
+  }
+
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    return Number.parseInt(value, 10);
+  }
+
+  return undefined;
 };
 
 const getHeaderValue = (headers: unknown, name: string) => {
@@ -204,6 +220,7 @@ const unwrapEnvelope = <T>(response: AxiosResponse<T>): AxiosResponse<T> => {
           payload.error?.retryAfterSeconds,
           response.headers,
         ),
+        remainingAttempts: parseRemainingAttempts(payload.error?.remainingAttempts),
         enrollUrl:
           typeof payload.error?.enrollUrl === 'string'
             ? payload.error.enrollUrl
@@ -248,6 +265,7 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
           responseData.error.retryAfterSeconds,
           error.response?.headers,
         ),
+        remainingAttempts: parseRemainingAttempts(responseData.error.remainingAttempts),
         enrollUrl:
           typeof responseData.error.enrollUrl === 'string'
             ? responseData.error.enrollUrl
@@ -280,6 +298,7 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
           responseData.retryAfterSeconds,
           error.response?.headers,
         ),
+        remainingAttempts: parseRemainingAttempts(responseData.remainingAttempts),
         enrollUrl:
           typeof responseData.enrollUrl === 'string'
             ? responseData.enrollUrl
