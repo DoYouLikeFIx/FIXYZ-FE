@@ -159,10 +159,12 @@ export function ExternalOrderRecoverySection({
   onExtend,
 }: ExternalOrderRecoverySectionProps) {
   const countdown = useExpiryCountdown(orderSession?.expiresAt ?? EMPTY_EXPIRY);
+  const hasExpiry = orderSession?.expiresAt != null;
   const hasActiveSession = orderSession != null && step !== 'COMPLETE';
   const showExpiredModal =
-    hasActiveSession && (countdown.isExpired || hasDetectedSessionExpiry);
-  const showExpiryWarning = hasActiveSession && countdown.isExpiringSoon && !showExpiredModal;
+    hasActiveSession && ((hasExpiry && countdown.isExpired) || hasDetectedSessionExpiry);
+  const showExpiryWarning =
+    hasActiveSession && hasExpiry && countdown.isExpiringSoon && !showExpiredModal;
   const isExpiredInteractionLocked = isInteractionLocked || showExpiredModal;
   const showProcessingState =
     step === 'COMPLETE' && orderSession != null && isProcessingStatus(orderSession.status);
@@ -170,7 +172,10 @@ export function ExternalOrderRecoverySection({
     step === 'COMPLETE' && orderSession != null && isManualReviewStatus(orderSession.status);
   const showResultState =
     step === 'COMPLETE' && orderSession != null && isFinalResultStatus(orderSession.status);
-  const expiredModalMessage = countdown.isExpired
+  const hasCompleteStateCard = showProcessingState || showManualReviewState || showResultState;
+  const effectiveFeedbackMessage =
+    step === 'COMPLETE' && hasCompleteStateCard ? null : feedbackMessage;
+  const expiredModalMessage = hasExpiry && countdown.isExpired
     ? `${countdown.expiresAtLabel}에 세션이 종료되었습니다. 입력한 주문을 확인한 뒤 다시 시작해 주세요.`
     : '주문 세션이 더 이상 유효하지 않습니다. 입력한 주문을 확인한 뒤 다시 시작해 주세요.';
 
@@ -242,9 +247,9 @@ export function ExternalOrderRecoverySection({
         </div>
       ) : null}
 
-      {feedbackMessage ? (
+      {effectiveFeedbackMessage ? (
         <p className="external-order-recovery__feedback" data-testid="external-order-feedback">
-          {feedbackMessage}
+          {effectiveFeedbackMessage}
         </p>
       ) : null}
 
@@ -322,7 +327,7 @@ export function ExternalOrderRecoverySection({
               data-testid="external-order-recovery-clear"
               disabled={
                 showExpiredModal
-                || (feedbackMessage === null && inlineError === null && presentation === null)
+                || (effectiveFeedbackMessage === null && inlineError === null && presentation === null)
               }
               onClick={onClear}
             >
