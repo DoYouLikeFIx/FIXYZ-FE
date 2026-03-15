@@ -84,7 +84,7 @@ type SharedFinalResultCase = {
 
 const sharedOrderSessionContractCases = JSON.parse(
   readFileSync(
-    fileURLToPath(`${new URL('../../../../tests/order-session-contract-cases.json', testFileUrl)}`),
+    fileURLToPath(`${new URL('../../order-session-contract-cases.json', testFileUrl)}`),
     'utf8',
   ),
 ) as {
@@ -388,6 +388,43 @@ describe('OrderPage', () => {
     );
   });
 
+  it('maps canonicalized OTP mismatch errors into remaining-attempts guidance', async () => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-step-b',
+      clOrdId: 'cl-step-b',
+      status: 'PENDING_NEW',
+      challengeRequired: true,
+      authorizationReason: 'ELEVATED_ORDER_RISK',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 3,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+    vi.mocked(verifyOrderSessionOtp).mockRejectedValue(
+      Object.assign(new Error('otp mismatch'), {
+        name: 'ApiClientError',
+        code: 'CHANNEL_002',
+        remainingAttempts: 2,
+        status: 401,
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+    fireEvent.change(await screen.findByTestId('order-session-otp-input'), {
+      target: { value: '123456' },
+    });
+
+    expect(await screen.findByTestId('order-session-error')).toHaveTextContent(
+      'OTP 코드가 일치하지 않습니다. 남은 시도 2회',
+    );
+  });
+
   it('shows the 60-second warning bar and extends an active order session', async () => {
     vi.mocked(createOrderSession).mockResolvedValue({
       orderSessionId: 'sess-step-b',
@@ -426,6 +463,32 @@ describe('OrderPage', () => {
     await user.click(screen.getByTestId('order-session-extend'));
 
     expect(extendOrderSession).toHaveBeenCalledWith('sess-step-b');
+  });
+
+  it('does not treat an active session with null expiry metadata as already expired', async () => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-null-expiry',
+      clOrdId: 'cl-null-expiry',
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      expiresAt: null,
+    });
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+
+    expect(await screen.findByTestId('order-session-execute')).toBeInTheDocument();
+    expect(screen.queryByTestId('order-session-warning')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('order-session-expired-modal')).not.toBeInTheDocument();
   });
 
   it('shows an expired-session modal and restarts the draft when the session has expired', async () => {
@@ -694,6 +757,7 @@ describe('OrderPage', () => {
         ?? '체결 결과를 재조회하는 중입니다. 완료로 간주하지 말고 상태가 바뀔 때까지 기다려 주세요.',
     );
     expect(screen.getByTestId('order-result-clordid')).toHaveTextContent('cl-processing');
+    expect(screen.queryByTestId('external-order-feedback')).not.toBeInTheDocument();
     setIntervalSpy.mockRestore();
   });
 
@@ -801,6 +865,7 @@ describe('OrderPage', () => {
     expect(screen.getByTestId('order-result-execution-result')).toHaveTextContent(
       filledResult?.executionResultLabel ?? 'FILLED',
     );
+    expect(screen.queryByTestId('external-order-feedback')).not.toBeInTheDocument();
   });
 
   it('shows manual-review guidance for escalated order sessions', async () => {
