@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+import { clearAllPersistedOrderSessionIds } from '@/order/order-session-storage';
 import type { LoginChallenge, Member, TotpRebindBootstrap } from '@/types/auth';
 
 export type AuthStatus = 'checking' | 'anonymous' | 'authenticated';
@@ -67,6 +68,7 @@ const createAuthStoreState = (): AuthState => ({
     });
   },
   logout: () => {
+    clearAllPersistedOrderSessionIds();
     useAuthStore.setState({
       status: 'anonymous',
       member: null,
@@ -76,6 +78,7 @@ const createAuthStoreState = (): AuthState => ({
     });
   },
   requireReauth: (message) => {
+    clearAllPersistedOrderSessionIds();
     useAuthStore.setState({
       status: 'anonymous',
       member: null,

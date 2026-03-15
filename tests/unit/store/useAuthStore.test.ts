@@ -13,6 +13,7 @@ const memberFixture: Member = {
 describe('useAuthStore', () => {
   beforeEach(() => {
     resetAuthStore();
+    window.sessionStorage.clear();
   });
 
   it('stores the authenticated member and clears transient guidance on login', () => {
@@ -30,6 +31,7 @@ describe('useAuthStore', () => {
   it('moves back to anonymous state when re-authentication is required', () => {
     const store = useAuthStore.getState();
     store.login(memberFixture);
+    window.sessionStorage.setItem('fixyz.order-session-id:1', 'sess-001');
 
     store.requireReauth('세션이 만료되었습니다. 다시 로그인해 주세요.');
 
@@ -37,6 +39,19 @@ describe('useAuthStore', () => {
     expect(state.status).toBe('anonymous');
     expect(state.member).toBeNull();
     expect(state.reauthMessage).toBe('세션이 만료되었습니다. 다시 로그인해 주세요.');
+    expect(window.sessionStorage.getItem('fixyz.order-session-id:1')).toBeNull();
+  });
+
+  it('clears persisted order-session keys on logout', () => {
+    const store = useAuthStore.getState();
+    store.login(memberFixture);
+    window.sessionStorage.setItem('fixyz.order-session-id:1', 'sess-001');
+    window.sessionStorage.setItem('fixyz.order-session-id:2', 'sess-002');
+
+    store.logout();
+
+    expect(window.sessionStorage.getItem('fixyz.order-session-id:1')).toBeNull();
+    expect(window.sessionStorage.getItem('fixyz.order-session-id:2')).toBeNull();
   });
 
   it('clears re-auth guidance when requested', () => {

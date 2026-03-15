@@ -132,7 +132,7 @@ describe('PortfolioPage', () => {
     );
     expect(screen.getByTestId('portfolio-symbol-005930')).toBeInTheDocument();
     expect(screen.getByTestId('portfolio-symbol-000660')).toBeInTheDocument();
-    expect(screen.queryByTestId('external-order-recovery-submit')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('order-session-create')).not.toBeInTheDocument();
   });
 
   it('switches the selected owned position and re-queries history when the page size or page changes', async () => {

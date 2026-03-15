@@ -651,7 +651,7 @@ describe('App auth flow', () => {
     render(<App />);
 
     expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
-      'External error handling',
+      'Session-based order flow',
     );
     expect(window.location.pathname).toBe('/orders');
   });

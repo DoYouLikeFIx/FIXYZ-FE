@@ -148,7 +148,7 @@ describe.sequential('BE-FE auth contract integration', () => {
 
   it('completes login MFA, refreshes csrf, and retries the first raw 403 protected mutation', async () => {
     let csrfTokenVersion = 0;
-    let orderAttempts = 0;
+    let sessionCreateAttempts = 0;
 
     const harness = await createAxiosHarness((request) => {
       if (request.method === 'GET' && getPathname(request.url) === '/api/v1/auth/csrf') {
@@ -178,10 +178,10 @@ describe.sequential('BE-FE auth contract integration', () => {
         });
       }
 
-      if (request.method === 'POST' && getPathname(request.url) === '/api/v1/orders') {
-        orderAttempts += 1;
+      if (request.method === 'POST' && getPathname(request.url) === '/api/v1/orders/sessions') {
+        sessionCreateAttempts += 1;
 
-        if (orderAttempts === 1) {
+        if (sessionCreateAttempts === 1) {
           return {
             status: 403,
             body: '',
@@ -189,11 +189,41 @@ describe.sequential('BE-FE auth contract integration', () => {
         }
 
         return successEnvelope({
-          orderId: 1001,
+          orderSessionId: 'sess-001',
           clOrdId: 'cl-001',
-          status: 'RECEIVED',
-          idempotent: false,
-          orderQuantity: 2,
+          status: 'AUTHED',
+          challengeRequired: false,
+          authorizationReason: 'RECENT_LOGIN_MFA',
+          accountId: 1,
+          symbol: '005930',
+          side: 'BUY',
+          orderType: 'LIMIT',
+          qty: 2,
+          price: 70100,
+          expiresAt: '2026-03-12T10:10:00Z',
+        });
+      }
+
+      if (request.method === 'POST'
+        && getPathname(request.url) === '/api/v1/orders/sessions/sess-001/execute') {
+        return successEnvelope({
+          orderSessionId: 'sess-001',
+          clOrdId: 'cl-001',
+          status: 'COMPLETED',
+          challengeRequired: false,
+          authorizationReason: 'RECENT_LOGIN_MFA',
+          accountId: 1,
+          symbol: '005930',
+          side: 'BUY',
+          orderType: 'LIMIT',
+          qty: 2,
+          price: 70100,
+          executionResult: 'FILLED',
+          executedQty: 2,
+          leavesQty: 0,
+          executedPrice: 70100,
+          externalOrderId: 'ord-1001',
+          expiresAt: '2026-03-12T10:10:00Z',
         });
       }
 
@@ -222,7 +252,7 @@ describe.sequential('BE-FE auth contract integration', () => {
     });
 
     await expect(
-      harness.submitExternalOrder({
+      harness.createOrderSession({
         accountId: 1,
         clOrdId: 'cl-001',
         symbol: '005930',
@@ -231,27 +261,63 @@ describe.sequential('BE-FE auth contract integration', () => {
         price: 70100,
       }),
     ).resolves.toEqual({
-      orderId: 1001,
+      orderSessionId: 'sess-001',
       clOrdId: 'cl-001',
-      status: 'RECEIVED',
-      idempotent: false,
-      orderQuantity: 2,
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'RECENT_LOGIN_MFA',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      expiresAt: '2026-03-12T10:10:00Z',
+    });
+
+    await expect(
+      harness.executeOrderSession('sess-001'),
+    ).resolves.toEqual({
+      orderSessionId: 'sess-001',
+      clOrdId: 'cl-001',
+      status: 'COMPLETED',
+      challengeRequired: false,
+      authorizationReason: 'RECENT_LOGIN_MFA',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      executionResult: 'FILLED',
+      executedQty: 2,
+      leavesQty: 0,
+      executedPrice: 70100,
+      externalOrderId: 'ord-1001',
+      expiresAt: '2026-03-12T10:10:00Z',
     });
 
     const csrfCalls = findCalls(harness.calls, '/api/v1/auth/csrf', 'GET');
     const loginCalls = findCalls(harness.calls, '/api/v1/auth/login', 'POST');
     const verifyCalls = findCalls(harness.calls, '/api/v1/auth/otp/verify', 'POST');
-    const orderCalls = findCalls(harness.calls, '/api/v1/orders', 'POST');
+    const createCalls = findCalls(harness.calls, '/api/v1/orders/sessions', 'POST');
+    const executeCalls = findCalls(
+      harness.calls,
+      '/api/v1/orders/sessions/sess-001/execute',
+      'POST',
+    );
 
     expect(csrfCalls).toHaveLength(3);
     expect(loginCalls).toHaveLength(1);
     expect(verifyCalls).toHaveLength(1);
-    expect(orderCalls).toHaveLength(2);
+    expect(createCalls).toHaveLength(2);
+    expect(executeCalls).toHaveLength(1);
 
     expect(loginCalls[0]?.headers['X-CSRF-TOKEN']).toBe('csrf-login-1');
     expect(verifyCalls[0]?.headers['X-CSRF-TOKEN']).toBe('csrf-login-1');
-    expect(orderCalls[0]?.headers['X-CSRF-TOKEN']).toBe('csrf-login-2');
-    expect(orderCalls[1]?.headers['X-CSRF-TOKEN']).toBe('csrf-login-3');
+    expect(createCalls[0]?.headers['X-CSRF-TOKEN']).toBe('csrf-login-2');
+    expect(createCalls[1]?.headers['X-CSRF-TOKEN']).toBe('csrf-login-3');
+    expect(executeCalls[0]?.headers['X-CSRF-TOKEN']).toBe('csrf-login-3');
     expect(getFormBody(loginCalls[0]?.body)).toEqual({
       email: 'demo@fix.com',
       password: 'Test1234!',
@@ -260,14 +326,14 @@ describe.sequential('BE-FE auth contract integration', () => {
       loginToken: 'login-token',
       otpCode: '123456',
     }));
-    expect(getFormBody(orderCalls[1]?.body)).toEqual({
-      accountId: '1',
-      clOrdId: 'cl-001',
+    expect(createCalls[1]?.body).toBe(JSON.stringify({
+      accountId: 1,
       symbol: '005930',
       side: 'BUY',
-      quantity: '2',
-      price: '70100',
-    });
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+    }));
   });
 
   it('registers, enrolls TOTP, refreshes csrf after confirm, and uses the new token for the next protected mutation', async () => {
@@ -318,13 +384,43 @@ describe.sequential('BE-FE auth contract integration', () => {
         });
       }
 
-      if (request.method === 'POST' && getPathname(request.url) === '/api/v1/orders') {
+      if (request.method === 'POST' && getPathname(request.url) === '/api/v1/orders/sessions') {
         return successEnvelope({
-          orderId: 2002,
+          orderSessionId: 'sess-enroll-001',
           clOrdId: 'cl-enroll-001',
-          status: 'RECEIVED',
-          idempotent: false,
-          orderQuantity: 1,
+          status: 'AUTHED',
+          challengeRequired: false,
+          authorizationReason: 'RECENT_LOGIN_MFA',
+          accountId: 2,
+          symbol: '005930',
+          side: 'BUY',
+          orderType: 'LIMIT',
+          qty: 1,
+          price: 70100,
+          expiresAt: '2026-03-12T10:15:00Z',
+        });
+      }
+
+      if (request.method === 'POST'
+        && getPathname(request.url) === '/api/v1/orders/sessions/sess-enroll-001/execute') {
+        return successEnvelope({
+          orderSessionId: 'sess-enroll-001',
+          clOrdId: 'cl-enroll-001',
+          status: 'COMPLETED',
+          challengeRequired: false,
+          authorizationReason: 'RECENT_LOGIN_MFA',
+          accountId: 2,
+          symbol: '005930',
+          side: 'BUY',
+          orderType: 'LIMIT',
+          qty: 1,
+          price: 70100,
+          executionResult: 'FILLED',
+          executedQty: 1,
+          leavesQty: 0,
+          executedPrice: 70100,
+          externalOrderId: 'ord-2002',
+          expiresAt: '2026-03-12T10:15:00Z',
         });
       }
 
@@ -378,7 +474,7 @@ describe.sequential('BE-FE auth contract integration', () => {
     });
 
     await expect(
-      harness.submitExternalOrder({
+      harness.createOrderSession({
         accountId: 2,
         clOrdId: 'cl-enroll-001',
         symbol: '005930',
@@ -387,11 +483,40 @@ describe.sequential('BE-FE auth contract integration', () => {
         price: 70100,
       }),
     ).resolves.toEqual({
-      orderId: 2002,
+      orderSessionId: 'sess-enroll-001',
       clOrdId: 'cl-enroll-001',
-      status: 'RECEIVED',
-      idempotent: false,
-      orderQuantity: 1,
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'RECENT_LOGIN_MFA',
+      accountId: 2,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 1,
+      price: 70100,
+      expiresAt: '2026-03-12T10:15:00Z',
+    });
+
+    await expect(
+      harness.executeOrderSession('sess-enroll-001'),
+    ).resolves.toEqual({
+      orderSessionId: 'sess-enroll-001',
+      clOrdId: 'cl-enroll-001',
+      status: 'COMPLETED',
+      challengeRequired: false,
+      authorizationReason: 'RECENT_LOGIN_MFA',
+      accountId: 2,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 1,
+      price: 70100,
+      executionResult: 'FILLED',
+      executedQty: 1,
+      leavesQty: 0,
+      executedPrice: 70100,
+      externalOrderId: 'ord-2002',
+      expiresAt: '2026-03-12T10:15:00Z',
     });
 
     const csrfCalls = findCalls(harness.calls, '/api/v1/auth/csrf', 'GET');
@@ -399,14 +524,20 @@ describe.sequential('BE-FE auth contract integration', () => {
     const loginCalls = findCalls(harness.calls, '/api/v1/auth/login', 'POST');
     const enrollCalls = findCalls(harness.calls, '/api/v1/members/me/totp/enroll', 'POST');
     const confirmCalls = findCalls(harness.calls, '/api/v1/members/me/totp/confirm', 'POST');
-    const orderCalls = findCalls(harness.calls, '/api/v1/orders', 'POST');
+    const createCalls = findCalls(harness.calls, '/api/v1/orders/sessions', 'POST');
+    const executeCalls = findCalls(
+      harness.calls,
+      '/api/v1/orders/sessions/sess-enroll-001/execute',
+      'POST',
+    );
 
     expect(csrfCalls).toHaveLength(3);
     expect(registerCalls[0]?.headers['X-CSRF-TOKEN']).toBe('csrf-enroll-1');
     expect(loginCalls[0]?.headers['X-CSRF-TOKEN']).toBe('csrf-enroll-2');
     expect(enrollCalls[0]?.headers['X-CSRF-TOKEN']).toBe('csrf-enroll-2');
     expect(confirmCalls[0]?.headers['X-CSRF-TOKEN']).toBe('csrf-enroll-2');
-    expect(orderCalls[0]?.headers['X-CSRF-TOKEN']).toBe('csrf-enroll-3');
+    expect(createCalls[0]?.headers['X-CSRF-TOKEN']).toBe('csrf-enroll-3');
+    expect(executeCalls[0]?.headers['X-CSRF-TOKEN']).toBe('csrf-enroll-3');
     expect(getFormBody(registerCalls[0]?.body)).toEqual({
       email: 'new@fix.com',
       password: 'Test1234!',
@@ -420,6 +551,14 @@ describe.sequential('BE-FE auth contract integration', () => {
       loginToken: 'enroll-login-token',
       enrollmentToken: 'enrollment-token',
       otpCode: '123456',
+    }));
+    expect(createCalls[0]?.body).toBe(JSON.stringify({
+      accountId: 2,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 1,
+      price: 70100,
     }));
   });
 });
