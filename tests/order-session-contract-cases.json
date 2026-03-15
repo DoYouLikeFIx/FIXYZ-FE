@@ -1,0 +1,98 @@
+{
+  "processingStates": [
+    {
+      "name": "executing",
+      "status": "EXECUTING",
+      "title": "주문을 거래소에 전송했어요",
+      "body": "체결 결과가 아직 확정되지 않았습니다. 잠시 후 상태가 자동으로 갱신됩니다."
+    },
+    {
+      "name": "requerying",
+      "status": "REQUERYING",
+      "title": "주문 체결 결과를 다시 확인하고 있어요",
+      "body": "체결 결과를 재조회하는 중입니다. 완료로 간주하지 말고 상태가 바뀔 때까지 기다려 주세요."
+    },
+    {
+      "name": "escalated",
+      "status": "ESCALATED",
+      "title": "수동 확인이 필요합니다.",
+      "body": "처리 중 문제가 발생해 수동 확인이 필요합니다. 주문 번호를 확인한 뒤 고객센터에 문의해 주세요."
+    }
+  ],
+  "finalResults": [
+    {
+      "name": "filled executions",
+      "status": "COMPLETED",
+      "executionResult": "FILLED",
+      "title": "주문이 체결되었습니다",
+      "body": "주문 결과 요약을 확인해 주세요.",
+      "executionResultLabel": "FILLED",
+      "externalOrderId": "FEP-KRX-20260301-0100",
+      "executedPrice": 72000,
+      "executedPriceLabel": "₩72,000"
+    },
+    {
+      "name": "partial fills",
+      "status": "COMPLETED",
+      "executionResult": "PARTIAL_FILL",
+      "title": "주문이 일부 체결되었습니다",
+      "body": "체결 수량과 남은 수량을 확인한 뒤 필요하면 새 주문을 시작해 주세요.",
+      "executionResultLabel": "PARTIAL_FILL",
+      "externalOrderId": "FEP-KRX-20260301-0001",
+      "executedQty": 5,
+      "executedQtyLabel": "5주",
+      "leavesQty": 5,
+      "leavesQtyLabel": "5주",
+      "executedPrice": 72000,
+      "executedPriceLabel": "₩72,000"
+    },
+    {
+      "name": "virtual fills",
+      "status": "COMPLETED",
+      "executionResult": "VIRTUAL_FILL",
+      "title": "주문이 승인 처리되었습니다",
+      "body": "주문 결과 요약을 확인해 주세요.",
+      "executionResultLabel": "VIRTUAL_FILL",
+      "executedQty": 10,
+      "executedQtyLabel": "10주",
+      "leavesQty": 0,
+      "leavesQtyLabel": "0주",
+      "executedPrice": 72000,
+      "executedPriceLabel": "₩72,000"
+    },
+    {
+      "name": "canceled executions",
+      "status": "CANCELED",
+      "executionResult": "CANCELED",
+      "title": "주문이 취소되었습니다",
+      "body": "취소 결과를 확인한 뒤 필요하면 새 주문을 시작해 주세요.",
+      "executionResultLabel": "CANCELED",
+      "canceledAt": "2026-03-01T10:06:00Z",
+      "canceledAtLabel": "2026-03-01T10:06:00Z"
+    },
+    {
+      "name": "partial fill cancellations",
+      "status": "CANCELED",
+      "executionResult": "PARTIAL_FILL_CANCEL",
+      "title": "일부 체결 후 나머지 수량이 취소되었습니다",
+      "body": "체결된 수량과 취소된 잔여 수량을 함께 확인해 주세요.",
+      "executionResultLabel": "PARTIAL_FILL_CANCEL",
+      "executedQty": 3,
+      "executedQtyLabel": "3주",
+      "leavesQty": 7,
+      "leavesQtyLabel": "7주",
+      "executedPrice": 72000,
+      "executedPriceLabel": "₩72,000",
+      "canceledAt": "2026-03-01T10:06:00Z",
+      "canceledAtLabel": "2026-03-01T10:06:00Z"
+    },
+    {
+      "name": "terminal failures",
+      "status": "FAILED",
+      "title": "주문이 실패했습니다",
+      "body": "실패 사유를 확인한 뒤 주문 조건을 조정해 다시 시도해 주세요.",
+      "failureReason": "MARKET_CLOSED",
+      "failureReasonLabel": "MARKET_CLOSED"
+    }
+  ]
+}

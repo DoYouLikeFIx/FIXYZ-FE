@@ -12,7 +12,7 @@ import {
 import type { SessionExpiryEventPayload } from '@/types/auth';
 import { useAuthStore } from '@/store/useAuthStore';
 
-const RECONNECT_DELAY_MS = 3_000;
+const RECONNECT_DELAYS_MS = [3_000, 6_000, 12_000] as const;
 
 interface NotificationState {
   sessionExpiryRemainingSeconds: number | null;
@@ -111,6 +111,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     let active = true;
     let reconnectHandle: number | null = null;
     let stream: EventSource | null = null;
+    let reconnectAttempt = 0;
 
     const handleSessionExpiry = (event: MessageEvent<string>) => {
       try {
@@ -118,6 +119,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         const remainingSeconds = parseRemainingSeconds(parsed);
 
         if (remainingSeconds !== null) {
+          reconnectAttempt = 0;
+          dispatch({ type: 'SESSION_EXPIRY_MONITORING_RESTORED' });
           dispatch({
             type: 'SESSION_EXPIRY_RECEIVED',
             remainingSeconds,
@@ -133,6 +136,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         stream = new EventSource(resolveNotificationStreamUrl(), {
           withCredentials: true,
         });
+        stream.onopen = () => {
+          reconnectAttempt = 0;
+          dispatch({ type: 'SESSION_EXPIRY_MONITORING_RESTORED' });
+        };
         stream.addEventListener(
           'session-expiry',
           handleSessionExpiry as EventListener,
@@ -148,7 +155,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          reconnectHandle = window.setTimeout(connect, RECONNECT_DELAY_MS);
+          if (reconnectAttempt >= RECONNECT_DELAYS_MS.length) {
+            dispatch({ type: 'SESSION_EXPIRY_MONITORING_UNAVAILABLE' });
+            return;
+          }
+
+          const reconnectDelay = RECONNECT_DELAYS_MS[reconnectAttempt];
+          reconnectAttempt += 1;
+          reconnectHandle = window.setTimeout(connect, reconnectDelay);
         };
       } catch {
         dispatch({ type: 'SESSION_EXPIRY_MONITORING_UNAVAILABLE' });

@@ -4,17 +4,7 @@ import {
   HISTORY_PAGE_SIZE_OPTIONS,
   useAccountDashboard,
 } from '@/hooks/portfolio/useAccountDashboard';
-
-const currencyFormatter = new Intl.NumberFormat('ko-KR', {
-  style: 'currency',
-  currency: 'KRW',
-  maximumFractionDigits: 0,
-});
-
-const quantityFormatter = new Intl.NumberFormat('ko-KR', {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 4,
-});
+import { formatKRW, formatQuantity } from '@/utils/formatters';
 
 const dateFormatter = new Intl.DateTimeFormat('ko-KR', {
   month: '2-digit',
@@ -233,18 +223,18 @@ export function PortfolioPage() {
                     className="account-summary-cell__value"
                     data-testid="portfolio-total-balance"
                   >
-                    {currencyFormatter.format(position.balance)}
+                    {formatKRW(position.balance)}
                   </strong>
                 </div>
                 <div className="account-summary-cell">
                   <span className="account-summary-cell__label">가용 수량</span>
                   <strong data-testid="portfolio-available-quantity">
-                    {quantityFormatter.format(position.availableQuantity)}주
+                    {formatQuantity(position.availableQuantity)}주
                   </strong>
                 </div>
                 <div className="account-summary-cell">
                   <span className="account-summary-cell__label">보유 수량</span>
-                  <strong>{quantityFormatter.format(position.quantity)}주</strong>
+                  <strong>{formatQuantity(position.quantity)}주</strong>
                 </div>
                 <div className="account-summary-cell">
                   <span className="account-summary-cell__label">조회 기준</span>
@@ -386,11 +376,11 @@ export function PortfolioPage() {
                   </div>
                   <div>
                     <strong>{item.side}</strong>
-                    <p>{quantityFormatter.format(item.qty)}주</p>
+                    <p>{formatQuantity(item.qty)}주</p>
                   </div>
                   <div data-testid={`order-amount-${item.clOrdId}`}>
-                    <strong>{currencyFormatter.format(item.totalAmount)}</strong>
-                    <p>{currencyFormatter.format(item.unitPrice)}</p>
+                    <strong>{formatKRW(item.totalAmount)}</strong>
+                    <p>{formatKRW(item.unitPrice)}</p>
                   </div>
                   <div data-testid={`order-status-${item.clOrdId}`}>
                     <strong>{item.status}</strong>

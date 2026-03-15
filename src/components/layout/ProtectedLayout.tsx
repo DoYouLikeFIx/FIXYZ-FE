@@ -45,7 +45,7 @@ export function ProtectedLayout() {
             </p>
             <p>
               {sessionExpiryMonitoringUnavailable
-                ? 'This browser cannot receive automatic session expiry warnings. Refresh the secure session manually before access is interrupted.'
+                ? 'Automatic session expiry monitoring is currently unavailable. Refresh the secure session manually before access is interrupted.'
                 : `Your session will expire in ${remainingSeconds} seconds. Continue to refresh the secure session before access is interrupted.`}
             </p>
             {extensionError && (
