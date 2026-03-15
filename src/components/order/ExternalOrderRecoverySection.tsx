@@ -166,7 +166,11 @@ export function ExternalOrderRecoverySection({
       ) : null}
 
       {inlineError ? (
-        <p className="external-order-recovery__feedback" data-testid="order-session-error">
+        <p
+          className="external-order-recovery__feedback"
+          data-testid="order-session-error"
+          role="alert"
+        >
           {inlineError}
         </p>
       ) : null}
@@ -187,7 +191,11 @@ export function ExternalOrderRecoverySection({
               onChange={(event) => onSetSymbolValue(event.target.value)}
             />
             {symbolError ? (
-              <p className="external-order-recovery__feedback" data-testid="order-input-symbol-error">
+              <p
+                className="external-order-recovery__feedback"
+                data-testid="order-input-symbol-error"
+                role="alert"
+              >
                 {symbolError}
               </p>
             ) : null}
@@ -206,7 +214,11 @@ export function ExternalOrderRecoverySection({
               onChange={(event) => onSetQuantityValue(event.target.value)}
             />
             {quantityError ? (
-              <p className="external-order-recovery__feedback" data-testid="order-input-qty-error">
+              <p
+                className="external-order-recovery__feedback"
+                data-testid="order-input-qty-error"
+                role="alert"
+              >
                 {quantityError}
               </p>
             ) : null}
