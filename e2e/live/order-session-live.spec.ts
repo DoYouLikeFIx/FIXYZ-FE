@@ -8,7 +8,7 @@ const DEFAULT_REGISTER_PASSWORD = 'LiveOrder1!';
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const canonicalOrderSessionContract = JSON.parse(
   readFileSync(
-    fileURLToPath(new URL('../../../docs/contracts/order-session-ux.json', import.meta.url)),
+    fileURLToPath(new URL('../../tests/order-session-contract-cases.json', import.meta.url)),
     'utf8',
   ),
 ) as {

@@ -13,7 +13,6 @@ import {
 import { getReauthMessage, isReauthError } from '@/lib/auth-errors';
 import { useAuthStore } from '@/store/useAuthStore';
 import type {
-  ApiResponseEnvelope,
   LenientApiResponseEnvelope,
 } from '@/types/api';
 import type { CsrfTokenPayload } from '@/types/auth';
