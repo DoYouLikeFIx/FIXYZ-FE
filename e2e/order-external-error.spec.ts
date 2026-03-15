@@ -21,12 +21,11 @@ const createMemberFixture = (overrides?: Partial<{
 
 const memberFixture = createMemberFixture();
 
-interface CapturedOrderRequest {
-  accountId: string | null;
-  clOrdId: string | null;
+interface CapturedOrderSessionCreateRequest {
+  accountId: number | null;
   headerClOrdId?: string;
-  price: string | null;
-  quantity: string | null;
+  price: number | null;
+  qty: number | null;
   side: string | null;
   symbol: string | null;
 }
@@ -120,7 +119,8 @@ const installMockApi = async (
   member = memberFixture,
 ) => {
   let authenticated = false;
-  const orderRequests: CapturedOrderRequest[] = [];
+  const sessionCreateRequests: CapturedOrderSessionCreateRequest[] = [];
+  const executeSessionIds: string[] = [];
 
   await installMockEventSource(page);
 
@@ -156,30 +156,73 @@ const installMockApi = async (
     }
 
     if (pathname === '/api/v1/auth/login' && request.method() === 'POST') {
+      await fulfillJson(route, 200, successEnvelope({
+        loginToken: 'login-token',
+        nextAction: 'VERIFY_TOTP',
+        totpEnrolled: true,
+        expiresAt: '2026-03-11T00:10:00Z',
+      }));
+      return;
+    }
+
+    if (pathname === '/api/v1/auth/otp/verify' && request.method() === 'POST') {
       authenticated = true;
       await fulfillJson(route, 200, successEnvelope(member));
       return;
     }
 
-    if (pathname === '/api/v1/orders' && request.method() === 'POST') {
-      const params = new URLSearchParams(request.postData() ?? '');
-      orderRequests.push({
-        accountId: params.get('accountId'),
-        clOrdId: params.get('clOrdId'),
+    if (pathname === '/api/v1/orders/sessions' && request.method() === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      sessionCreateRequests.push({
+        accountId: typeof body.accountId === 'number' ? body.accountId : null,
         headerClOrdId: request.headers()['x-clordid'],
-        price: params.get('price'),
-        quantity: params.get('quantity'),
-        side: params.get('side'),
-        symbol: params.get('symbol'),
+        price: typeof body.price === 'number' ? body.price : null,
+        qty: typeof body.qty === 'number' ? body.qty : null,
+        side: typeof body.side === 'string' ? body.side : null,
+        symbol: typeof body.symbol === 'string' ? body.symbol : null,
       });
+
+      await fulfillJson(route, 201, successEnvelope({
+        orderSessionId: 'sess-e2e-001',
+        clOrdId: request.headers()['x-clordid'],
+        status: 'AUTHED',
+        challengeRequired: false,
+        authorizationReason: 'RECENT_LOGIN_MFA',
+        accountId: 1,
+        symbol: body.symbol,
+        side: body.side,
+        orderType: 'LIMIT',
+        qty: body.qty,
+        price: body.price,
+        expiresAt: '2026-03-11T00:10:00Z',
+      }));
+      return;
+    }
+
+    if (pathname === '/api/v1/orders/sessions/sess-e2e-001/execute' && request.method() === 'POST') {
+      executeSessionIds.push('sess-e2e-001');
+      const latestSessionCreateRequest =
+        sessionCreateRequests[sessionCreateRequests.length - 1];
 
       if (orderScenario === 'success') {
         await fulfillJson(route, 200, successEnvelope({
-          orderId: 1,
-          clOrdId: 'cl-e2e-001',
-          status: 'RECEIVED',
-          idempotent: false,
-          orderQuantity: 1,
+          orderSessionId: 'sess-e2e-001',
+          clOrdId: latestSessionCreateRequest?.headerClOrdId ?? 'cl-e2e-001',
+          status: 'COMPLETED',
+          challengeRequired: false,
+          authorizationReason: 'RECENT_LOGIN_MFA',
+          accountId: 1,
+          symbol: latestSessionCreateRequest?.symbol ?? '005930',
+          side: latestSessionCreateRequest?.side ?? 'BUY',
+          orderType: 'LIMIT',
+          qty: latestSessionCreateRequest?.qty ?? 1,
+          price: latestSessionCreateRequest?.price ?? 70100,
+          executionResult: 'FILLED',
+          executedQty: latestSessionCreateRequest?.qty ?? 1,
+          leavesQty: 0,
+          executedPrice: latestSessionCreateRequest?.price ?? 70100,
+          externalOrderId: 'ord-e2e-001',
+          expiresAt: '2026-03-11T00:10:00Z',
         }));
         return;
       }
@@ -229,7 +272,8 @@ const installMockApi = async (
   });
 
   return {
-    orderRequests,
+    executeSessionIds,
+    sessionCreateRequests,
   };
 };
 
@@ -242,12 +286,14 @@ const loginAndOpenOrderBoundary = async (page: Page, orderScenario: OrderScenari
   await page.getByTestId('login-email').fill('demo@fix.com');
   await page.getByTestId('login-password').fill('Test1234!');
   await page.getByRole('button', { name: '로그인' }).click();
+  await page.getByTestId('login-mfa-input').fill('123456');
+  await page.getByTestId('login-mfa-submit').click();
 
   await expect(page).toHaveURL(/\/portfolio$/);
   await page.getByRole('link', { name: '주문 경계 열기' }).click();
   await expect(page).toHaveURL(/\/orders$/);
   await expect(page.getByTestId('protected-area-title')).toHaveText(
-    'External error handling',
+    'Session-based order flow',
   );
 
   return mockApi;
@@ -259,26 +305,27 @@ test.describe('external order recovery e2e', () => {
   }) => {
     const mockApi = await loginAndOpenOrderBoundary(page, 'success');
 
-    await page.getByRole('button', { name: '주문 요청 보내기' }).click();
+    await page.getByTestId('order-session-create').click();
+    await page.getByTestId('order-session-execute').click();
 
     await expect(page.getByTestId('external-order-feedback')).toHaveText(
-      '주문 요청이 접수되었습니다. 상태: RECEIVED',
+      '주문이 접수되었습니다. 주문 요약을 확인해 주세요.',
     );
-    await expect(page.getByTestId('external-order-recovery-clear')).toBeEnabled();
-    await expect(page.getByTestId('external-order-recovery-empty-state')).toHaveCount(0);
+    await expect(page.getByTestId('order-session-summary')).toContainText('상태 COMPLETED');
+    await expect(page.getByTestId('order-session-reset')).toBeVisible();
     await expect(page.getByTestId('external-order-error-panel')).toHaveCount(0);
-    expect(mockApi.orderRequests).toHaveLength(1);
-    expect(mockApi.orderRequests[0]).toMatchObject({
-      accountId: '1',
+    expect(mockApi.sessionCreateRequests).toHaveLength(1);
+    expect(mockApi.executeSessionIds).toEqual(['sess-e2e-001']);
+    expect(mockApi.sessionCreateRequests[0]).toMatchObject({
+      accountId: 1,
       symbol: '005930',
       side: 'BUY',
-      quantity: '1',
-      price: '70100',
+      qty: 1,
+      price: 70100,
     });
-    expect(mockApi.orderRequests[0].clOrdId).toMatch(
+    expect(mockApi.sessionCreateRequests[0].headerClOrdId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
-    expect(mockApi.orderRequests[0].headerClOrdId).toBe(mockApi.orderRequests[0].clOrdId);
   });
 
   test('renders actionable pending-confirmation guidance when the order channel returns FEP-002', async ({
@@ -287,7 +334,8 @@ test.describe('external order recovery e2e', () => {
     const mockApi = await loginAndOpenOrderBoundary(page, 'fep-002');
 
     await page.getByRole('tab', { name: '2주' }).click();
-    await page.getByRole('button', { name: '주문 요청 보내기' }).click();
+    await page.getByTestId('order-session-create').click();
+    await page.getByTestId('order-session-execute').click();
 
     await expect(page.getByTestId('external-order-error-title')).toHaveText(
       '주문 결과를 확인하고 있습니다',
@@ -298,15 +346,15 @@ test.describe('external order recovery e2e', () => {
     await expect(page.getByTestId('external-order-error-support-reference')).toHaveText(
       '문의 코드: trace-fep-002',
     );
-    expect(mockApi.orderRequests).toHaveLength(1);
-    expect(mockApi.orderRequests[0]).toMatchObject({
-      accountId: '1',
+    expect(mockApi.sessionCreateRequests).toHaveLength(1);
+    expect(mockApi.executeSessionIds).toEqual(['sess-e2e-001']);
+    expect(mockApi.sessionCreateRequests[0]).toMatchObject({
+      accountId: 1,
       symbol: '005930',
       side: 'BUY',
-      quantity: '2',
-      price: '70100',
+      qty: 2,
+      price: 70100,
     });
-    expect(mockApi.orderRequests[0].headerClOrdId).toBe(mockApi.orderRequests[0].clOrdId);
   });
 
   test('falls back to the safe unknown-state recovery copy for ambiguous external failures', async ({
@@ -314,7 +362,8 @@ test.describe('external order recovery e2e', () => {
   }) => {
     await loginAndOpenOrderBoundary(page, 'unknown');
 
-    await page.getByRole('button', { name: '주문 요청 보내기' }).click();
+    await page.getByTestId('order-session-create').click();
+    await page.getByTestId('order-session-execute').click();
 
     await expect(page.getByTestId('external-order-error-title')).toHaveText(
       '주문 상태 확인이 더 필요합니다',
@@ -339,6 +388,8 @@ test.describe('external order recovery e2e', () => {
     await page.getByTestId('login-email').fill('demo@fix.com');
     await page.getByTestId('login-password').fill('Test1234!');
     await page.getByRole('button', { name: '로그인' }).click();
+    await page.getByTestId('login-mfa-input').fill('123456');
+    await page.getByTestId('login-mfa-submit').click();
 
     await expect(page).toHaveURL(/\/portfolio$/);
     await expect(page.getByTestId('portfolio-demo-order')).toHaveCount(0);
@@ -346,6 +397,6 @@ test.describe('external order recovery e2e', () => {
 
     await page.goto('/orders');
     await expect(page.getByTestId('order-boundary-unavailable')).toBeVisible();
-    await expect(page.getByTestId('external-order-recovery-submit')).toHaveCount(0);
+    await expect(page.getByTestId('order-session-create')).toHaveCount(0);
   });
 });
