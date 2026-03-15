@@ -399,7 +399,7 @@ const installMockRoutes = async (page) => {
 const recordDemo = async (videoTempDir) => {
   const browser = await chromium.launch({
     headless: true,
-    slowMo: 130,
+    slowMo: 95,
   });
 
   const context = await browser.newContext({
@@ -419,36 +419,36 @@ const recordDemo = async (videoTempDir) => {
 
     await page.goto('/login?redirect=/orders');
     await page.getByTestId('login-email').waitFor();
-    await wait(900);
+    await wait(500);
 
     await page.getByTestId('login-email').click();
     await page.getByTestId('login-email').pressSequentially(demoCredentials.email, { delay: 60 });
-    await wait(300);
+    await wait(180);
     await page.getByTestId('login-password').click();
     await page.getByTestId('login-password').pressSequentially(demoCredentials.password, { delay: 60 });
-    await wait(300);
+    await wait(180);
     await page.getByTestId('login-submit').click();
     await page.getByTestId('login-mfa-input').waitFor();
-    await wait(1_200);
+    await wait(800);
 
     await page.getByTestId('login-mfa-input').click();
     await page.getByTestId('login-mfa-input').pressSequentially('123456', { delay: 85 });
-    await wait(300);
+    await wait(180);
     await page.getByTestId('login-mfa-submit').click();
     await page.getByTestId('order-session-create').waitFor();
-    await wait(1_200);
+    await wait(800);
     await page.getByTestId('order-session-create').click();
     await page.getByTestId('order-session-otp-input').waitFor();
-    await wait(1_500);
+    await wait(900);
 
     await page.getByTestId('order-session-otp-input').click();
     await page.getByTestId('order-session-otp-input').pressSequentially('123456', { delay: 85 });
     await page.getByTestId('order-session-execute').waitFor();
-    await wait(1_400);
+    await wait(900);
 
     await page.getByTestId('order-session-execute').click();
     await page.getByTestId('external-order-feedback').waitFor();
-    await wait(2_000);
+    await wait(1_300);
 
     await page.close();
   } finally {
