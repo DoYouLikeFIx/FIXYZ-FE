@@ -4,6 +4,7 @@ export interface ApiErrorPayload {
   detail: string;
   operatorCode?: string | null;
   retryAfterSeconds?: number | null;
+  remainingAttempts?: number | null;
   enrollUrl?: string | null;
   recoveryUrl?: string | null;
   userMessageKey?: string | null;
