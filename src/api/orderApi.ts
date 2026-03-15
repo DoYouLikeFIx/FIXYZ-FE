@@ -1,31 +1,8 @@
 import { api } from '@/lib/axios';
 import type { ExternalOrderRequest } from '@/order/external-order-recovery';
+import type { OrderSessionResponse } from '@/types/order';
 
-export interface OrderSessionResponse {
-  orderSessionId: string;
-  clOrdId: string;
-  status: string;
-  challengeRequired: boolean;
-  authorizationReason: string;
-  accountId: number;
-  symbol: string;
-  side: string;
-  orderType: string;
-  qty: number;
-  price: number | null;
-  executionResult?: string | null;
-  executedQty?: number | null;
-  leavesQty?: number | null;
-  executedPrice?: number | null;
-  externalOrderId?: string | null;
-  failureReason?: string | null;
-  executedAt?: string | null;
-  canceledAt?: string | null;
-  createdAt?: string | null;
-  updatedAt?: string | null;
-  expiresAt: string | null;
-  remainingSeconds?: number | null;
-}
+export type { OrderSessionResponse } from '@/types/order';
 
 interface OrderSessionOtpVerifyResponse {
   otpCode: string;
