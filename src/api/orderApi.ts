@@ -23,7 +23,7 @@ export interface OrderSessionResponse {
   canceledAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
-  expiresAt: string;
+  expiresAt: string | null;
   remainingSeconds?: number | null;
 }
 
