@@ -82,7 +82,7 @@ export const externalOrderPresetOptions: readonly ExternalOrderPresetOption[] =
     summary,
   }));
 
-const supportedSymbols = {
+export const externalOrderSupportedSymbols = {
   '005930': {
     name: '삼성전자',
     price: 70_100,
@@ -108,10 +108,10 @@ const getPresetDefinition = (
   presetDefinitions.find((preset) => preset.id === presetId)
   ?? presetDefinitions[0];
 
-const normalizeSymbol = (symbol: string) =>
+export const normalizeExternalOrderSymbol = (symbol: string) =>
   symbol.replace(/\s+/g, '').trim();
 
-const parseQuantity = (quantity: string) => {
+export const parseExternalOrderQuantity = (quantity: string) => {
   if (!/^\d+$/.test(quantity)) {
     return null;
   }
@@ -123,6 +123,9 @@ const parseQuantity = (quantity: string) => {
 
   return parsed;
 };
+
+export const isSupportedExternalOrderSymbol = (symbol: string) =>
+  symbol in externalOrderSupportedSymbols;
 
 const createFallbackUuid = () =>
   'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
@@ -187,8 +190,8 @@ export const draftFromPreset = (
 export const matchPresetIdFromDraft = (
   draft: ExternalOrderDraft,
 ): ExternalOrderPresetId | null => {
-  const normalizedSymbol = normalizeSymbol(draft.symbol);
-  const parsedQuantity = parseQuantity(draft.quantity);
+  const normalizedSymbol = normalizeExternalOrderSymbol(draft.symbol);
+  const parsedQuantity = parseExternalOrderQuantity(draft.quantity);
   const preset = presetDefinitions.find(
     (candidate) =>
       candidate.symbol === normalizedSymbol
@@ -198,37 +201,13 @@ export const matchPresetIdFromDraft = (
   return preset?.id ?? null;
 };
 
-export const validateExternalOrderDraft = (
-  draft: ExternalOrderDraft,
-): ExternalOrderFieldErrors => {
-  const errors: ExternalOrderFieldErrors = {};
-  const normalizedSymbol = normalizeSymbol(draft.symbol);
-
-  if (!normalizedSymbol) {
-    errors.symbol = '종목코드를 입력해 주세요.';
-  } else if (!/^\d{6}$/.test(normalizedSymbol)) {
-    errors.symbol = '종목코드는 숫자 6자리여야 합니다.';
-  } else if (!(normalizedSymbol in supportedSymbols)) {
-    errors.symbol = '지원하지 않는 종목코드입니다.';
-  }
-
-  if (!draft.quantity.trim()) {
-    errors.quantity = '수량을 입력해 주세요.';
-  } else if (!/^\d+$/.test(draft.quantity)) {
-    errors.quantity = '수량은 1 이상의 정수여야 합니다.';
-  } else if (parseQuantity(draft.quantity) === null) {
-    errors.quantity = '수량은 1 이상의 정수여야 합니다.';
-  }
-
-  return errors;
-};
-
 export const buildExternalOrderDraftSummary = (
   draft: ExternalOrderDraft,
 ): string => {
-  const normalizedSymbol = normalizeSymbol(draft.symbol);
-  const parsedQuantity = parseQuantity(draft.quantity);
-  const symbolLabel = supportedSymbols[normalizedSymbol as keyof typeof supportedSymbols]?.name;
+  const normalizedSymbol = normalizeExternalOrderSymbol(draft.symbol);
+  const parsedQuantity = parseExternalOrderQuantity(draft.quantity);
+  const symbolLabel =
+    externalOrderSupportedSymbols[normalizedSymbol as keyof typeof externalOrderSupportedSymbols]?.name;
 
   if (!normalizedSymbol && parsedQuantity === null) {
     return '종목코드와 수량을 입력해 주세요.';
@@ -255,9 +234,10 @@ export const buildExternalOrderRequest = (input: {
     return null;
   }
 
-  const normalizedSymbol = normalizeSymbol(input.symbol);
-  const parsedQuantity = parseQuantity(input.quantity);
-  const symbolDefinition = supportedSymbols[normalizedSymbol as keyof typeof supportedSymbols];
+  const normalizedSymbol = normalizeExternalOrderSymbol(input.symbol);
+  const parsedQuantity = parseExternalOrderQuantity(input.quantity);
+  const symbolDefinition =
+    externalOrderSupportedSymbols[normalizedSymbol as keyof typeof externalOrderSupportedSymbols];
   if (!symbolDefinition || parsedQuantity === null) {
     return null;
   }
