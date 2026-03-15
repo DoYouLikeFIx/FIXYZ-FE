@@ -62,6 +62,18 @@ type SharedProcessingStateCase = {
   body: string;
 };
 
+type SharedAuthorizationScenario = {
+  scenarioKey: string;
+  status: string;
+  challengeRequired: boolean;
+  authorizationReason: string;
+  failureReason?: string;
+  clientStep: string;
+  nextAction: string;
+  title: string;
+  body: string;
+};
+
 type SharedFinalResultCase = {
   name: string;
   status: string;
@@ -88,12 +100,25 @@ const sharedOrderSessionContractCases = JSON.parse(
     'utf8',
   ),
 ) as {
+  authorizationScenarios: SharedAuthorizationScenario[];
   processingStates: SharedProcessingStateCase[];
   finalResults: SharedFinalResultCase[];
 };
 
+const sharedAuthorizationScenarios = sharedOrderSessionContractCases.authorizationScenarios;
 const sharedProcessingStateCases = sharedOrderSessionContractCases.processingStates;
 const sharedFinalResultCases = sharedOrderSessionContractCases.finalResults;
+const authorizationScenario = (scenarioKey: string) => {
+  const scenario = sharedAuthorizationScenarios.find(
+    (candidate) => candidate.scenarioKey === scenarioKey,
+  );
+
+  if (!scenario) {
+    throw new Error(`Missing authorization scenario: ${scenarioKey}`);
+  }
+
+  return scenario;
+};
 
 describe('OrderPage', () => {
   beforeEach(() => {
@@ -290,12 +315,14 @@ describe('OrderPage', () => {
   });
 
   it('moves to Step B with authorization guidance when the created session requires challenge', async () => {
+    const scenario = authorizationScenario('challenge-required-step-up');
+
     vi.mocked(createOrderSession).mockResolvedValue({
       orderSessionId: 'sess-step-b',
       clOrdId: 'cl-step-b',
-      status: 'PENDING_NEW',
-      challengeRequired: true,
-      authorizationReason: 'ELEVATED_ORDER_RISK',
+      status: scenario.status,
+      challengeRequired: scenario.challengeRequired,
+      authorizationReason: scenario.authorizationReason,
       accountId: 1,
       symbol: '005930',
       side: 'BUY',
@@ -312,8 +339,39 @@ describe('OrderPage', () => {
 
     expect(await screen.findByTestId('order-session-otp-input')).toBeInTheDocument();
     expect(screen.getByTestId('order-session-authorization-message')).toHaveTextContent(
-      '고위험 주문으로 분류되어 주문 실행 전에 OTP 인증이 필요합니다.',
+      scenario.body,
     );
+    expect(screen.queryByTestId('order-session-execute')).not.toBeInTheDocument();
+  });
+
+  it('moves to Step C with the canonical auto-authorized guidance when extra verification is not required', async () => {
+    const scenario = authorizationScenario('auto-authorized-confirm');
+    const user = userEvent.setup();
+
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-step-c',
+      clOrdId: 'cl-step-c',
+      status: scenario.status,
+      challengeRequired: scenario.challengeRequired,
+      authorizationReason: scenario.authorizationReason,
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 1,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+
+    expect(await screen.findByTestId('order-session-execute')).toBeInTheDocument();
+    expect(screen.getByTestId('order-session-authorization-message')).toHaveTextContent(
+      scenario.body,
+    );
+    expect(screen.queryByTestId('order-session-otp-input')).not.toBeInTheDocument();
   });
 
   it('maps replayed OTP verification into deterministic guidance', async () => {
@@ -492,6 +550,8 @@ describe('OrderPage', () => {
   });
 
   it('shows an expired-session modal and restarts the draft when the session has expired', async () => {
+    const scenario = authorizationScenario('expired-session-reset');
+
     vi.mocked(createOrderSession).mockResolvedValue({
       orderSessionId: 'sess-expired',
       clOrdId: 'cl-expired',
@@ -512,6 +572,7 @@ describe('OrderPage', () => {
 
     await user.click(screen.getByTestId('order-session-create'));
     expect(await screen.findByTestId('order-session-expired-modal')).toBeInTheDocument();
+    expect(screen.getByText(scenario.title)).toBeInTheDocument();
 
     await user.click(screen.getByTestId('order-session-expired-restart'));
 
@@ -520,11 +581,16 @@ describe('OrderPage', () => {
     });
     expect(screen.getByTestId('order-session-create')).toBeInTheDocument();
     expect(screen.getByTestId('order-session-error')).toHaveTextContent(
-      '주문 세션이 만료되었습니다. 입력한 주문을 확인한 뒤 다시 시작해 주세요.',
+      '세션이 만료되었습니다.',
+    );
+    expect(screen.getByTestId('order-session-error')).toHaveTextContent(
+      scenario.body,
     );
   });
 
   it('shows a blocking expired-session modal when Step B verify detects a stale session', async () => {
+    const scenario = authorizationScenario('expired-session-reset');
+
     vi.mocked(createOrderSession).mockResolvedValue({
       orderSessionId: 'sess-expired-verify',
       clOrdId: 'cl-expired-verify',
@@ -562,8 +628,42 @@ describe('OrderPage', () => {
       expect(screen.queryByTestId('order-session-expired-modal')).not.toBeInTheDocument();
     });
     expect(screen.getByTestId('order-session-error')).toHaveTextContent(
-      '주문 세션이 만료되었습니다. 입력한 주문을 확인한 뒤 다시 시작해 주세요.',
+      '세션이 만료되었습니다.',
     );
+    expect(screen.getByTestId('order-session-error')).toHaveTextContent(
+      scenario.body,
+    );
+  });
+
+  it('renders canonical OTP exhaustion restart guidance when a failed session is restored', async () => {
+    const scenario = authorizationScenario('failed-session-reset');
+
+    window.sessionStorage.setItem('fixyz.order-session-id:1', 'sess-failed-restore');
+    vi.mocked(getOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-failed-restore',
+      clOrdId: 'cl-failed-restore',
+      status: scenario.status,
+      challengeRequired: scenario.challengeRequired,
+      authorizationReason: scenario.authorizationReason,
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 70100,
+      failureReason: scenario.failureReason,
+      createdAt: futureIso(10),
+      updatedAt: futureIso(10),
+    });
+
+    render(<OrderPage />);
+
+    expect(await screen.findByTestId('order-session-result-title')).toHaveTextContent(
+      scenario.title,
+    );
+    expect(screen.getByText(scenario.body)).toBeInTheDocument();
+    expect(screen.getByTestId('order-session-reset')).toBeInTheDocument();
+    expect(screen.queryByTestId('order-session-otp-input')).not.toBeInTheDocument();
   });
 
   it('returns from Step B to Step A without discarding the created session context', async () => {
@@ -591,7 +691,7 @@ describe('OrderPage', () => {
     expect(screen.queryByTestId('order-session-otp-input')).not.toBeInTheDocument();
     expect(screen.getByTestId('order-session-summary')).toHaveTextContent('상태 PENDING_NEW');
     expect(screen.getByTestId('external-order-feedback')).toHaveTextContent(
-      '고위험 주문으로 분류되어 주문 실행 전에 OTP 인증이 필요합니다.',
+      authorizationScenario('challenge-required-step-up').body,
     );
     expect(screen.getByTestId('order-session-create')).toBeInTheDocument();
   });
