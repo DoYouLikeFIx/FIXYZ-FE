@@ -71,8 +71,7 @@ export const isApiResponseEnvelope = (
 
   return (
     typeof candidate.success === 'boolean' &&
-    Object.hasOwn(candidate, 'data') &&
-    Object.hasOwn(candidate, 'error')
+    Object.hasOwn(candidate, 'data')
   );
 };
 
