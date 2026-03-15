@@ -40,6 +40,8 @@ import {
 
 type OrderFlowStep = 'A' | 'B' | 'C' | 'COMPLETE';
 
+const ORDER_STATUS_POLL_INTERVAL_MS = 30_000;
+
 interface UseOrderRecoveryControllerInput {
   accountId?: string;
 }
@@ -52,16 +54,92 @@ const authorizationReasonMessage = (reason?: string) => {
   return '고위험 주문으로 분류되어 주문 실행 전에 OTP 인증이 필요합니다.';
 };
 
-const isTerminalStatus = (status?: string) =>
+const canonicalizeErrorCode = (code?: string) =>
+  typeof code === 'string' && /^[A-Z]+_[0-9]{3}$/.test(code)
+    ? code.replace(/_/g, '-')
+    : code;
+
+const getErrorCode = (error: unknown) =>
+  typeof error === 'object' && error !== null && 'code' in error
+    ? canonicalizeErrorCode((error as Partial<NormalizedApiError>).code)
+    : undefined;
+
+const isFinalResultStatus = (status?: string) =>
   status === 'COMPLETED'
   || status === 'FAILED'
-  || status === 'CANCELED'
-  || status === 'EXPIRED';
+  || status === 'CANCELED';
+
+const isServerExpiredStatus = (status?: string) => status === 'EXPIRED';
+
+const isPollingStatus = (status?: string) =>
+  status === 'EXECUTING'
+  || status === 'REQUERYING'
+  || status === 'ESCALATED';
+
+const isSessionExpiredError = (error: unknown) => {
+  const code = getErrorCode(error);
+  return code === 'ORD-008' || code === 'CHANNEL-001';
+};
+
+const resolveInFlightGuidance = (status?: string) => {
+  if (status === 'EXECUTING') {
+    return '주문을 거래소에 전송했습니다. 체결 결과를 확인하는 중입니다.';
+  }
+
+  if (status === 'REQUERYING') {
+    return '체결 결과를 다시 확인하고 있습니다. 잠시만 기다려 주세요.';
+  }
+
+  if (status === 'ESCALATED') {
+    return '처리 중 문제가 발생해 수동 확인이 필요합니다. 고객센터에 문의해 주세요.';
+  }
+
+  return null;
+};
+
+const resolveFinalResultGuidance = (session: OrderSessionResponse) => {
+  if (session.status === 'FAILED') {
+    return '주문이 최종 실패했습니다. 실패 사유를 확인한 뒤 새 주문을 시작해 주세요.';
+  }
+
+  if (session.status === 'CANCELED') {
+    if (session.executionResult === 'PARTIAL_FILL_CANCEL') {
+      return '일부 수량이 체결된 뒤 나머지 수량이 취소되었습니다.';
+    }
+
+    return '주문이 취소되었습니다.';
+  }
+
+  if (session.executionResult === 'PARTIAL_FILL') {
+    return '주문이 일부 체결되었습니다. 잔여 수량을 확인해 주세요.';
+  }
+
+  if (session.executionResult === 'VIRTUAL_FILL') {
+    return '주문이 승인 처리되었습니다. 주문 결과를 확인해 주세요.';
+  }
+
+  return '주문이 접수되었습니다. 주문 요약을 확인해 주세요.';
+};
 
 const formatOtpError = (error: NormalizedApiError) => {
+  const code = canonicalizeErrorCode(error.code);
+
   if (error.code === 'CHANNEL-002' && typeof error.remainingAttempts === 'number') {
     return `OTP 코드가 일치하지 않습니다. 남은 시도 ${error.remainingAttempts}회`;
   }
+
+  if (code === 'AUTH-011') {
+    return '이미 사용한 OTP 코드입니다. 새 코드가 표시되면 다시 입력해 주세요.';
+  }
+
+  if (code === 'RATE-001') {
+    return 'OTP를 너무 빠르게 연속 제출했습니다. 잠시 후 다시 시도해 주세요.';
+  }
+
+  if (code === 'ORD-009') {
+    return '현재 주문 세션 상태에서는 OTP를 다시 확인할 수 없습니다. 주문 상태를 새로 확인해 주세요.';
+  }
+
   return error.message;
 };
 
@@ -178,6 +256,7 @@ export const useOrderRecoveryController = ({
   const [presentation, setPresentation] =
     useState<ExternalOrderErrorPresentation | null>(null);
   const [orderSession, setOrderSession] = useState<OrderSessionResponse | null>(null);
+  const [hasDetectedSessionExpiry, setHasDetectedSessionExpiry] = useState(false);
   const [otpValue, setOtpValueState] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
@@ -201,10 +280,12 @@ export const useOrderRecoveryController = ({
     && !serverFieldErrors.quantity
     && !isInteractionLocked;
 
-  const clearTransientFeedback = () => {
+  const clearTransientFeedback = (options?: { preservePresentation?: boolean }) => {
     setFeedbackMessage(null);
     setInlineError(null);
-    setPresentation(null);
+    if (!options?.preservePresentation) {
+      setPresentation(null);
+    }
   };
 
   const invalidatePendingOperations = () => {
@@ -239,6 +320,7 @@ export const useOrderRecoveryController = ({
     clearPersistedSessionId();
     setStep('A');
     setOrderSession(null);
+    setHasDetectedSessionExpiry(false);
     setOtpValueState('');
     clearServerFieldErrors();
     setPresentation(null);
@@ -262,6 +344,7 @@ export const useOrderRecoveryController = ({
     invalidatePendingOperations();
     clearPersistedSessionId();
     setOrderSession(null);
+    setHasDetectedSessionExpiry(false);
     setOtpValueState('');
     setPresentation(null);
     setInlineError(null);
@@ -276,6 +359,7 @@ export const useOrderRecoveryController = ({
     }
 
     invalidatePendingOperations();
+    setHasDetectedSessionExpiry(false);
     setStep('A');
     setOtpValueState('');
     setIsVerifyingOtp(false);
@@ -290,8 +374,38 @@ export const useOrderRecoveryController = ({
     });
   };
 
-  const applySessionState = (session: OrderSessionResponse, options?: { restoring?: boolean }) => {
+  const markSessionExpired = (session?: OrderSessionResponse | null) => {
+    const expiredSession = session ?? orderSession;
+    if (!expiredSession) {
+      resetFlow({
+        keepPreset: true,
+        message: '주문 세션이 만료되었습니다. 입력한 주문을 확인한 뒤 다시 시작해 주세요.',
+      });
+      return;
+    }
+
+    invalidatePendingOperations();
+    clearPersistedSessionId();
+    clearServerFieldErrors();
+    setPresentation(null);
+    setFeedbackMessage(null);
+    setInlineError(null);
+    setOrderSession(expiredSession);
+    setHasDetectedSessionExpiry(true);
+    setOtpValueState('');
+    setIsSubmitting(false);
+    setIsVerifyingOtp(false);
+    setIsExecuting(false);
+    setIsExtending(false);
+    setStep(expiredSession.challengeRequired ? 'B' : 'C');
+  };
+
+  const applySessionState = (
+    session: OrderSessionResponse,
+    options?: { restoring?: boolean; preservePresentation?: boolean },
+  ) => {
     setOrderSession(session);
+    setHasDetectedSessionExpiry(false);
     clearServerFieldErrors();
     form.reset({
       symbol: session.symbol,
@@ -302,7 +416,9 @@ export const useOrderRecoveryController = ({
       quantity: String(session.qty),
     }));
     persistSessionId(session.orderSessionId);
-    clearTransientFeedback();
+    clearTransientFeedback({
+      preservePresentation: options?.preservePresentation,
+    });
 
     if (session.status === 'AUTHED') {
       setStep('C');
@@ -317,18 +433,21 @@ export const useOrderRecoveryController = ({
       return;
     }
 
-    if (session.status === 'COMPLETED') {
+    if (isPollingStatus(session.status)) {
       setStep('COMPLETE');
-      setFeedbackMessage('주문이 접수되었습니다. 주문 요약을 확인해 주세요.');
+      setFeedbackMessage(resolveInFlightGuidance(session.status));
+      return;
+    }
+
+    if (isFinalResultStatus(session.status)) {
+      setStep('COMPLETE');
+      setFeedbackMessage(resolveFinalResultGuidance(session));
       clearPersistedSessionId();
       return;
     }
 
-    if (isTerminalStatus(session.status)) {
-      resetFlow({
-        keepPreset: true,
-        message: '이 주문 세션은 더 이상 유효하지 않습니다. 새 주문을 시작해 주세요.',
-      });
+    if (isServerExpiredStatus(session.status)) {
+      markSessionExpired(session);
       return;
     }
 
@@ -336,6 +455,7 @@ export const useOrderRecoveryController = ({
   };
   const applySessionStateEvent = useEffectEvent(applySessionState);
   const resetFlowEvent = useEffectEvent(resetFlow);
+  const markSessionExpiredEvent = useEffectEvent(markSessionExpired);
 
   useEffect(() => {
     if (!accountId) {
@@ -358,6 +478,13 @@ export const useOrderRecoveryController = ({
         }
       } catch (error) {
         if (!cancelled) {
+          if (isSessionExpiredError(error)) {
+            resetFlowEvent({
+              keepPreset: true,
+              message: '주문 세션이 만료되었습니다. 입력한 주문을 확인한 뒤 다시 시작해 주세요.',
+            });
+            return;
+          }
           resetFlowEvent({
             keepPreset: true,
             message: getErrorMessage(error),
@@ -376,6 +503,47 @@ export const useOrderRecoveryController = ({
       cancelled = true;
     };
   }, [accountId]);
+
+  useEffect(() => {
+    if (!orderSession || !isPollingStatus(orderSession.status)) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollOrderSession = async () => {
+      try {
+        const session = await getOrderSession(orderSession.orderSessionId);
+        if (!cancelled) {
+          applySessionStateEvent(session, {
+            restoring: true,
+            preservePresentation: presentation !== null && isPollingStatus(session.status),
+          });
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        if (isSessionExpiredError(error)) {
+          markSessionExpiredEvent();
+          return;
+        }
+
+        setInlineError(getErrorMessage(error));
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void pollOrderSession();
+    }, ORDER_STATUS_POLL_INTERVAL_MS);
+    void pollOrderSession();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [orderSession?.orderSessionId, orderSession?.status, presentation]);
 
   const handleSubmit = async () => {
     void form.handleSubmit(async (values) => {
@@ -465,11 +633,69 @@ export const useOrderRecoveryController = ({
 
       const normalized = error as NormalizedApiError;
       setOtpValueState('');
+      if (isSessionExpiredError(normalized)) {
+        markSessionExpired();
+        return;
+      }
+
+      if (getErrorCode(normalized) === 'CHANNEL-003') {
+        resetFlow({
+          keepPreset: true,
+          message: 'OTP 시도 횟수를 모두 사용했습니다. 새 주문을 다시 시작해 주세요.',
+        });
+        return;
+      }
+
+      if (getErrorCode(normalized) === 'ORD-009') {
+        try {
+          const session = await getOrderSession(orderSession.orderSessionId);
+          if (operationVersion !== operationVersionRef.current) {
+            return;
+          }
+          applySessionState(session);
+          return;
+        } catch (refreshError) {
+          if (operationVersion !== operationVersionRef.current) {
+            return;
+          }
+          if (isSessionExpiredError(refreshError)) {
+            markSessionExpired();
+            return;
+          }
+        }
+      }
+
       setInlineError(formatOtpError(normalized));
     } finally {
       if (operationVersion === operationVersionRef.current) {
         setIsVerifyingOtp(false);
       }
+    }
+  };
+
+  const refreshOrderSessionState = async (
+    currentOrderSessionId: string,
+    operationVersion: number,
+    options?: { preservePresentation?: boolean },
+  ) => {
+    try {
+      const session = await getOrderSession(currentOrderSessionId);
+      if (operationVersion !== operationVersionRef.current) {
+        return true;
+      }
+      applySessionState(session, {
+        preservePresentation: options?.preservePresentation,
+      });
+      return true;
+    } catch (error) {
+      if (operationVersion !== operationVersionRef.current) {
+        return true;
+      }
+      if (isSessionExpiredError(error)) {
+        markSessionExpired();
+        return true;
+      }
+      return false;
     }
   };
 
@@ -492,8 +718,28 @@ export const useOrderRecoveryController = ({
         return;
       }
 
+      if (isSessionExpiredError(error)) {
+        markSessionExpired();
+        return;
+      }
+
+      if (getErrorCode(error) === 'ORD-009') {
+        const handled = await refreshOrderSessionState(orderSession.orderSessionId, operationVersion);
+        if (handled) {
+          return;
+        }
+      }
+
       if (isVisibleExternalOrderError(error)) {
         setPresentation(resolveExternalOrderErrorPresentation(error));
+        const handled = await refreshOrderSessionState(
+          orderSession.orderSessionId,
+          operationVersion,
+          { preservePresentation: true },
+        );
+        if (handled) {
+          return;
+        }
         return;
       }
       setInlineError(getErrorMessage(error));
@@ -522,6 +768,10 @@ export const useOrderRecoveryController = ({
       if (operationVersion !== operationVersionRef.current) {
         return;
       }
+      if (isSessionExpiredError(error)) {
+        markSessionExpired();
+        return;
+      }
       setInlineError(getErrorMessage(error));
     } finally {
       if (operationVersion === operationVersionRef.current) {
@@ -541,6 +791,7 @@ export const useOrderRecoveryController = ({
     isRestoring,
     presentation,
     orderSession,
+    hasDetectedSessionExpiry,
     otpValue,
     authorizationReasonMessage: authorizationReasonMessage(orderSession?.authorizationReason),
     symbolValue: draft.symbol,
