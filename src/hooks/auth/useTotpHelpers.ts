@@ -61,7 +61,9 @@ export const useExpiryCountdown = (expiresAt: string) => {
   return {
     expiresAtLabel: formatDateTime(expiresAt),
     remainingLabel: formatRemaining(remainingSeconds),
+    remainingSeconds,
     isExpired: remainingSeconds === 0,
+    isExpiringSoon: remainingSeconds > 0 && remainingSeconds <= 60,
   };
 };
 
