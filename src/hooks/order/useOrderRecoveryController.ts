@@ -8,7 +8,6 @@ import {
   executeOrderSession,
   getOrderSession,
   verifyOrderSessionOtp,
-  type OrderSessionResponse,
 } from '@/api/orderApi';
 import { getErrorMessage } from '@/lib/errors';
 import type { NormalizedApiError } from '@/lib/axios';
@@ -37,22 +36,22 @@ import {
   resolveExternalOrderErrorPresentation,
   type ExternalOrderErrorPresentation,
 } from '@/order/external-errors';
-
-type OrderFlowStep = 'A' | 'B' | 'C' | 'COMPLETE';
+import {
+  resolveOrderAuthorizationGuidance,
+  resolveOrderFinalResultContent,
+  resolveOrderProcessingContent,
+} from '@/order/order-session-guidance';
+import type {
+  OrderFlowStep,
+  OrderSessionResponse,
+  OrderSessionStatus,
+} from '@/types/order';
 
 const ORDER_STATUS_POLL_INTERVAL_MS = 30_000;
 
 interface UseOrderRecoveryControllerInput {
   accountId?: string;
 }
-
-const authorizationReasonMessage = (reason?: string) => {
-  if (reason === 'RECENT_LOGIN_MFA' || reason === 'TRUSTED_AUTH_SESSION') {
-    return '현재 신뢰 세션이 유효하여 추가 OTP 없이 바로 주문을 실행할 수 있습니다.';
-  }
-
-  return '고위험 주문으로 분류되어 주문 실행 전에 OTP 인증이 필요합니다.';
-};
 
 const canonicalizeErrorCode = (code?: string) =>
   typeof code === 'string' && /^[A-Z]+_[0-9]{3}$/.test(code)
@@ -64,14 +63,14 @@ const getErrorCode = (error: unknown) =>
     ? canonicalizeErrorCode((error as Partial<NormalizedApiError>).code)
     : undefined;
 
-const isFinalResultStatus = (status?: string) =>
+const isFinalResultStatus = (status?: OrderSessionStatus | null) =>
   status === 'COMPLETED'
   || status === 'FAILED'
   || status === 'CANCELED';
 
-const isServerExpiredStatus = (status?: string) => status === 'EXPIRED';
+const isServerExpiredStatus = (status?: OrderSessionStatus | null) => status === 'EXPIRED';
 
-const isPollingStatus = (status?: string) =>
+const isPollingStatus = (status?: OrderSessionStatus | null) =>
   status === 'EXECUTING'
   || status === 'REQUERYING'
   || status === 'ESCALATED';
@@ -81,44 +80,20 @@ const isSessionExpiredError = (error: unknown) => {
   return code === 'ORD-008' || code === 'CHANNEL-001';
 };
 
-const resolveInFlightGuidance = (status?: string) => {
-  if (status === 'EXECUTING') {
-    return '주문을 거래소에 전송했습니다. 체결 결과를 확인하는 중입니다.';
-  }
-
-  if (status === 'REQUERYING') {
-    return '체결 결과를 다시 확인하고 있습니다. 잠시만 기다려 주세요.';
-  }
-
-  if (status === 'ESCALATED') {
-    return '처리 중 문제가 발생해 수동 확인이 필요합니다. 고객센터에 문의해 주세요.';
-  }
-
-  return null;
+const resolveInFlightGuidance = (status?: OrderSessionStatus | null) => {
+  const processingContent = resolveOrderProcessingContent(status);
+  return processingContent?.body ?? null;
 };
 
 const resolveFinalResultGuidance = (session: OrderSessionResponse) => {
   if (session.status === 'FAILED') {
+    if (session.failureReason === 'OTP_EXCEEDED') {
+      return 'OTP 시도 횟수를 초과했습니다. 주문을 다시 시작해 주세요.';
+    }
     return '주문이 최종 실패했습니다. 실패 사유를 확인한 뒤 새 주문을 시작해 주세요.';
   }
 
-  if (session.status === 'CANCELED') {
-    if (session.executionResult === 'PARTIAL_FILL_CANCEL') {
-      return '일부 수량이 체결된 뒤 나머지 수량이 취소되었습니다.';
-    }
-
-    return '주문이 취소되었습니다.';
-  }
-
-  if (session.executionResult === 'PARTIAL_FILL') {
-    return '주문이 일부 체결되었습니다. 잔여 수량을 확인해 주세요.';
-  }
-
-  if (session.executionResult === 'VIRTUAL_FILL') {
-    return '주문이 승인 처리되었습니다. 주문 결과를 확인해 주세요.';
-  }
-
-  return '주문이 접수되었습니다. 주문 요약을 확인해 주세요.';
+  return resolveOrderFinalResultContent(session).body;
 };
 
 const formatOtpError = (error: NormalizedApiError) => {
@@ -364,7 +339,7 @@ export const useOrderRecoveryController = ({
     setOtpValueState('');
     setIsVerifyingOtp(false);
     clearTransientFeedback();
-    setFeedbackMessage(authorizationReasonMessage(orderSession.authorizationReason));
+    setFeedbackMessage(resolveOrderAuthorizationGuidance(orderSession.authorizationReason));
   };
 
   const restartExpiredSession = () => {
@@ -423,7 +398,7 @@ export const useOrderRecoveryController = ({
     if (session.status === 'AUTHED') {
       setStep('C');
       if (!options?.restoring) {
-        setFeedbackMessage(authorizationReasonMessage(session.authorizationReason));
+        setFeedbackMessage(resolveOrderAuthorizationGuidance(session.authorizationReason));
       }
       return;
     }
@@ -793,7 +768,9 @@ export const useOrderRecoveryController = ({
     orderSession,
     hasDetectedSessionExpiry,
     otpValue,
-    authorizationReasonMessage: authorizationReasonMessage(orderSession?.authorizationReason),
+    authorizationReasonMessage: orderSession
+      ? resolveOrderAuthorizationGuidance(orderSession.authorizationReason)
+      : null,
     symbolValue: draft.symbol,
     quantityValue: draft.quantity,
     symbolError: mergedFieldErrors.symbol ?? null,
