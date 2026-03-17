@@ -38,8 +38,8 @@ test.describe.serial('live backend auth', () => {
     await page.getByTestId('register-password-confirm').fill(identity.password);
     await page.getByTestId('register-submit').click();
 
-    await expect(page).toHaveURL(/\/portfolio$/);
-    await expect(page.getByTestId('protected-area-title')).toHaveText('Portfolio overview');
+    await expect(page).toHaveURL(/\/settings\/totp\/enroll(?:\?.*)?$/);
+    await expect(page.getByTestId('totp-enroll-manual-key')).toBeVisible();
   });
 
   test('logs in with the live backend account created earlier', async ({ page }) => {
@@ -48,8 +48,8 @@ test.describe.serial('live backend auth', () => {
     await page.getByTestId('login-password').fill(identity.password);
     await page.getByTestId('login-submit').click();
 
-    await expect(page).toHaveURL(/\/portfolio$/);
-    await expect(page.getByTestId('protected-area-title')).toHaveText('Portfolio overview');
+    await expect(page).toHaveURL(/\/settings\/totp\/enroll(?:\?.*)?$/);
+    await expect(page.getByTestId('totp-enroll-manual-key')).toBeVisible();
   });
 
   test('shows the canonical invalid credentials message for the registered live account', async ({
