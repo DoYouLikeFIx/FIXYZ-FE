@@ -3,6 +3,9 @@ import { defineConfig, devices } from '@playwright/test';
 const host = '127.0.0.1';
 const port = Number(process.env.PLAYWRIGHT_FE_PORT ?? '4173');
 const baseURL = `http://${host}:${port}`;
+const liveBackendBaseUrl = process.env.LIVE_API_BASE_URL
+  ?? process.env.VITE_DEV_PROXY_TARGET
+  ?? 'http://127.0.0.1:8080';
 const proxyTarget = process.env.VITE_DEV_PROXY_TARGET
   ?? process.env.LIVE_API_BASE_URL
   ?? 'http://127.0.0.1:8080';
@@ -36,10 +39,14 @@ export default defineConfig({
   webServer: {
     command: `pnpm exec vite --host ${host} --port ${port} --strictPort`,
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    // Always start with a fresh server so CI/local share the same injected env contract.
+    reuseExistingServer: false,
     env: {
       ...process.env,
+      LIVE_API_BASE_URL: liveBackendBaseUrl,
       VITE_DEV_PROXY_TARGET: proxyTarget,
+      // Force FE API calls to remain relative and flow through Vite proxy.
+      VITE_API_BASE_URL: '',
     },
   },
 });
