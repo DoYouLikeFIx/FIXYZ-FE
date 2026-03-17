@@ -2,21 +2,34 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useCallback,
+  useRef,
   type ReactNode,
 } from 'react';
 
+import {
+  fetchNotifications,
+  markNotificationRead as markNotificationReadApi,
+} from '@/api/notificationApi';
 import {
   NotificationContext,
   type NotificationContextValue,
 } from '@/context/notification-context';
 import type { SessionExpiryEventPayload } from '@/types/auth';
+import type { NotificationItem } from '@/types/notification';
 import { useAuthStore } from '@/store/useAuthStore';
 
 const RECONNECT_DELAYS_MS = [3_000, 6_000, 12_000] as const;
+const NOTIFICATION_POLL_INTERVAL_MS = 15_000;
 
 interface NotificationState {
   sessionExpiryRemainingSeconds: number | null;
   sessionExpiryMonitoringUnavailable: boolean;
+  notifications: NotificationItem[];
+  isHydratingNotifications: boolean;
+  notificationFeedUnavailable: boolean;
+  notificationFeedErrorMessage: string | null;
+  notificationReadErrorMessage: string | null;
 }
 
 type NotificationAction =
@@ -32,11 +45,59 @@ type NotificationAction =
     }
   | {
       type: 'SESSION_EXPIRY_MONITORING_RESTORED';
+    }
+  | {
+      type: 'NOTIFICATIONS_HYDRATION_STARTED';
+    }
+  | {
+      type: 'NOTIFICATIONS_HYDRATED';
+      notifications: NotificationItem[];
+    }
+  | {
+      type: 'NOTIFICATIONS_HYDRATION_FAILED';
+      message: string;
+    }
+  | {
+      type: 'NOTIFICATION_RECEIVED';
+      notification: NotificationItem;
+    }
+  | {
+      type: 'NOTIFICATION_MARKED_READ';
+      notification: NotificationItem;
+    }
+  | {
+      type: 'NOTIFICATION_READ_FAILED';
+      message: string;
+    }
+  | {
+      type: 'NOTIFICATIONS_RESET';
     };
 
 const initialNotificationState: NotificationState = {
   sessionExpiryRemainingSeconds: null,
   sessionExpiryMonitoringUnavailable: false,
+  notifications: [],
+  isHydratingNotifications: false,
+  notificationFeedUnavailable: false,
+  notificationFeedErrorMessage: null,
+  notificationReadErrorMessage: null,
+};
+
+const mergeNotifications = (
+  current: NotificationItem[],
+  incoming: NotificationItem[],
+) => {
+  const byId = new Map<number, NotificationItem>();
+
+  (current ?? []).forEach((item) => {
+    byId.set(item.notificationId, item);
+  });
+
+  (incoming ?? []).forEach((item) => {
+    byId.set(item.notificationId, item);
+  });
+
+  return Array.from(byId.values()).sort((left, right) => right.notificationId - left.notificationId);
 };
 
 const notificationReducer = (
@@ -57,6 +118,7 @@ const notificationReducer = (
       };
     case 'SESSION_EXPIRY_MONITORING_UNAVAILABLE':
       return {
+        ...state,
         sessionExpiryRemainingSeconds: null,
         sessionExpiryMonitoringUnavailable: true,
       };
@@ -64,6 +126,55 @@ const notificationReducer = (
       return {
         ...state,
         sessionExpiryMonitoringUnavailable: false,
+      };
+    case 'NOTIFICATIONS_HYDRATION_STARTED':
+      return {
+        ...state,
+        isHydratingNotifications: true,
+      };
+    case 'NOTIFICATIONS_HYDRATED':
+      return {
+        ...state,
+        notifications: mergeNotifications(state.notifications, action.notifications),
+        isHydratingNotifications: false,
+        notificationFeedUnavailable: false,
+        notificationFeedErrorMessage: null,
+      };
+    case 'NOTIFICATIONS_HYDRATION_FAILED':
+      return {
+        ...state,
+        isHydratingNotifications: false,
+        notificationFeedUnavailable: true,
+        notificationFeedErrorMessage: action.message,
+      };
+    case 'NOTIFICATION_RECEIVED':
+      return {
+        ...state,
+        notifications: mergeNotifications(state.notifications, [action.notification]),
+      };
+    case 'NOTIFICATION_MARKED_READ':
+      return {
+        ...state,
+        notifications: state.notifications.map((item) => (
+          item.notificationId === action.notification.notificationId
+            ? action.notification
+            : item
+        )),
+        notificationReadErrorMessage: null,
+      };
+    case 'NOTIFICATION_READ_FAILED':
+      return {
+        ...state,
+        notificationReadErrorMessage: action.message,
+      };
+    case 'NOTIFICATIONS_RESET':
+      return {
+        ...state,
+        notifications: [],
+        isHydratingNotifications: false,
+        notificationFeedUnavailable: false,
+        notificationFeedErrorMessage: null,
+        notificationReadErrorMessage: null,
       };
     default:
       return state;
@@ -93,13 +204,58 @@ const resolveNotificationStreamUrl = () => {
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const authStatus = useAuthStore((state) => state.status);
   const [state, dispatch] = useReducer(notificationReducer, initialNotificationState);
+  const hydrationRequestIdRef = useRef(0);
+
+  const hydrateNotifications = useCallback(async () => {
+    const requestId = hydrationRequestIdRef.current + 1;
+    hydrationRequestIdRef.current = requestId;
+    dispatch({ type: 'NOTIFICATIONS_HYDRATION_STARTED' });
+
+    try {
+      const notifications = await fetchNotifications();
+
+      if (hydrationRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      dispatch({
+        type: 'NOTIFICATIONS_HYDRATED',
+        notifications: Array.isArray(notifications) ? notifications : [],
+      });
+    } catch {
+      if (hydrationRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      dispatch({
+        type: 'NOTIFICATIONS_HYDRATION_FAILED',
+        message: 'Notification feed is temporarily unavailable. Pull to refresh shortly.',
+      });
+    }
+  }, []);
+
+  const markNotificationRead = useCallback(async (notificationId: number) => {
+    try {
+      const markedNotification = await markNotificationReadApi(notificationId);
+      dispatch({ type: 'NOTIFICATION_MARKED_READ', notification: markedNotification });
+    } catch {
+      dispatch({
+        type: 'NOTIFICATION_READ_FAILED',
+        message: 'Unable to mark notification as read. Please try again.',
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (authStatus !== 'authenticated') {
+      hydrationRequestIdRef.current += 1;
       dispatch({ type: 'SESSION_EXPIRY_CLEARED' });
       dispatch({ type: 'SESSION_EXPIRY_MONITORING_RESTORED' });
+      dispatch({ type: 'NOTIFICATIONS_RESET' });
       return undefined;
     }
+
+    void hydrateNotifications();
 
     if (typeof EventSource === 'undefined') {
       dispatch({ type: 'SESSION_EXPIRY_MONITORING_UNAVAILABLE' });
@@ -131,24 +287,65 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    const handleNotification = (event: MessageEvent<string>) => {
+      try {
+        const parsed = JSON.parse(event.data) as NotificationItem;
+
+        if (
+          typeof parsed.notificationId !== 'number'
+          || typeof parsed.channel !== 'string'
+          || typeof parsed.message !== 'string'
+        ) {
+          return;
+        }
+
+        dispatch({
+          type: 'NOTIFICATION_RECEIVED',
+          notification: {
+            ...parsed,
+            readAt: parsed.readAt ?? null,
+          },
+        });
+      } catch {
+        // Ignore malformed payloads and keep the stream alive for the next event.
+      }
+    };
+
     const connect = () => {
       try {
         stream = new EventSource(resolveNotificationStreamUrl(), {
           withCredentials: true,
         });
         stream.onopen = () => {
+          const isReconnectOpen = reconnectAttempt > 0;
           reconnectAttempt = 0;
           dispatch({ type: 'SESSION_EXPIRY_MONITORING_RESTORED' });
+
+          if (isReconnectOpen) {
+            void hydrateNotifications();
+          }
         };
+        stream.onmessage = handleNotification as (event: MessageEvent) => void;
         stream.addEventListener(
           'session-expiry',
           handleSessionExpiry as EventListener,
+        );
+        stream.addEventListener(
+          'notification',
+          handleNotification as EventListener,
         );
         stream.onerror = () => {
           stream?.removeEventListener(
             'session-expiry',
             handleSessionExpiry as EventListener,
           );
+          stream?.removeEventListener(
+            'notification',
+            handleNotification as EventListener,
+          );
+          if (stream) {
+            stream.onmessage = null;
+          }
           stream?.close();
 
           if (!active) {
@@ -182,9 +379,30 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         'session-expiry',
         handleSessionExpiry as EventListener,
       );
+      stream?.removeEventListener(
+        'notification',
+        handleNotification as EventListener,
+      );
+      if (stream) {
+        stream.onmessage = null;
+      }
       stream?.close();
     };
-  }, [authStatus]);
+  }, [authStatus, hydrateNotifications]);
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated' || !state.notificationFeedUnavailable) {
+      return undefined;
+    }
+
+    const pollingHandle = window.setInterval(() => {
+      void hydrateNotifications();
+    }, NOTIFICATION_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(pollingHandle);
+    };
+  }, [authStatus, hydrateNotifications, state.notificationFeedUnavailable]);
 
   const value = useMemo<NotificationContextValue>(
     () => ({
@@ -192,8 +410,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       clearSessionExpiryWarning: () => {
         dispatch({ type: 'SESSION_EXPIRY_CLEARED' });
       },
+      markNotificationRead,
+      refreshNotifications: async () => {
+        await hydrateNotifications();
+      },
     }),
-    [state],
+    [hydrateNotifications, markNotificationRead, state],
   );
 
   return (

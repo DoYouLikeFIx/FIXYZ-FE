@@ -21,7 +21,14 @@ export const useProtectedSession = () => {
   const {
     sessionExpiryRemainingSeconds: remainingSeconds,
     sessionExpiryMonitoringUnavailable,
+    notifications,
+    isHydratingNotifications,
+    notificationFeedUnavailable,
+    notificationFeedErrorMessage,
+    notificationReadErrorMessage,
     clearSessionExpiryWarning,
+    markNotificationRead,
+    refreshNotifications,
   } = useNotification();
   const navigate = useNavigate();
   const location = useLocation();
@@ -63,8 +70,15 @@ export const useProtectedSession = () => {
     member,
     remainingSeconds,
     sessionExpiryMonitoringUnavailable,
+    notifications,
+    isHydratingNotifications,
+    notificationFeedUnavailable,
+    notificationFeedErrorMessage,
+    notificationReadErrorMessage,
     isExtending,
     extensionError,
     handleExtendSession,
+    markNotificationRead,
+    refreshNotifications,
   };
 };

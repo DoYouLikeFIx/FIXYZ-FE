@@ -158,6 +158,6 @@ test.describe.serial('live backend MFA recovery rebind', () => {
     await page.getByTestId('login-mfa-submit').click();
 
     await expect(page).toHaveURL(/\/orders$/);
-    await expect(page.getByTestId('protected-area-title')).toHaveText('External error handling');
+    await expect(page.getByTestId('protected-area-title')).toHaveText('Session-based order flow');
   });
 });
