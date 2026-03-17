@@ -14,6 +14,8 @@ const mockFetchAccountPositions = vi.fn();
 const mockFetchAccountSummary = vi.fn();
 const mockFetchAccountOrderHistory = vi.fn();
 const mockFetchSession = vi.fn();
+const mockFetchNotifications = vi.fn();
+const mockMarkNotificationRead = vi.fn();
 const mockStartLoginFlow = vi.fn();
 const mockVerifyLoginOtp = vi.fn();
 const mockRegisterMember = vi.fn();
@@ -42,10 +44,17 @@ vi.mock('@/api/accountApi', () => ({
   fetchAccountOrderHistory: (payload: unknown) => mockFetchAccountOrderHistory(payload),
 }));
 
+vi.mock('@/api/notificationApi', () => ({
+  fetchNotifications: (cursorId?: number) => mockFetchNotifications(cursorId),
+  markNotificationRead: (notificationId: number) => mockMarkNotificationRead(notificationId),
+}));
+
 class MockEventSource {
   static instances: MockEventSource[] = [];
 
   readonly listeners = new Map<string, Set<(event: MessageEvent) => void>>();
+
+  onopen: ((event: Event) => void) | null = null;
 
   onerror: ((event: Event) => void) | null = null;
 
@@ -161,6 +170,8 @@ describe('App auth flow', () => {
     mockFetchAccountSummary.mockReset();
     mockFetchAccountOrderHistory.mockReset();
     mockFetchSession.mockReset();
+    mockFetchNotifications.mockReset();
+    mockMarkNotificationRead.mockReset();
     mockStartLoginFlow.mockReset();
     mockVerifyLoginOtp.mockReset();
     mockRegisterMember.mockReset();
@@ -214,6 +225,15 @@ describe('App auth flow', () => {
       number: 0,
       size: 10,
     });
+    mockFetchNotifications.mockResolvedValue([]);
+    mockMarkNotificationRead.mockImplementation((notificationId: number) => Promise.resolve({
+      notificationId,
+      channel: 'ORDER',
+      message: 'Order notification',
+      delivered: true,
+      read: true,
+      readAt: '2026-03-17T10:10:00Z',
+    }));
     MockEventSource.instances = [];
     resetAuthStore();
     window.history.pushState({}, '', '/login');
@@ -873,6 +893,37 @@ describe('App auth flow', () => {
     });
   });
 
+  it('establishes a single stream and stores live notification updates', async () => {
+    mockFetchSession.mockResolvedValue(memberFixture);
+
+    window.history.pushState({}, '', '/portfolio');
+    render(<App />);
+
+    expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
+      'Portfolio overview',
+    );
+
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    const stream = MockEventSource.instances.at(-1);
+    expect(stream).toBeDefined();
+
+    act(() => {
+      stream?.emit('notification', {
+        notificationId: 101,
+        channel: 'ORDER',
+        message: 'Order #101 executed',
+        delivered: true,
+        read: false,
+        readAt: null,
+      });
+    });
+
+    expect(await screen.findByTestId('notification-item-101')).toHaveTextContent(
+      'Order #101 executed',
+    );
+  });
+
   it('shows a visible manual-refresh fallback when EventSource is unavailable', async () => {
     const originalEventSource = globalThis.EventSource;
     const user = userEvent.setup();
@@ -1037,6 +1088,158 @@ describe('App auth flow', () => {
 
     expect(MockEventSource.instances).toHaveLength(2);
     expect(MockEventSource.instances.at(-1)).not.toBe(originalStream);
+  });
+
+  it('backfills missed notifications after reconnect succeeds', async () => {
+    mockFetchSession.mockResolvedValue(memberFixture);
+    mockFetchNotifications
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          notificationId: 211,
+          channel: 'ORDER',
+          message: 'Backfilled after reconnect',
+          delivered: true,
+          read: false,
+          readAt: null,
+        },
+      ]);
+
+    window.history.pushState({}, '', '/portfolio');
+    render(<App />);
+
+    expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
+      'Portfolio overview',
+    );
+
+    vi.useFakeTimers();
+
+    const firstStream = MockEventSource.instances.at(-1);
+    expect(firstStream).toBeDefined();
+
+    act(() => {
+      firstStream?.onerror?.(new Event('error'));
+      vi.advanceTimersByTime(3_000);
+    });
+
+    const secondStream = MockEventSource.instances.at(-1);
+    expect(secondStream).not.toBe(firstStream);
+
+    act(() => {
+      secondStream?.onopen?.(new Event('open'));
+    });
+
+    vi.useRealTimers();
+
+    await waitFor(() => {
+      expect(mockFetchNotifications).toHaveBeenCalledTimes(2);
+    });
+
+    expect(await screen.findByTestId('notification-item-211')).toHaveTextContent(
+      'Backfilled after reconnect',
+    );
+
+  });
+
+  it('marks a notification as read in UI and backend', async () => {
+    mockFetchSession.mockResolvedValue(memberFixture);
+    mockFetchNotifications.mockResolvedValueOnce([
+      {
+        notificationId: 301,
+        channel: 'ORDER',
+        message: 'Unread order result',
+        delivered: true,
+        read: false,
+        readAt: null,
+      },
+    ]);
+    const user = userEvent.setup();
+
+    window.history.pushState({}, '', '/portfolio');
+    render(<App />);
+
+    expect(await screen.findByTestId('notification-item-301')).toHaveTextContent(
+      'Unread order result',
+    );
+
+    await user.click(screen.getByTestId('notification-mark-read-301'));
+
+    await waitFor(() => {
+      expect(mockMarkNotificationRead).toHaveBeenCalledWith(301);
+    });
+
+    expect(await screen.findByTestId('notification-read-301')).toHaveTextContent('Read');
+  });
+
+  it('shows retryable feedback when mark-as-read fails', async () => {
+    mockFetchSession.mockResolvedValue(memberFixture);
+    mockFetchNotifications.mockResolvedValueOnce([
+      {
+        notificationId: 302,
+        channel: 'ORDER',
+        message: 'Unread with failure path',
+        delivered: true,
+        read: false,
+        readAt: null,
+      },
+    ]);
+    mockMarkNotificationRead.mockRejectedValueOnce(new Error('network failure'));
+    const user = userEvent.setup();
+
+    window.history.pushState({}, '', '/portfolio');
+    render(<App />);
+
+    await user.click(await screen.findByTestId('notification-mark-read-302'));
+
+    expect(await screen.findByTestId('notification-center-error')).toHaveTextContent(
+      'Unable to mark notification as read. Please try again.',
+    );
+  });
+
+  it('shows an empty-state message when no notifications exist', async () => {
+    mockFetchSession.mockResolvedValue(memberFixture);
+    mockFetchNotifications.mockResolvedValueOnce([]);
+
+    window.history.pushState({}, '', '/portfolio');
+    render(<App />);
+
+    expect(await screen.findByTestId('protected-area-title')).toHaveTextContent(
+      'Portfolio overview',
+    );
+
+    expect(await screen.findByTestId('notification-center-empty')).toHaveTextContent(
+      'No notifications yet.',
+    );
+  });
+
+  it('shows feed-unavailable guidance and supports manual refresh', async () => {
+    mockFetchSession.mockResolvedValue(memberFixture);
+    mockFetchNotifications
+      .mockRejectedValueOnce(new Error('down'))
+      .mockResolvedValueOnce([
+        {
+          notificationId: 401,
+          channel: 'ORDER',
+          message: 'Recovered after manual refresh',
+          delivered: true,
+          read: false,
+          readAt: null,
+        },
+      ]);
+    const user = userEvent.setup();
+
+    window.history.pushState({}, '', '/portfolio');
+    render(<App />);
+
+    expect(await screen.findByTestId('notification-feed-unavailable')).toHaveTextContent(
+      'Notification feed is temporarily unavailable.',
+    );
+
+    await user.click(screen.getByTestId('notification-feed-refresh'));
+
+    expect(await screen.findByTestId('notification-item-401')).toHaveTextContent(
+      'Recovered after manual refresh',
+    );
   });
 
   it('backs off reconnect attempts and surfaces unavailable monitoring after repeated stream failures', async () => {
