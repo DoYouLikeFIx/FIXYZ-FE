@@ -89,6 +89,32 @@ const waitForNextTotp = async (
   return nextCode;
 };
 
+const waitForLoginStep = async (page: Page): Promise<'orders' | 'mfa' | 'error'> => {
+  const mfaInput = page.getByTestId('login-mfa-input');
+  const loginError = page.getByTestId('error-message');
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt <= 15_000) {
+    const pathname = new URL(page.url()).pathname;
+
+    if (pathname === '/orders') {
+      return 'orders';
+    }
+
+    if (await mfaInput.isVisible().catch(() => false)) {
+      return 'mfa';
+    }
+
+    if (await loginError.isVisible().catch(() => false)) {
+      return 'error';
+    }
+
+    await delay(250);
+  }
+
+  throw new Error('Expected login to reach /orders, show MFA challenge, or show a login error message within 15s.');
+};
+
 const tryRefreshNotificationFeed = async (page: Page) => {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const unavailableCount = await page.getByTestId('notification-feed-unavailable').count();
@@ -231,9 +257,15 @@ const loginWithLiveAccount = async (page: Page) => {
   await page.getByTestId('login-submit').click();
 
   const mfaInput = page.getByTestId('login-mfa-input');
-  const mfaVisible = await mfaInput.isVisible({ timeout: 3_000 }).catch(() => false);
+  const loginError = page.getByTestId('error-message');
+  const loginStep = await waitForLoginStep(page);
 
-  if (mfaVisible) {
+  if (loginStep === 'error') {
+    const message = (await loginError.textContent())?.trim() ?? 'Unknown login error';
+    throw new Error(`Live account password login failed before MFA: ${message}`);
+  }
+
+  if (loginStep === 'mfa') {
     if (!LIVE_LOGIN_OTP && !LIVE_LOGIN_TOTP_SECRET) {
       throw new Error('LIVE_LOGIN_OTP or LIVE_LOGIN_TOTP_SECRET is required when live account login prompts MFA verification.');
     }
@@ -268,7 +300,8 @@ const loginWithLiveAccount = async (page: Page) => {
     }
 
     if (!mfaPassed) {
-      throw new Error('Live account MFA verification did not complete. Check LIVE_LOGIN_TOTP_SECRET/LIVE_LOGIN_OTP validity and server clock skew.');
+      const message = await page.getByTestId('login-mfa-error').textContent().catch(() => null);
+      throw new Error(`Live account MFA verification did not complete. ${message?.trim() ? `Server message: ${message.trim()}` : 'Check LIVE_LOGIN_TOTP_SECRET/LIVE_LOGIN_OTP validity and server clock skew.'}`);
     }
   }
 
