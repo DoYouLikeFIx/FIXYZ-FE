@@ -236,14 +236,26 @@ const checkDirectBackendNotificationEndpoints = async (
   );
   telemetry.directBackendListStatuses.push(listResponse.status());
 
-  const streamResponse = await page.request.get(
-    `${DIRECT_BACKEND_BASE_URL}/api/v1/notifications/stream`,
-    {
-      headers: cookieHeader ? { cookie: cookieHeader } : undefined,
-      timeout: 10_000,
-    },
-  );
-  telemetry.directBackendStreamStatuses.push(streamResponse.status());
+  try {
+    const streamResponse = await page.request.get(
+      `${DIRECT_BACKEND_BASE_URL}/api/v1/notifications/stream`,
+      {
+        headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+        timeout: 10_000,
+      },
+    );
+    telemetry.directBackendStreamStatuses.push(streamResponse.status());
+  } catch (error) {
+    const message = String(error);
+
+    // SSE endpoints can keep the connection open; Playwright may timeout after headers were accepted.
+    if (message.includes('← 200')) {
+      telemetry.directBackendStreamStatuses.push(200);
+      return;
+    }
+
+    telemetry.directBackendStreamStatuses.push(-1);
+  }
 };
 
 const loginWithLiveAccount = async (page: Page) => {
