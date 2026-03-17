@@ -73,10 +73,13 @@ await page.getByTestId('totp-enroll-submit').click();
 await page.waitForURL(/\/orders$/, { timeout: 45000 });
 
 const loginOtp = generateTotp(manualKey);
+const shouldPrintTotpSecret = process.env.SHOW_LIVE_LOGIN_TOTP_SECRET === 'true';
 
 console.log(`LIVE_LOGIN_EMAIL=${email}`);
 console.log(`LIVE_LOGIN_PASSWORD=${password}`);
 console.log(`LIVE_LOGIN_OTP=${loginOtp}`);
-console.log(`LIVE_LOGIN_TOTP_SECRET=${manualKey}`);
+if (shouldPrintTotpSecret) {
+  console.log(`LIVE_LOGIN_TOTP_SECRET=${manualKey}`);
+}
 
 await browser.close();

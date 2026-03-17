@@ -1,9 +1,12 @@
 import { chromium } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const projectRoot = path.resolve(process.cwd(), '..');
-const videoDir = path.resolve(process.cwd(), 'test-results', 'notification-demo-video');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, '..');
+const videoDir = path.resolve(projectRoot, 'test-results', 'notification-demo-video');
 const outputDir = path.resolve(projectRoot, '_bmad-output', 'implementation-artifacts', 'demos');
 const outputVideo = path.resolve(outputDir, '7-3-notification-center-compact.mp4');
 
