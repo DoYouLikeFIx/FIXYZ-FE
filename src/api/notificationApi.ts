@@ -1,5 +1,5 @@
 import { api } from '@/lib/axios';
-import type { NotificationItem } from '@/context/notification-context';
+import type { NotificationItem } from '@/types/notification';
 
 interface NotificationListResponse {
   items: NotificationItem[];

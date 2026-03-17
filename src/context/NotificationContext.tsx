@@ -3,6 +3,7 @@ import {
   useMemo,
   useReducer,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react';
 
@@ -12,10 +13,10 @@ import {
 } from '@/api/notificationApi';
 import {
   NotificationContext,
-  type NotificationItem,
   type NotificationContextValue,
 } from '@/context/notification-context';
 import type { SessionExpiryEventPayload } from '@/types/auth';
+import type { NotificationItem } from '@/types/notification';
 import { useAuthStore } from '@/store/useAuthStore';
 
 const RECONNECT_DELAYS_MS = [3_000, 6_000, 12_000] as const;
@@ -203,17 +204,29 @@ const resolveNotificationStreamUrl = () => {
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const authStatus = useAuthStore((state) => state.status);
   const [state, dispatch] = useReducer(notificationReducer, initialNotificationState);
+  const hydrationRequestIdRef = useRef(0);
 
   const hydrateNotifications = useCallback(async () => {
+    const requestId = hydrationRequestIdRef.current + 1;
+    hydrationRequestIdRef.current = requestId;
     dispatch({ type: 'NOTIFICATIONS_HYDRATION_STARTED' });
 
     try {
       const notifications = await fetchNotifications();
+
+      if (hydrationRequestIdRef.current !== requestId) {
+        return;
+      }
+
       dispatch({
         type: 'NOTIFICATIONS_HYDRATED',
         notifications: Array.isArray(notifications) ? notifications : [],
       });
     } catch {
+      if (hydrationRequestIdRef.current !== requestId) {
+        return;
+      }
+
       dispatch({
         type: 'NOTIFICATIONS_HYDRATION_FAILED',
         message: 'Notification feed is temporarily unavailable. Pull to refresh shortly.',
@@ -235,6 +248,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (authStatus !== 'authenticated') {
+      hydrationRequestIdRef.current += 1;
       dispatch({ type: 'SESSION_EXPIRY_CLEARED' });
       dispatch({ type: 'SESSION_EXPIRY_MONITORING_RESTORED' });
       dispatch({ type: 'NOTIFICATIONS_RESET' });

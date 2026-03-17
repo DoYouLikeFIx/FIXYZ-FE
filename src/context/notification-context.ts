@@ -1,13 +1,5 @@
 import { createContext } from 'react';
-
-export interface NotificationItem {
-  notificationId: number;
-  channel: string;
-  message: string;
-  delivered: boolean;
-  read: boolean;
-  readAt: string | null;
-}
+import type { NotificationItem } from '@/types/notification';
 
 interface NotificationState {
   sessionExpiryRemainingSeconds: number | null;
