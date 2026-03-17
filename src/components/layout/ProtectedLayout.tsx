@@ -8,9 +8,16 @@ export function ProtectedLayout() {
     member,
     remainingSeconds,
     sessionExpiryMonitoringUnavailable,
+    notifications,
+    isHydratingNotifications,
+    notificationFeedUnavailable,
+    notificationFeedErrorMessage,
+    notificationReadErrorMessage,
     isExtending,
     extensionError,
     handleExtendSession,
+    markNotificationRead,
+    refreshNotifications,
   } =
     useProtectedSession();
 
@@ -70,6 +77,81 @@ export function ProtectedLayout() {
       )}
 
       <section className="protected-content">
+        <section className="notification-center" data-testid="notification-center">
+          <div className="notification-center__header">
+            <h2>Notification center</h2>
+          </div>
+
+          {isHydratingNotifications && (
+            <p data-testid="notification-center-loading">Loading notifications...</p>
+          )}
+
+          {notificationFeedUnavailable && (
+            <div className="notification-center__warning" data-testid="notification-feed-unavailable">
+              <p>{notificationFeedErrorMessage ?? 'Notification feed is unavailable.'}</p>
+              <button
+                data-testid="notification-feed-refresh"
+                onClick={() => {
+                  void refreshNotifications();
+                }}
+                type="button"
+              >
+                Refresh feed
+              </button>
+            </div>
+          )}
+
+          {!notificationFeedUnavailable && notificationReadErrorMessage && (
+            <p className="notification-center__error" data-testid="notification-center-error">
+              {notificationReadErrorMessage}
+            </p>
+          )}
+
+          {!isHydratingNotifications && !notificationFeedUnavailable && notifications.length === 0 && (
+            <p data-testid="notification-center-empty">
+              No notifications yet. New order outcomes will appear here.
+            </p>
+          )}
+
+          {!isHydratingNotifications && notifications.length > 0 && (
+            <ul className="notification-center__list" data-testid="notification-center-list">
+              {notifications.map((notification) => (
+                <li
+                  className="notification-center__item"
+                  data-testid={`notification-item-${notification.notificationId}`}
+                  key={notification.notificationId}
+                >
+                  <div>
+                    <p className="notification-center__message">{notification.message}</p>
+                    <p className="notification-center__meta">{notification.channel}</p>
+                  </div>
+
+                  {notification.read
+                    ? (
+                        <span
+                          className="notification-center__read-chip"
+                          data-testid={`notification-read-${notification.notificationId}`}
+                        >
+                          Read
+                        </span>
+                      )
+                    : (
+                        <button
+                          data-testid={`notification-mark-read-${notification.notificationId}`}
+                          onClick={() => {
+                            void markNotificationRead(notification.notificationId);
+                          }}
+                          type="button"
+                        >
+                          Mark as read
+                        </button>
+                      )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         <Outlet />
       </section>
 
