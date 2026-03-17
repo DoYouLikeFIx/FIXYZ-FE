@@ -39,8 +39,9 @@ export default defineConfig({
   webServer: {
     command: `pnpm exec vite --host ${host} --port ${port} --strictPort`,
     url: baseURL,
-    // Always start with a fresh server so CI/local share the same injected env contract.
-    reuseExistingServer: false,
+    // In CI always start with a fresh server for a consistent injected env contract;
+    // locally reuse an existing server if one is already running on this port.
+    reuseExistingServer: !process.env.CI,
     env: {
       ...process.env,
       LIVE_API_BASE_URL: liveBackendBaseUrl,
