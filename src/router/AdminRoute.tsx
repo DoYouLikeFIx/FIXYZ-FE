@@ -4,6 +4,14 @@ import { RouteStatusShell } from '@/components/layout/RouteStatusShell';
 import { buildLoginRedirect, buildRedirectPath, DEFAULT_PROTECTED_ROUTE } from '@/router/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 
+const isAdminRole = (role: string | undefined) => {
+  if (!role) {
+    return false;
+  }
+
+  return role === 'ROLE_ADMIN' || /ROLE_.*ADMIN/.test(role);
+};
+
 export function AdminRoute() {
   const status = useAuthStore((state) => state.status);
   const member = useAuthStore((state) => state.member);
@@ -34,7 +42,14 @@ export function AdminRoute() {
     );
   }
 
-  if (member?.role !== 'ROLE_ADMIN') {
+  if (!isAdminRole(member?.role)) {
+    if (import.meta.env.DEV) {
+      console.warn('AdminRoute denied for non-admin role', {
+        role: member?.role,
+        attemptedPath: location.pathname,
+      });
+    }
+
     return <Navigate replace to={DEFAULT_PROTECTED_ROUTE} />;
   }
 
