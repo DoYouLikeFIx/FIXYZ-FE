@@ -299,18 +299,20 @@ const installMockRoutes = async (page) => {
 
     if (method === 'POST' && pathname === '/api/v1/orders/sessions') {
       if (orderScenario === 'validation-cash') {
-          await route.fulfill({
-            status: 422,
-            contentType: 'application/json',
-            body: JSON.stringify(createDirectError(
-            'ORD-006',
-            '주문 가능 금액이 부족합니다.',
-            pathname,
-            {
-              operatorCode: 'INSUFFICIENT_CASH',
-              userMessageKey: 'error.order.insufficient_cash',
-            },
-          )),
+        await route.fulfill({
+          status: 422,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            createDirectError(
+              'ORD-006',
+              '주문 가능 금액이 부족합니다.',
+              pathname,
+              {
+                operatorCode: 'INSUFFICIENT_CASH',
+                userMessageKey: 'error.order.insufficient_cash',
+              },
+            ),
+          ),
         });
         return;
       }
