@@ -118,6 +118,7 @@ const installMockApi = async (
   orderScenario: OrderScenario,
   member = memberFixture,
 ) => {
+  const sessionExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   let authenticated = false;
   const sessionCreateRequests: CapturedOrderSessionCreateRequest[] = [];
   const executeSessionIds: string[] = [];
@@ -160,7 +161,7 @@ const installMockApi = async (
         loginToken: 'login-token',
         nextAction: 'VERIFY_TOTP',
         totpEnrolled: true,
-        expiresAt: '2026-03-11T00:10:00Z',
+        expiresAt: sessionExpiresAt,
       }));
       return;
     }
@@ -194,7 +195,7 @@ const installMockApi = async (
         orderType: 'LIMIT',
         qty: body.qty,
         price: body.price,
-        expiresAt: '2026-03-11T00:10:00Z',
+        expiresAt: sessionExpiresAt,
       }));
       return;
     }
@@ -222,7 +223,7 @@ const installMockApi = async (
           leavesQty: 0,
           executedPrice: latestSessionCreateRequest?.price ?? 70100,
           externalOrderId: 'ord-e2e-001',
-          expiresAt: '2026-03-11T00:10:00Z',
+          expiresAt: sessionExpiresAt,
         }));
         return;
       }
@@ -308,8 +309,9 @@ test.describe('external order recovery e2e', () => {
     await page.getByTestId('order-session-create').click();
     await page.getByTestId('order-session-execute').click();
 
-    await expect(page.getByTestId('external-order-feedback')).toHaveText(
-      '주문이 접수되었습니다. 주문 요약을 확인해 주세요.',
+    await expect(page.getByTestId('order-session-result')).toBeVisible();
+    await expect(page.getByTestId('order-session-result-title')).toHaveText(
+      '주문이 체결되었습니다',
     );
     await expect(page.getByTestId('order-session-summary')).toContainText('상태 COMPLETED');
     await expect(page.getByTestId('order-session-reset')).toBeVisible();

@@ -1,7 +1,16 @@
-import { Outlet } from 'react-router-dom';
+import { Link, Outlet } from 'react-router-dom';
 
 import { SiteFooter } from '@/components/layout/SiteFooter';
 import { useProtectedSession } from '@/hooks/auth/useProtectedSession';
+import { ADMIN_ROUTE } from '@/router/navigation';
+
+const isAdminRole = (role: string | undefined) => {
+  if (!role) {
+    return false;
+  }
+
+  return role === 'ROLE_ADMIN' || /ROLE_.*ADMIN/.test(role);
+};
 
 export function ProtectedLayout() {
   const {
@@ -28,6 +37,11 @@ export function ProtectedLayout() {
           <p className="topbar__kicker">Protected route</p>
           <h1 className="topbar__title">Secure workspace online</h1>
         </div>
+        {isAdminRole(member?.role) ? (
+          <Link className="topbar__admin-link" to={ADMIN_ROUTE} data-testid="topbar-admin-link">
+            Admin console
+          </Link>
+        ) : null}
         <div className="topbar__identity">
           <span className="topbar__chip">{member?.role ?? 'ROLE_USER'}</span>
           <span className="topbar__name">{member?.name ?? 'Member'}</span>

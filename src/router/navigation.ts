@@ -9,6 +9,7 @@ export const PASSWORD_RESET_SUCCESS_QUERY_KEY = 'recovery';
 export const PASSWORD_RESET_SUCCESS_QUERY_VALUE = 'reset-success';
 export const PASSWORD_RESET_SUCCESS_QUERY =
   `${PASSWORD_RESET_SUCCESS_QUERY_KEY}=${PASSWORD_RESET_SUCCESS_QUERY_VALUE}`;
+export const ADMIN_ROUTE = '/admin';
 export const MFA_RECOVERY_SUCCESS_QUERY_KEY = 'mfaRecovery';
 export const MFA_RECOVERY_SUCCESS_QUERY_VALUE = 'rebound';
 export const MFA_RECOVERY_SUCCESS_QUERY =

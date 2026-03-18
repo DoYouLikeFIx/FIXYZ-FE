@@ -170,6 +170,11 @@ const AUTH_TEMPLATE_BY_CODE: Record<string, AuthErrorTemplate> = {
     recoveryAction: 'check-input',
     message: '입력값을 다시 확인해 주세요.',
   },
+  'AUTH-006': {
+    semantic: 'validation',
+    recoveryAction: 'contact-support',
+    message: '요청 권한이 없습니다.',
+  },
   'CORE-001': {
     semantic: 'register-failed',
     recoveryAction: 'retry-register',

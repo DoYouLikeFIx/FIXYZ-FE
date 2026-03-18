@@ -2,7 +2,13 @@ import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { expect, test, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type Page,
+} from '@playwright/test';
+
+import { requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
 
 const DEFAULT_REGISTER_PASSWORD = 'LiveOrder1!';
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -217,6 +223,10 @@ const expectCanonicalFinalResultCard = async (page: Page) => {
 };
 
 test.describe.serial('live backend order session flow', () => {
+  test.beforeEach(async ({ request }) => {
+    await requireLiveAuthContractHealthy(request);
+  });
+
   test('creates and executes a low-risk order session after a fresh MFA login', async ({ page }) => {
     test.slow();
     test.setTimeout(150_000);

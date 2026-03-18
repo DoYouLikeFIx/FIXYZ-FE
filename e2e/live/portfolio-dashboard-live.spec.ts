@@ -1,6 +1,12 @@
 import { createHmac } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type Page,
+} from '@playwright/test';
+
+import { requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
 
 const DEFAULT_REGISTER_PASSWORD = 'LiveTest1!';
 const MASKED_ACCOUNT_PATTERN = /(^\*\*\*-[*\d]{4}$)|(^\d{3}-\*{4}-\d{4}$)/;
@@ -66,6 +72,10 @@ const generateTotp = (manualEntryKey: string, now = Date.now()): string => {
 
 test.describe('live backend portfolio dashboard', () => {
   const identity = createLiveIdentity();
+
+  test.beforeEach(async ({ request }) => {
+    await requireLiveAuthContractHealthy(request);
+  });
 
   test('registers a fresh live account and renders dashboard/history data from the live backend', async ({
     page,

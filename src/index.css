@@ -818,6 +818,232 @@ button:disabled {
   font-weight: 700;
 }
 
+.topbar__admin-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.45rem 0.95rem;
+  border: 1px solid rgba(16, 26, 45, 0.12);
+  background: linear-gradient(180deg, #0f1f3f 0%, #101a2d 100%);
+  color: #ffffff;
+  font-size: 0.83rem;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 14px 26px rgba(16, 26, 45, 0.2);
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    opacity 0.16s ease;
+}
+
+.topbar__admin-link:hover {
+  opacity: 0.94;
+  transform: translateY(-1px);
+}
+
+.admin-console-shell {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.admin-console-hero {
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 1.5rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 248, 230, 0.86) 100%);
+  box-shadow: 0 16px 40px rgba(24, 33, 40, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.admin-console-hero__description {
+  margin: 0;
+  color: var(--muted);
+}
+
+.admin-console-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 1rem;
+}
+
+.admin-console-panel {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 40px rgba(24, 33, 40, 0.07);
+  backdrop-filter: blur(18px);
+}
+
+.admin-console-panel__header {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.admin-console-panel__kicker {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.admin-console-form {
+  display: grid;
+  gap: 0.78rem;
+}
+
+.admin-console-form input,
+.admin-console-form select {
+  height: 48px;
+  width: 100%;
+  border: 1px solid #cad0d7;
+  border-radius: 12px;
+  background: rgba(247, 246, 243, 0.95);
+  padding: 0 1rem;
+  color: var(--text);
+  font: inherit;
+}
+
+.admin-console-form select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #374151 50%),
+    linear-gradient(135deg, #374151 50%, transparent 50%);
+  background-position:
+    calc(100% - 19px) calc(50% - 2px),
+    calc(100% - 14px) calc(50% - 2px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2.2rem;
+}
+
+.admin-console-form select:focus,
+.admin-console-form input:focus {
+  outline: none;
+  border-color: rgba(240, 132, 0, 0.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 0 0 4px rgba(240, 132, 0, 0.12);
+}
+
+.admin-console-action {
+  border: none;
+  border-radius: 12px;
+  min-height: 44px;
+  padding: 0.6rem 1rem;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.admin-console-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.admin-console-action--primary {
+  background: linear-gradient(180deg, #0d182b 0%, #101a2d 100%);
+}
+
+.admin-console-action--secondary {
+  background: linear-gradient(180deg, #1f2f50 0%, #273e62 100%);
+}
+
+.admin-console-action--muted {
+  border: 1px solid rgba(16, 26, 45, 0.12);
+  color: #556070;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.admin-console-action--active {
+  border-color: transparent;
+  color: #ffffff;
+  background: linear-gradient(180deg, #0f1f3f 0%, #101a2d 100%);
+}
+
+.admin-console-audit-meta {
+  margin-top: 0.7rem;
+  color: #7e7f86;
+  font-size: 0.86rem;
+}
+
+.admin-console-table-shell {
+  margin-top: 0.55rem;
+  display: grid;
+  gap: 0.45rem;
+  border: 1px solid rgba(16, 26, 45, 0.1);
+  border-radius: 18px;
+  padding: 0.7rem;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.admin-console-table-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1.1fr 1fr 1.35fr 0.8fr minmax(0, 2fr);
+  gap: 0.75rem;
+  padding: 0.63rem 0.72rem;
+  border: 1px solid rgba(16, 26, 45, 0.06);
+  border-radius: 11px;
+  align-items: center;
+  background: rgba(247, 250, 255, 0.5);
+  font-size: 0.82rem;
+}
+
+.admin-console-table-row--head {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #5f6772;
+  font-weight: 700;
+  background: rgba(15, 26, 48, 0.06);
+}
+
+.admin-console-table-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-console-empty {
+  margin: 0;
+  border-radius: 14px;
+  padding: 0.85rem;
+  border: 1px dashed rgba(16, 26, 45, 0.2);
+  color: #8d96a0;
+  background: rgba(244, 247, 255, 0.7);
+}
+
+.admin-console-table-footer {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.admin-console-page-sizes,
+.admin-console-page-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.admin-console-page-actions {
+  color: #6a7078;
+  font-size: 0.89rem;
+}
+
 .portfolio-grid {
   display: grid;
   gap: 1.2rem;
@@ -1644,6 +1870,10 @@ p {
     align-items: flex-start;
     gap: 0.75rem;
   }
+
+  .admin-console-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1679,6 +1909,45 @@ p {
   .topbar__identity {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .topbar__admin-link {
+    width: 100%;
+    justify-content: flex-start;
+    padding: 0.65rem 1rem;
+  }
+
+  .admin-console-shell {
+    gap: 0.85rem;
+  }
+
+  .admin-console-hero,
+  .admin-console-panel,
+  .admin-console-table-row,
+  .admin-console-empty {
+    border-radius: 18px;
+  }
+
+  .admin-console-form {
+    gap: 0.7rem;
+  }
+
+  .admin-console-form input,
+  .admin-console-form select,
+  .admin-console-action,
+  .admin-console-action--primary,
+  .admin-console-action--secondary,
+  .admin-console-action--muted {
+    width: 100%;
+  }
+
+  .admin-console-table-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.3rem;
+  }
+
+  .admin-console-table-row--head {
+    display: none;
   }
 
   .auth-card {

@@ -1,6 +1,12 @@
 import { createHmac } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type Page,
+} from '@playwright/test';
+
+import { requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
 
 const DEFAULT_REGISTER_PASSWORD = 'LiveNotification1!';
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -389,6 +395,10 @@ const registerEnrollAndLoginToOrders = async (page: Page) => {
 };
 
 test.describe.serial('live backend notification stream', () => {
+  test.beforeEach(async ({ request }) => {
+    await requireLiveAuthContractHealthy(request);
+  });
+
   test('receives a new notification in the live feed after order completion without manual refresh', async ({
     page,
   }) => {

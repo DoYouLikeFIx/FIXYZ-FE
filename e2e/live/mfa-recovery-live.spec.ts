@@ -1,6 +1,12 @@
 import { createHmac } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type Page,
+} from '@playwright/test';
+
+import { requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
 
 const DEFAULT_REGISTER_PASSWORD = 'LiveTest1!';
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -89,6 +95,10 @@ const goToRegister = async (page: Page) => {
 
 test.describe.serial('live backend MFA recovery rebind', () => {
   const identity = createLiveIdentity();
+
+  test.beforeEach(async ({ request }) => {
+    await requireLiveAuthContractHealthy(request);
+  });
 
   test('rebinds authenticator on web, preserves redirect, and requires the new secret on the next login', async ({
     page,

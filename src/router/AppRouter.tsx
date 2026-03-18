@@ -6,15 +6,18 @@ import { LoginPage } from '@/pages/LoginPage';
 import { MfaRecoveryPage } from '@/pages/MfaRecoveryPage';
 import { MfaRecoveryRebindPage } from '@/pages/MfaRecoveryRebindPage';
 import { OrderPage } from '@/pages/OrderPage';
+import { AdminConsolePage } from '@/pages/AdminConsolePage';
 import { PasswordResetPage } from '@/pages/PasswordResetPage';
 import { PortfolioPage } from '@/pages/PortfolioPage';
 import { RegisterPage } from '@/pages/RegisterPage';
 import { TotpEnrollmentPage } from '@/pages/TotpEnrollmentPage';
 import { PendingMfaRoute } from '@/router/PendingMfaRoute';
+import { AdminRoute } from '@/router/AdminRoute';
 import { PrivateRoute } from '@/router/PrivateRoute';
 import { PublicOnlyRoute } from '@/router/PublicOnlyRoute';
 import {
   DEFAULT_PROTECTED_ROUTE,
+  ADMIN_ROUTE,
   MFA_RECOVERY_REBIND_ROUTE,
   MFA_RECOVERY_ROUTE,
   TOTP_ENROLL_ROUTE,
@@ -69,6 +72,9 @@ export function AppRouter() {
         <Route element={<ProtectedLayout />}>
           <Route path="/portfolio" element={<PortfolioPage />} />
           <Route path="/orders" element={<OrderPage />} />
+          <Route element={<AdminRoute />}>
+            <Route path={ADMIN_ROUTE} element={<AdminConsolePage />} />
+          </Route>
         </Route>
       </Route>
       <Route path="/" element={<Navigate replace to={DEFAULT_PROTECTED_ROUTE} />} />
