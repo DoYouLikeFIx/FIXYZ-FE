@@ -15,9 +15,14 @@ export function ExternalOrderErrorPanel({
       data-testid={testId}
     >
       <div className="external-order-panel__header">
-        <p className="external-order-panel__eyebrow">
-          {presentation.semantic.replace(/-/g, ' ')}
-        </p>
+        <div>
+          <p className="external-order-panel__eyebrow" data-testid="external-order-error-category">
+            {presentation.reasonCategoryLabel}
+          </p>
+          <p className="external-order-panel__eyebrow">
+            {presentation.semantic.replace(/-/g, ' ')}
+          </p>
+        </div>
         {presentation.code ? (
           <span className="external-order-panel__code" data-testid="external-order-error-code">
             {presentation.code}

@@ -16,6 +16,7 @@ interface ExternalOrderRecoverySectionProps {
   step: OrderFlowStep;
   feedbackMessage: string | null;
   inlineError: string | null;
+  errorReasonCategoryLabel?: string | null;
   symbolValue: string;
   quantityValue: string;
   symbolError: string | null;
@@ -30,6 +31,8 @@ interface ExternalOrderRecoverySectionProps {
   isRestoring: boolean;
   presentation: ExternalOrderErrorPresentation | null;
   orderSession: OrderSessionResponse | null;
+  updatedPositionQuantity?: number | null;
+  updatedPositionQuantityMessage?: string | null;
   hasDetectedSessionExpiry: boolean;
   authorizationReasonMessage: string | null;
   otpValue: string;
@@ -71,6 +74,7 @@ export function ExternalOrderRecoverySection({
   step,
   feedbackMessage,
   inlineError,
+  errorReasonCategoryLabel = null,
   symbolValue,
   quantityValue,
   symbolError,
@@ -85,6 +89,8 @@ export function ExternalOrderRecoverySection({
   isRestoring,
   presentation,
   orderSession,
+  updatedPositionQuantity = null,
+  updatedPositionQuantityMessage = null,
   hasDetectedSessionExpiry,
   authorizationReasonMessage,
   otpValue,
@@ -194,19 +200,33 @@ export function ExternalOrderRecoverySection({
       ) : null}
 
       {effectiveFeedbackMessage ? (
-        <p className="external-order-recovery__feedback" data-testid="external-order-feedback">
-          {effectiveFeedbackMessage}
-        </p>
+        <div>
+          {errorReasonCategoryLabel ? (
+            <p className="portfolio-guidance-note" data-testid="order-session-error-category">
+              {errorReasonCategoryLabel}
+            </p>
+          ) : null}
+          <p className="external-order-recovery__feedback" data-testid="external-order-feedback">
+            {effectiveFeedbackMessage}
+          </p>
+        </div>
       ) : null}
 
       {inlineError ? (
-        <p
-          className="external-order-recovery__feedback"
-          data-testid="order-session-error"
-          role="alert"
-        >
-          {inlineError}
-        </p>
+        <div>
+          {!effectiveFeedbackMessage && errorReasonCategoryLabel ? (
+            <p className="portfolio-guidance-note" data-testid="order-session-error-category">
+              {errorReasonCategoryLabel}
+            </p>
+          ) : null}
+          <p
+            className="external-order-recovery__feedback"
+            data-testid="order-session-error"
+            role="alert"
+          >
+            {inlineError}
+          </p>
+        </div>
       ) : null}
 
       {step === 'A' ? (
@@ -415,6 +435,16 @@ export function ExternalOrderRecoverySection({
               {orderSession.failureReason ? (
                 <p data-testid="order-result-failure-reason">
                   실패 사유 · {orderSession.failureReason}
+                </p>
+              ) : null}
+              {updatedPositionQuantity !== null ? (
+                <p data-testid="order-result-position-qty">
+                  현재 보유 수량 · {formatQuantity(updatedPositionQuantity)}주
+                </p>
+              ) : null}
+              {updatedPositionQuantity === null && updatedPositionQuantityMessage ? (
+                <p data-testid="order-result-position-qty-message">
+                  {updatedPositionQuantityMessage}
                 </p>
               ) : null}
             </div>
