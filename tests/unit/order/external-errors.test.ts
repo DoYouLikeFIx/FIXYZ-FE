@@ -23,6 +23,8 @@ describe('external order errors', () => {
       const presentation = resolveExternalOrderErrorPresentation(error);
 
       expect(isVisibleExternalOrderError(error)).toBe(true);
+      expect(presentation.reasonCategory).toBe(contractCase.reasonCategory);
+      expect(presentation.reasonCategoryLabel).toBe('대외');
       expect(presentation.semantic).toBe(contractCase.semantic);
       expect(presentation.recoveryAction).toBe(contractCase.recoveryAction);
       expect(presentation.severity).toBe(contractCase.severity);
@@ -47,6 +49,9 @@ describe('external order errors', () => {
 
     expect(presentation.semantic).toBe(
       externalOrderErrorContract.unknownFallback.semantic,
+    );
+    expect(presentation.reasonCategory).toBe(
+      externalOrderErrorContract.unknownFallback.reasonCategory,
     );
     expect(presentation.title).toBe(externalOrderErrorContract.unknownFallback.title);
     expect(presentation.nextStep).toBe(
