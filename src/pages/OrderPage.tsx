@@ -34,6 +34,7 @@ export function OrderPage() {
           step={orderRecovery.step}
           feedbackMessage={orderRecovery.feedbackMessage}
           inlineError={orderRecovery.inlineError}
+          errorReasonCategoryLabel={orderRecovery.errorReasonCategoryLabel}
           symbolValue={orderRecovery.symbolValue}
           quantityValue={orderRecovery.quantityValue}
           symbolError={orderRecovery.symbolError}
@@ -48,6 +49,8 @@ export function OrderPage() {
           isRestoring={orderRecovery.isRestoring}
           presentation={orderRecovery.presentation}
           orderSession={orderRecovery.orderSession}
+          updatedPositionQuantity={orderRecovery.updatedPositionQuantity}
+          updatedPositionQuantityMessage={orderRecovery.updatedPositionQuantityMessage}
           hasDetectedSessionExpiry={orderRecovery.hasDetectedSessionExpiry}
           authorizationReasonMessage={orderRecovery.authorizationReasonMessage}
           otpValue={orderRecovery.otpValue}
