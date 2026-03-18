@@ -8,20 +8,66 @@ interface ReasonCategoryContract {
   badgeLabel: string;
 }
 
-const ORDER_REASON_CATEGORIES = (
-  externalOrderErrorContract.reasonCategories ?? []
-) as ReasonCategoryContract[];
+const DEFAULT_CATEGORY_LABELS: Record<OrderReasonCategory, string> = {
+  validation: '검증',
+  internal: '내부',
+  external: '대외',
+};
+
+const isOrderReasonCategory = (
+  value: unknown,
+): value is OrderReasonCategory =>
+  value === 'validation' || value === 'internal' || value === 'external';
+
+const isReasonCategoryContract = (
+  value: unknown,
+): value is ReasonCategoryContract => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as {
+    name?: unknown;
+    codeFamilies?: unknown;
+    badgeLabel?: unknown;
+  };
+
+  if (!isOrderReasonCategory(candidate.name) || typeof candidate.badgeLabel !== 'string') {
+    return false;
+  }
+
+  if (
+    candidate.codeFamilies !== undefined
+    && !(
+      Array.isArray(candidate.codeFamilies)
+      && candidate.codeFamilies.every((item) => typeof item === 'string')
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
+const parseReasonCategories = (contract: unknown): ReasonCategoryContract[] => {
+  const reasonCategories = (
+    contract as { reasonCategories?: unknown } | null | undefined
+  )?.reasonCategories;
+  if (!Array.isArray(reasonCategories)) {
+    return [];
+  }
+
+  return reasonCategories.filter(isReasonCategoryContract);
+};
+
+const ORDER_REASON_CATEGORIES = parseReasonCategories(externalOrderErrorContract);
 
 const CATEGORY_LABELS = ORDER_REASON_CATEGORIES.reduce<Record<OrderReasonCategory, string>>(
   (labels, category) => {
     labels[category.name] = category.badgeLabel;
     return labels;
   },
-  {
-    validation: '검증',
-    internal: '내부',
-    external: '대외',
-  },
+  { ...DEFAULT_CATEGORY_LABELS },
 );
 
 const FAMILY_TO_CATEGORY = ORDER_REASON_CATEGORIES.reduce<Record<string, OrderReasonCategory>>(
