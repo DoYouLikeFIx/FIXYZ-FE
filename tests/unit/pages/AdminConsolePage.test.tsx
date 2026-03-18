@@ -5,14 +5,14 @@ import userEvent from '@testing-library/user-event';
 import { fetchAdminAuditLogs, invalidateMemberSessions } from '@/api/adminApi';
 import { AdminConsolePage } from '@/pages/AdminConsolePage';
 import { resetAuthStore } from '@/store/useAuthStore';
-import type { AdminAuditLogsPage } from '@/types/admin';
+import type { AdminAuditLog, AdminAuditLogsPage } from '@/types/admin';
 
 vi.mock('@/api/adminApi', () => ({
   fetchAdminAuditLogs: vi.fn(),
   invalidateMemberSessions: vi.fn(),
 }));
 
-const createAuditLog = (id: string) => ({
+const createAuditLog = (id: string): AdminAuditLog => ({
   auditId: id,
   memberUuid: 'member-001',
   email: 'member-001@example.com',
