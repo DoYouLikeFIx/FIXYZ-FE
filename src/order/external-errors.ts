@@ -4,6 +4,10 @@ import {
   TIMEOUT_ERROR_MESSAGE,
 } from '@/lib/api-error-messages';
 import type { NormalizedApiError } from '@/lib/axios';
+import {
+  getOrderReasonCategoryLabel,
+  type OrderReasonCategory,
+} from '@/order/order-error-category';
 
 export const SUPPORT_REFERENCE_LABEL = '문의 코드';
 
@@ -34,6 +38,8 @@ interface ExternalOrderErrorTemplate {
 export interface ExternalOrderErrorPresentation {
   code?: string;
   operatorCode?: string;
+  reasonCategory: OrderReasonCategory;
+  reasonCategoryLabel: string;
   semantic: ExternalOrderErrorSemantic;
   recoveryAction: ExternalOrderRecoveryAction;
   severity: ExternalOrderSeverity;
@@ -167,6 +173,8 @@ const toPresentation = (
 ): ExternalOrderErrorPresentation => ({
   code: options?.code,
   operatorCode: options?.operatorCode,
+  reasonCategory: 'external',
+  reasonCategoryLabel: getOrderReasonCategoryLabel('external') ?? '대외',
   semantic: template.semantic,
   recoveryAction: template.recoveryAction,
   severity: template.severity,
