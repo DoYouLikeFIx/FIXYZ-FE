@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 
 import { fetchAdminAuditLogs, invalidateMemberSessions } from '@/api/adminApi';
@@ -13,12 +14,70 @@ const AUDIT_PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 
 type FeedbackTone = 'info' | 'error';
 
+interface AuditErrorState {
+  message: string;
+}
+
 interface FeedbackState {
   tone: FeedbackTone;
   message: string;
 }
 
+interface DateTimeParseResult {
+  value: string | undefined;
+  isValid: boolean;
+}
+
 const normalizeFilter = (value: string) => value.trim() || undefined;
+
+const normalizeDateTimeFilter = (value: string): DateTimeParseResult => {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return { value: undefined, isValid: true };
+  }
+
+  const parsed = new Date(trimmed);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return { value: undefined, isValid: false };
+  }
+
+  return { value: parsed.toISOString(), isValid: true };
+};
+
+const extractErrorCode = (error: unknown) =>
+  typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : undefined;
+
+const normalizeRetryAfter = (error: unknown) =>
+  typeof error === 'object' && error !== null && 'retryAfterSeconds' in error
+    ? Number((error as { retryAfterSeconds?: unknown }).retryAfterSeconds)
+    : undefined;
+
+const getAuditErrorMessage = (error: unknown) => {
+  const message = getAuthErrorMessage(error);
+  const code = extractErrorCode(error)?.replace(/_/g, '-');
+  const retryAfterSeconds = normalizeRetryAfter(error);
+
+  if (code === 'VALIDATION-001') {
+    return `${message}. 시작 시각과 종료 시각 범위를 다시 확인해 주세요.`;
+  }
+
+  if (code === 'RATE-001' && Number.isFinite(retryAfterSeconds)) {
+    return `${message} (약 ${retryAfterSeconds}초 뒤에 다시 시도해 주세요.)`;
+  }
+
+  if (code === 'AUTH-006') {
+    return `${message}. 관리자 권한이 필요한 요청입니다.`;
+  }
+
+  return message;
+};
+
+const isMemberUuidInputInvalid = (memberUuid: string) =>
+  memberUuid.length === 0 || memberUuid.length > 128;
 
 const formatAuditTime = (value: string) => {
   const parsed = new Date(value);
@@ -52,11 +111,12 @@ export function AdminConsolePage() {
     AUDIT_PAGE_SIZE_OPTIONS[0],
   );
   const [auditLoading, setAuditLoading] = useState(false);
-  const [auditError, setAuditError] = useState<string | null>(null);
+  const [auditError, setAuditError] = useState<AuditErrorState | null>(null);
   const [auditItems, setAuditItems] = useState<AdminAuditLog[]>([]);
   const [auditTotalElements, setAuditTotalElements] = useState(0);
   const [auditTotalPages, setAuditTotalPages] = useState(0);
   const latestAuditLogRequestIdRef = useRef(0);
+  const latestAuditLogAbortControllerRef = useRef<AbortController | null>(null);
 
   const currentAuditQuery: AdminAuditLogQuery = {
     page: auditPage,
@@ -71,12 +131,15 @@ export function AdminConsolePage() {
 
   const loadAuditLogs = async (query: AdminAuditLogQuery) => {
     const requestId = ++latestAuditLogRequestIdRef.current;
+    latestAuditLogAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    latestAuditLogAbortControllerRef.current = abortController;
     setAuditLoading(true);
     setAuditError(null);
     const nextPage = query.page ?? 0;
 
     try {
-      const pageData = await fetchAdminAuditLogs(query);
+      const pageData = await fetchAdminAuditLogs(query, abortController.signal);
       if (latestAuditLogRequestIdRef.current !== requestId) {
         return;
       }
@@ -90,10 +153,17 @@ export function AdminConsolePage() {
         return;
       }
 
-      setAuditError(getAuthErrorMessage(error));
-      setAuditItems([]);
-      setAuditTotalElements(0);
-      setAuditTotalPages(0);
+      if (isAxiosError(error) && error.code === 'ERR_CANCELED') {
+        return;
+      }
+
+      if (latestAuditLogRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setAuditError({
+        message: getAuditErrorMessage(error),
+      });
     } finally {
       if (latestAuditLogRequestIdRef.current === requestId) {
         setAuditLoading(false);
@@ -105,15 +175,22 @@ export function AdminConsolePage() {
     void loadAuditLogs(currentAuditQuery);
   }, [auditPage, auditSize, appliedMemberIdFilter, appliedFromFilter, appliedToFilter, appliedEventTypeFilter]);
 
+  useEffect(() => () => {
+    latestAuditLogAbortControllerRef.current?.abort();
+  }, []);
+
   const handleForceLogout = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const trimmedMemberUuid = memberUuid.trim();
 
-    if (!trimmedMemberUuid) {
+    if (isMemberUuidInputInvalid(trimmedMemberUuid)) {
       setForceLogoutFeedback({
         tone: 'error',
-        message: 'memberUuid를 입력해 주세요.',
+        message:
+          trimmedMemberUuid.length === 0
+            ? 'memberUuid를 입력해 주세요.'
+            : 'memberUuid가 너무 깁니다. (최대 128자)',
       });
       return;
     }
@@ -143,10 +220,42 @@ export function AdminConsolePage() {
   const handleAuditSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    const normalizedFrom = normalizeDateTimeFilter(fromFilter);
+    const normalizedTo = normalizeDateTimeFilter(toFilter);
+
+    if (fromFilter && !normalizedFrom.isValid) {
+      setAuditError({
+        message: '시작 시각(from)이 올바른 날짜/시간 형식이 아닙니다.',
+      });
+
+      return;
+    }
+
+    if (toFilter && !normalizedTo.isValid) {
+      setAuditError({
+        message: '종료 시각(to)이 올바른 날짜/시간 형식이 아닙니다.',
+      });
+
+      return;
+    }
+
+    if (
+      normalizedFrom.value !== undefined
+      && normalizedTo.value !== undefined
+      && normalizedFrom.value > normalizedTo.value
+    ) {
+      setAuditError({
+        message: '시작 시각(from)이 종료 시각(to)보다 늦습니다.',
+      });
+
+      return;
+    }
+
+    setAuditError(null);
     setAuditPage(0);
     setAppliedMemberIdFilter(memberIdFilter);
-    setAppliedFromFilter(fromFilter);
-    setAppliedToFilter(toFilter);
+    setAppliedFromFilter(normalizedFrom.value ?? '');
+    setAppliedToFilter(normalizedTo.value ?? '');
     setAppliedEventTypeFilter(eventTypeFilter);
   };
 
@@ -292,7 +401,7 @@ export function AdminConsolePage() {
 
           {auditError ? (
             <p className="feedback feedback--error" data-testid="admin-audit-error">
-              {auditError}
+              {auditError.message}
             </p>
           ) : null}
 
