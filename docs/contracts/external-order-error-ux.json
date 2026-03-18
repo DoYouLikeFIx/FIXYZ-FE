@@ -1,10 +1,37 @@
 {
   "supportReferenceLabel": "문의 코드",
+  "reasonCategories": [
+    {
+      "name": "validation",
+      "codeFamilies": ["ORD", "VALIDATION"],
+      "badgeLabel": "검증",
+      "guidanceTone": "edit-and-retry",
+      "defaultNextAction": "edit-order",
+      "description": "사용자가 주문 조건이나 입력 상태를 수정한 뒤 다시 시도할 수 있는 검증 계열 오류."
+    },
+    {
+      "name": "internal",
+      "codeFamilies": ["AUTH", "CHANNEL", "CORE", "RATE", "SYS"],
+      "badgeLabel": "내부",
+      "guidanceTone": "retry-or-contact-support",
+      "defaultNextAction": "retry-or-contact-support",
+      "description": "채널계, 계정계, 동시성, 세션, 내부 장애 계열 오류."
+    },
+    {
+      "name": "external",
+      "codeFamilies": ["FEP"],
+      "badgeLabel": "대외",
+      "guidanceTone": "wait-requery-or-contact-support",
+      "defaultNextAction": "wait-for-update",
+      "description": "FEP 또는 거래소 연동 경로에서 발생한 대외 오류."
+    }
+  ],
   "cases": [
     {
       "codes": ["FEP-001", "FEP_001"],
       "operatorCode": "CIRCUIT_OPEN",
       "retryAfterSeconds": 10,
+      "reasonCategory": "external",
       "semantic": "service-unavailable",
       "recoveryAction": "retry-order",
       "severity": "warning",
@@ -15,6 +42,7 @@
     {
       "codes": ["FEP-001", "FEP_001"],
       "operatorCode": "KEY_EXPIRED",
+      "reasonCategory": "external",
       "semantic": "service-unavailable",
       "recoveryAction": "contact-support",
       "severity": "warning",
@@ -25,6 +53,7 @@
     {
       "codes": ["FEP-002", "FEP_002"],
       "operatorCode": "TIMEOUT",
+      "reasonCategory": "external",
       "semantic": "pending-confirmation",
       "recoveryAction": "wait-for-update",
       "severity": "info",
@@ -35,6 +64,7 @@
     {
       "codes": ["FEP-003", "FEP_003"],
       "operatorCode": "ORDER_REJECTED",
+      "reasonCategory": "external",
       "semantic": "exchange-rejected",
       "recoveryAction": "review-order",
       "severity": "error",
@@ -44,6 +74,7 @@
     }
   ],
   "unknownFallback": {
+    "reasonCategory": "external",
     "semantic": "unknown-state",
     "recoveryAction": "contact-support",
     "severity": "warning",

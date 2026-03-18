@@ -8,6 +8,8 @@ describe('ExternalOrderErrorPanel', () => {
       <ExternalOrderErrorPanel
         presentation={{
           code: 'FEP-999',
+          reasonCategory: 'external',
+          reasonCategoryLabel: '대외',
           semantic: 'unknown-state',
           recoveryAction: 'contact-support',
           severity: 'warning',
@@ -23,6 +25,7 @@ describe('ExternalOrderErrorPanel', () => {
     expect(screen.getByTestId('external-order-error-title')).toHaveTextContent(
       '주문 상태 확인이 더 필요합니다',
     );
+    expect(screen.getByTestId('external-order-error-category')).toHaveTextContent('대외');
     expect(screen.getByTestId('external-order-error-next-step')).toHaveTextContent(
       '문의 코드와 함께 고객센터에 연락해 주세요.',
     );

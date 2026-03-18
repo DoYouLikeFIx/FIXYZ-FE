@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+import { fetchAccountPosition } from '@/api/accountApi';
 import {
   createOrderSession,
   extendOrderSession,
@@ -21,6 +22,10 @@ vi.mock('@/api/orderApi', () => ({
   verifyOrderSessionOtp: vi.fn(),
   executeOrderSession: vi.fn(),
   getOrderSession: vi.fn(),
+}));
+
+vi.mock('@/api/accountApi', () => ({
+  fetchAccountPosition: vi.fn(),
 }));
 
 const memberFixture: Member = {
@@ -80,12 +85,21 @@ type SharedFinalResultCase = {
   executionResult?: string;
   title: string;
   body: string;
+  referenceField?: string;
+  referenceLabel?: string;
+  referenceVisible?: boolean;
   externalOrderId?: string;
   executionResultLabel?: string;
   executedQty?: number;
   executedQtyLabel?: string;
   executedPrice?: number;
   executedPriceLabel?: string;
+  positionQuantityVisible?: boolean;
+  positionQuantityLabel?: string;
+  updatedPositionQuantity?: number;
+  updatedPositionQuantityLabel?: string;
+  positionQuantitySource?: string;
+  positionQuantitySourceStory?: string;
   failureReason?: string;
   failureReasonLabel?: string;
   leavesQty?: number;
@@ -129,6 +143,19 @@ describe('OrderPage', () => {
     vi.mocked(executeOrderSession).mockReset();
     vi.mocked(getOrderSession).mockReset();
     vi.mocked(verifyOrderSessionOtp).mockReset();
+    vi.mocked(fetchAccountPosition).mockReset();
+    vi.mocked(fetchAccountPosition).mockResolvedValue({
+      accountId: 1,
+      memberId: 1,
+      symbol: '005930',
+      quantity: 120,
+      availableQuantity: 20,
+      availableQty: 20,
+      balance: 100_000_000,
+      availableBalance: 100_000_000,
+      currency: 'KRW',
+      asOf: '2026-03-18T09:00:00Z',
+    });
     window.sessionStorage.clear();
   });
 
@@ -182,6 +209,7 @@ describe('OrderPage', () => {
     expect(await screen.findByTestId('external-order-error-title')).toHaveTextContent(
       '주문 결과를 확인하고 있습니다',
     );
+    expect(screen.getByTestId('external-order-error-category')).toHaveTextContent('대외');
     expect(screen.getByTestId('external-order-error-support-reference')).toHaveTextContent(
       '문의 코드: trace-fep-002',
     );
@@ -207,6 +235,7 @@ describe('OrderPage', () => {
     expect(await screen.findByTestId('order-session-error')).toHaveTextContent(
       '입력 값을 다시 확인해 주세요.',
     );
+    expect(screen.getByTestId('order-session-error-category')).toHaveTextContent('검증');
     await waitFor(() => {
       expect(screen.queryByTestId('external-order-error-panel')).not.toBeInTheDocument();
     });
@@ -216,7 +245,7 @@ describe('OrderPage', () => {
     vi.mocked(createOrderSession).mockRejectedValue(
       Object.assign(new Error('가용 수량을 다시 확인해 주세요.'), {
         name: 'ApiClientError',
-        code: 'ORD-003',
+        code: 'ORD-005',
         status: 422,
       }),
     );
@@ -230,8 +259,61 @@ describe('OrderPage', () => {
       '가용 수량을 다시 확인해 주세요.',
     );
     expect(screen.getByTestId('external-order-feedback')).toHaveTextContent(
-      '수량을 수정한 뒤 다시 시도해 주세요.',
+      '보유 수량 또는 일일 매도 가능 한도를 확인한 뒤 수량을 조정해 주세요.',
     );
+    expect(screen.getByTestId('order-session-error-category')).toHaveTextContent('검증');
+    expect(screen.queryByTestId('order-session-error')).not.toBeInTheDocument();
+  });
+
+  it('prefers machine-readable insufficient-position semantics for quantity guidance', async () => {
+    vi.mocked(createOrderSession).mockRejectedValue(
+      Object.assign(new Error('insufficient position quantity'), {
+        name: 'ApiClientError',
+        code: 'ORD-003',
+        status: 422,
+        userMessageKey: 'error.order.insufficient_position',
+        operatorCode: 'INSUFFICIENT_POSITION',
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+
+    expect(await screen.findByTestId('order-input-qty-error')).toHaveTextContent(
+      '보유 수량을 다시 확인해 주세요.',
+    );
+    expect(screen.getByTestId('external-order-feedback')).toHaveTextContent(
+      '보유 수량을 확인한 뒤 수량을 조정해 주세요.',
+    );
+    expect(screen.getByTestId('order-session-error-category')).toHaveTextContent('검증');
+    expect(screen.queryByTestId('order-session-error')).not.toBeInTheDocument();
+  });
+
+  it('prefers machine-readable daily-sell-limit semantics for quantity guidance', async () => {
+    vi.mocked(createOrderSession).mockRejectedValue(
+      Object.assign(new Error('Daily sell limit exceeded'), {
+        name: 'ApiClientError',
+        code: 'ORD-005',
+        status: 422,
+        userMessageKey: 'error.order.daily_sell_limit_exceeded',
+        operatorCode: 'DAILY_SELL_LIMIT_EXCEEDED',
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+
+    expect(await screen.findByTestId('order-input-qty-error')).toHaveTextContent(
+      '일일 매도 가능 한도를 초과했습니다.',
+    );
+    expect(screen.getByTestId('external-order-feedback')).toHaveTextContent(
+      '일일 매도 가능 한도를 확인한 뒤 수량을 조정해 주세요.',
+    );
+    expect(screen.getByTestId('order-session-error-category')).toHaveTextContent('검증');
     expect(screen.queryByTestId('order-session-error')).not.toBeInTheDocument();
   });
 
@@ -239,7 +321,7 @@ describe('OrderPage', () => {
     vi.mocked(createOrderSession).mockRejectedValue(
       Object.assign(new Error('available cash is insufficient'), {
         name: 'ApiClientError',
-        code: 'ORD-001',
+        code: 'ORD-006',
         status: 422,
       }),
     );
@@ -255,6 +337,28 @@ describe('OrderPage', () => {
     expect(screen.getByTestId('external-order-feedback')).toHaveTextContent(
       '매수 가능 금액을 확인하거나 수량을 조정한 뒤 다시 시도해 주세요.',
     );
+    expect(screen.getByTestId('order-session-error-category')).toHaveTextContent('검증');
+    expect(screen.queryByTestId('order-input-qty-error')).not.toBeInTheDocument();
+  });
+
+  it('does not classify uncoded create failures from message text alone', async () => {
+    vi.mocked(createOrderSession).mockRejectedValue(
+      Object.assign(new Error('available cash is insufficient'), {
+        name: 'ApiClientError',
+        status: 422,
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+
+    expect(await screen.findByTestId('order-session-error')).toHaveTextContent(
+      'available cash is insufficient',
+    );
+    expect(screen.queryByTestId('order-session-error-category')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('external-order-feedback')).not.toBeInTheDocument();
     expect(screen.queryByTestId('order-input-qty-error')).not.toBeInTheDocument();
   });
 
@@ -444,6 +548,7 @@ describe('OrderPage', () => {
     expect(await screen.findByTestId('order-session-error')).toHaveTextContent(
       'OTP를 너무 빠르게 연속 제출했습니다. 잠시 후 다시 시도해 주세요.',
     );
+    expect(screen.getByTestId('order-session-error-category')).toHaveTextContent('내부');
   });
 
   it('maps canonicalized OTP mismatch errors into remaining-attempts guidance', async () => {
@@ -1039,6 +1144,10 @@ describe('OrderPage', () => {
     executedQtyLabel,
     executedPrice,
     executedPriceLabel,
+    positionQuantityVisible,
+    positionQuantityLabel,
+    updatedPositionQuantity,
+    updatedPositionQuantityLabel,
     failureReasonLabel,
     leavesQtyLabel,
     canceledAt,
@@ -1078,6 +1187,18 @@ describe('OrderPage', () => {
       failureReason,
       leavesQty,
       canceledAt,
+    });
+    vi.mocked(fetchAccountPosition).mockResolvedValue({
+      accountId: 1,
+      memberId: 1,
+      symbol: '005930',
+      quantity: updatedPositionQuantity ?? 120,
+      availableQuantity: 20,
+      availableQty: 20,
+      balance: 100_000_000,
+      availableBalance: 100_000_000,
+      currency: 'KRW',
+      asOf: '2026-03-18T09:00:00Z',
     });
     const user = userEvent.setup();
 
@@ -1135,6 +1256,63 @@ describe('OrderPage', () => {
     } else {
       expect(screen.queryByTestId('order-result-failure-reason')).not.toBeInTheDocument();
     }
+
+    if (positionQuantityVisible && updatedPositionQuantityLabel) {
+      expect(await screen.findByTestId('order-result-position-qty')).toHaveTextContent(
+        `${positionQuantityLabel} · ${updatedPositionQuantityLabel}`,
+      );
+      expect(fetchAccountPosition).toHaveBeenCalledWith({
+        accountId: '1',
+        symbol: '005930',
+      });
+    } else {
+      expect(screen.queryByTestId('order-result-position-qty')).not.toBeInTheDocument();
+      expect(fetchAccountPosition).not.toHaveBeenCalled();
+    }
+  });
+
+  it('shows a fallback message when refreshed position inquiry fails after a filled result', async () => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-final-result',
+      clOrdId: 'cl-final-result',
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 10,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+    vi.mocked(executeOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-final-result',
+      clOrdId: 'cl-final-result',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 10,
+      price: 70100,
+      expiresAt: null,
+      status: 'COMPLETED',
+      executionResult: 'FILLED',
+    });
+    vi.mocked(fetchAccountPosition).mockRejectedValue(new Error('downstream unavailable'));
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+    await user.click(await screen.findByTestId('order-session-execute'));
+
+    expect(await screen.findByTestId('order-result-position-qty-message')).toHaveTextContent(
+      '현재 보유 수량을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.',
+    );
+    expect(screen.queryByTestId('order-result-position-qty')).not.toBeInTheDocument();
   });
 
   it('restores a pending order session into Step B from sessionStorage', async () => {

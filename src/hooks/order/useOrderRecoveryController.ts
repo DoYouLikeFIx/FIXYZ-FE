@@ -1,7 +1,8 @@
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useReducer, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useController, useForm } from 'react-hook-form';
 
+import { fetchAccountPosition } from '@/api/accountApi';
 import {
   createOrderSession,
   extendOrderSession,
@@ -32,22 +33,34 @@ import {
   readPersistedOrderSessionId,
 } from '@/order/order-session-storage';
 import {
+  initialOrderFlowState,
+  orderFlowReducer,
+} from '@/order/order-flow-state';
+import {
   isVisibleExternalOrderError,
   resolveExternalOrderErrorPresentation,
-  type ExternalOrderErrorPresentation,
 } from '@/order/external-errors';
+import {
+  getOrderReasonCategoryLabel,
+  resolveOrderReasonCategory,
+} from '@/order/order-error-category';
 import {
   resolveOrderAuthorizationGuidance,
   resolveOrderFinalResultContent,
   resolveOrderProcessingContent,
 } from '@/order/order-session-guidance';
 import type {
-  OrderFlowStep,
   OrderSessionResponse,
   OrderSessionStatus,
 } from '@/types/order';
 
 const ORDER_STATUS_POLL_INTERVAL_MS = 30_000;
+const POSITION_EXECUTION_RESULTS = new Set([
+  'FILLED',
+  'PARTIAL_FILL',
+  'VIRTUAL_FILL',
+  'PARTIAL_FILL_CANCEL',
+]);
 
 interface UseOrderRecoveryControllerInput {
   accountId?: string;
@@ -74,6 +87,14 @@ const isPollingStatus = (status?: OrderSessionStatus | null) =>
   status === 'EXECUTING'
   || status === 'REQUERYING'
   || status === 'ESCALATED';
+
+const shouldLoadUpdatedPositionQuantity = (session?: OrderSessionResponse | null) =>
+  Boolean(
+    session
+    && isFinalResultStatus(session.status)
+    && session.executionResult
+    && POSITION_EXECUTION_RESULTS.has(session.executionResult),
+  );
 
 const isSessionExpiredError = (error: unknown) => {
   const code = getErrorCode(error);
@@ -118,6 +139,49 @@ const formatOtpError = (error: NormalizedApiError) => {
   return error.message;
 };
 
+const ORDERABILITY_BOUNDARY_GUIDANCE =
+  '보유 수량 또는 일일 매도 가능 한도를 확인한 뒤 수량을 조정해 주세요.';
+const ORDERABILITY_BOUNDARY_FIELD_ERROR =
+  '주문 수량이 현재 주문 가능 범위를 초과했습니다.';
+const POSITION_QUANTITY_GUIDANCE =
+  '보유 수량을 확인한 뒤 수량을 조정해 주세요.';
+const POSITION_QUANTITY_FIELD_ERROR =
+  '보유 수량을 다시 확인해 주세요.';
+const DAILY_SELL_LIMIT_GUIDANCE =
+  '일일 매도 가능 한도를 확인한 뒤 수량을 조정해 주세요.';
+const DAILY_SELL_LIMIT_FIELD_ERROR =
+  '일일 매도 가능 한도를 초과했습니다.';
+const VALIDATION_GUIDANCE =
+  '입력값을 확인한 뒤 다시 시도해 주세요.';
+
+type OrderabilityBoundaryType =
+  | 'insufficient-position'
+  | 'daily-sell-limit'
+  | 'generic-orderability';
+
+const resolveOrderabilityBoundaryType = (
+  normalized: Partial<NormalizedApiError>,
+  code?: string,
+): OrderabilityBoundaryType => {
+  if (
+    normalized.userMessageKey === 'error.order.insufficient_position'
+    || normalized.operatorCode === 'INSUFFICIENT_POSITION'
+    || code === 'ORD-003'
+  ) {
+    return 'insufficient-position';
+  }
+
+  if (
+    normalized.userMessageKey === 'error.order.daily_sell_limit_exceeded'
+    || normalized.operatorCode === 'DAILY_SELL_LIMIT_EXCEEDED'
+    || code === 'ORD-002'
+  ) {
+    return 'daily-sell-limit';
+  }
+
+  return 'generic-orderability';
+};
+
 const resolveServerValidationFieldErrors = (
   error: unknown,
 ): {
@@ -134,50 +198,46 @@ const resolveServerValidationFieldErrors = (
   }
 
   const normalized = error as Partial<NormalizedApiError>;
+  const code = canonicalizeErrorCode(normalized.code);
   const message = normalized.message ?? '';
 
-  if (
-    normalized.code === 'ORD-001'
-    || /available cash|insufficient cash|매수 자금|가용 현금|cash/i.test(message)
-  ) {
+  if (code === 'ORD-006' || code === 'ORD-001') {
     return {
       fieldErrors: {},
       guidance: '매수 가능 금액을 확인하거나 수량을 조정한 뒤 다시 시도해 주세요.',
-      inlineError: message,
+      inlineError: message || null,
     };
   }
 
-  if (
-    normalized.code === 'ORD-002'
-    || /daily sell limit|매도 한도/i.test(message)
-  ) {
+  if (code === 'ORD-005' || code === 'ORD-002' || code === 'ORD-003') {
+    const orderabilityType = resolveOrderabilityBoundaryType(normalized, code);
+    const fieldError =
+      orderabilityType === 'insufficient-position'
+        ? POSITION_QUANTITY_FIELD_ERROR
+        : orderabilityType === 'daily-sell-limit'
+          ? DAILY_SELL_LIMIT_FIELD_ERROR
+          : message || ORDERABILITY_BOUNDARY_FIELD_ERROR;
+    const guidance =
+      orderabilityType === 'insufficient-position'
+        ? POSITION_QUANTITY_GUIDANCE
+        : orderabilityType === 'daily-sell-limit'
+          ? DAILY_SELL_LIMIT_GUIDANCE
+          : ORDERABILITY_BOUNDARY_GUIDANCE;
+
+    return {
+      fieldErrors: {
+        quantity: fieldError,
+      },
+      guidance,
+      inlineError: null,
+    };
+  }
+
+  if (code === 'VALIDATION-001' || code === 'VALIDATION-003') {
     return {
       fieldErrors: {},
-      guidance: '일일 매도 가능 한도를 확인한 뒤 다시 시도해 주세요.',
-      inlineError: message,
-    };
-  }
-
-  if (
-    normalized.code === 'ORD-003'
-    || /수량|quantity|position|가용/i.test(message)
-  ) {
-    return {
-      fieldErrors: {
-        quantity: message,
-      },
-      guidance: null,
-      inlineError: null,
-    };
-  }
-
-  if (/종목|symbol/i.test(message)) {
-    return {
-      fieldErrors: {
-        symbol: message,
-      },
-      guidance: null,
-      inlineError: null,
+      guidance: VALIDATION_GUIDANCE,
+      inlineError: message || null,
     };
   }
 
@@ -224,21 +284,26 @@ export const useOrderRecoveryController = ({
   const [selectedPresetId, setSelectedPresetId] = useState<ExternalOrderPresetId | null>(
     externalOrderPresetOptions[0].id,
   );
-  const [step, setStep] = useState<OrderFlowStep>('A');
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-  const [inlineError, setInlineError] = useState<string | null>(null);
-  const [serverFieldErrors, setServerFieldErrors] = useState<ExternalOrderFieldErrors>({});
-  const [presentation, setPresentation] =
-    useState<ExternalOrderErrorPresentation | null>(null);
-  const [orderSession, setOrderSession] = useState<OrderSessionResponse | null>(null);
-  const [hasDetectedSessionExpiry, setHasDetectedSessionExpiry] = useState(false);
-  const [otpValue, setOtpValueState] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [isRestoring, setIsRestoring] = useState(false);
-  const [isExtending, setIsExtending] = useState(false);
+  const [flowState, dispatch] = useReducer(orderFlowReducer, initialOrderFlowState);
   const operationVersionRef = useRef(0);
+  const {
+    step,
+    feedbackMessage,
+    inlineError,
+    errorReasonCategory,
+    serverFieldErrors,
+    presentation,
+    orderSession,
+    updatedPosition,
+    updatedPositionMessage,
+    hasDetectedSessionExpiry,
+    otpValue,
+    isSubmitting,
+    isVerifyingOtp,
+    isExecuting,
+    isRestoring,
+    isExtending,
+  } = flowState;
   const draft = {
     symbol: symbolField.value ?? '',
     quantity: quantityField.value ?? '',
@@ -256,11 +321,10 @@ export const useOrderRecoveryController = ({
     && !isInteractionLocked;
 
   const clearTransientFeedback = (options?: { preservePresentation?: boolean }) => {
-    setFeedbackMessage(null);
-    setInlineError(null);
-    if (!options?.preservePresentation) {
-      setPresentation(null);
-    }
+    dispatch({
+      type: 'clearTransientFeedback',
+      preservePresentation: options?.preservePresentation,
+    });
   };
 
   const invalidatePendingOperations = () => {
@@ -268,17 +332,9 @@ export const useOrderRecoveryController = ({
   };
 
   const clearServerFieldErrors = (targets?: Array<keyof ExternalOrderFieldErrors>) => {
-    if (!targets || targets.length === 0) {
-      setServerFieldErrors({});
-      return;
-    }
-
-    setServerFieldErrors((current) => {
-      const next = { ...current };
-      for (const target of targets) {
-        delete next[target];
-      }
-      return next;
+    dispatch({
+      type: 'clearServerFieldErrors',
+      targets,
     });
   };
 
@@ -290,21 +346,23 @@ export const useOrderRecoveryController = ({
     clearPersistedOrderSessionId(accountId);
   };
 
+  const clearUpdatedPositionState = () => {
+    dispatch({
+      type: 'patch',
+      payload: {
+        updatedPosition: null,
+        updatedPositionMessage: null,
+      },
+    });
+  };
+
   const resetFlow = (options?: { keepPreset?: boolean; message?: string }) => {
     invalidatePendingOperations();
     clearPersistedSessionId();
-    setStep('A');
-    setOrderSession(null);
-    setHasDetectedSessionExpiry(false);
-    setOtpValueState('');
-    clearServerFieldErrors();
-    setPresentation(null);
-    setInlineError(options?.message ?? null);
-    setFeedbackMessage(null);
-    setIsSubmitting(false);
-    setIsVerifyingOtp(false);
-    setIsExecuting(false);
-    setIsExtending(false);
+    dispatch({
+      type: 'reset',
+      inlineError: options?.message ?? null,
+    });
     if (!options?.keepPreset) {
       form.reset(createInitialExternalOrderDraft());
       setSelectedPresetId(externalOrderPresetOptions[0].id);
@@ -318,28 +376,27 @@ export const useOrderRecoveryController = ({
 
     invalidatePendingOperations();
     clearPersistedSessionId();
-    setOrderSession(null);
-    setHasDetectedSessionExpiry(false);
-    setOtpValueState('');
-    setPresentation(null);
-    setInlineError(null);
-    setFeedbackMessage(null);
-    setIsExtending(false);
+    dispatch({
+      type: 'discardDraftSessionContext',
+    });
   };
 
   const goBackToDraft = () => {
     if (orderSession === null) {
-      setStep('A');
+      dispatch({
+        type: 'patch',
+        payload: {
+          step: 'A',
+        },
+      });
       return;
     }
 
     invalidatePendingOperations();
-    setHasDetectedSessionExpiry(false);
-    setStep('A');
-    setOtpValueState('');
-    setIsVerifyingOtp(false);
-    clearTransientFeedback();
-    setFeedbackMessage(resolveOrderAuthorizationGuidance(orderSession.authorizationReason));
+    dispatch({
+      type: 'goBackToDraft',
+      feedbackMessage: resolveOrderAuthorizationGuidance(orderSession.authorizationReason),
+    });
   };
 
   const restartExpiredSession = () => {
@@ -361,27 +418,16 @@ export const useOrderRecoveryController = ({
 
     invalidatePendingOperations();
     clearPersistedSessionId();
-    clearServerFieldErrors();
-    setPresentation(null);
-    setFeedbackMessage(null);
-    setInlineError(null);
-    setOrderSession(expiredSession);
-    setHasDetectedSessionExpiry(true);
-    setOtpValueState('');
-    setIsSubmitting(false);
-    setIsVerifyingOtp(false);
-    setIsExecuting(false);
-    setIsExtending(false);
-    setStep(expiredSession.challengeRequired ? 'B' : 'C');
+    dispatch({
+      type: 'markSessionExpired',
+      session: expiredSession,
+    });
   };
 
   const applySessionState = (
     session: OrderSessionResponse,
     options?: { restoring?: boolean; preservePresentation?: boolean },
   ) => {
-    setOrderSession(session);
-    setHasDetectedSessionExpiry(false);
-    clearServerFieldErrors();
     form.reset({
       symbol: session.symbol,
       quantity: String(session.qty),
@@ -391,32 +437,50 @@ export const useOrderRecoveryController = ({
       quantity: String(session.qty),
     }));
     persistSessionId(session.orderSessionId);
-    clearTransientFeedback({
-      preservePresentation: options?.preservePresentation,
-    });
 
     if (session.status === 'AUTHED') {
-      setStep('C');
-      if (!options?.restoring) {
-        setFeedbackMessage(resolveOrderAuthorizationGuidance(session.authorizationReason));
-      }
+      dispatch({
+        type: 'syncSessionState',
+        session,
+        step: 'C',
+        feedbackMessage: options?.restoring
+          ? null
+          : resolveOrderAuthorizationGuidance(session.authorizationReason),
+        preservePresentation: options?.preservePresentation,
+      });
       return;
     }
 
     if (session.status === 'PENDING_NEW' && session.challengeRequired) {
-      setStep('B');
+      dispatch({
+        type: 'syncSessionState',
+        session,
+        step: 'B',
+        feedbackMessage: null,
+        preservePresentation: options?.preservePresentation,
+      });
       return;
     }
 
     if (isPollingStatus(session.status)) {
-      setStep('COMPLETE');
-      setFeedbackMessage(resolveInFlightGuidance(session.status));
+      dispatch({
+        type: 'syncSessionState',
+        session,
+        step: 'COMPLETE',
+        feedbackMessage: resolveInFlightGuidance(session.status),
+        preservePresentation: options?.preservePresentation,
+      });
       return;
     }
 
     if (isFinalResultStatus(session.status)) {
-      setStep('COMPLETE');
-      setFeedbackMessage(resolveFinalResultGuidance(session));
+      dispatch({
+        type: 'syncSessionState',
+        session,
+        step: 'COMPLETE',
+        feedbackMessage: resolveFinalResultGuidance(session),
+        preservePresentation: options?.preservePresentation,
+      });
       clearPersistedSessionId();
       return;
     }
@@ -426,7 +490,13 @@ export const useOrderRecoveryController = ({
       return;
     }
 
-    setStep('A');
+    dispatch({
+      type: 'syncSessionState',
+      session,
+      step: 'A',
+      feedbackMessage: null,
+      preservePresentation: options?.preservePresentation,
+    });
   };
   const applySessionStateEvent = useEffectEvent(applySessionState);
   const resetFlowEvent = useEffectEvent(resetFlow);
@@ -445,7 +515,11 @@ export const useOrderRecoveryController = ({
     let cancelled = false;
 
     const restore = async () => {
-      setIsRestoring(true);
+      dispatch({
+        type: 'setBusyFlag',
+        flag: 'isRestoring',
+        value: true,
+      });
       try {
         const session = await getOrderSession(storedOrderSessionId);
         if (!cancelled) {
@@ -467,7 +541,11 @@ export const useOrderRecoveryController = ({
         }
       } finally {
         if (!cancelled) {
-          setIsRestoring(false);
+          dispatch({
+            type: 'setBusyFlag',
+            flag: 'isRestoring',
+            value: false,
+          });
         }
       }
     };
@@ -480,7 +558,83 @@ export const useOrderRecoveryController = ({
   }, [accountId]);
 
   useEffect(() => {
-    if (!orderSession || !isPollingStatus(orderSession.status)) {
+    const completedOrderSession = orderSession;
+    if (!completedOrderSession || !shouldLoadUpdatedPositionQuantity(completedOrderSession)) {
+      dispatch({
+        type: 'patch',
+        payload: {
+          updatedPosition: null,
+          updatedPositionMessage: null,
+        },
+      });
+      return;
+    }
+
+    const queryAccountId = accountId ?? String(completedOrderSession.accountId);
+    if (!queryAccountId) {
+      dispatch({
+        type: 'patch',
+        payload: {
+          updatedPosition: null,
+          updatedPositionMessage: null,
+        },
+      });
+      return;
+    }
+
+    let cancelled = false;
+    dispatch({
+      type: 'patch',
+      payload: {
+        updatedPosition: null,
+        updatedPositionMessage: '현재 보유 수량 확인 중...',
+      },
+    });
+
+    const loadUpdatedPosition = async () => {
+      try {
+        const position = await fetchAccountPosition({
+          accountId: queryAccountId,
+          symbol: completedOrderSession.symbol,
+        });
+        if (!cancelled) {
+          dispatch({
+            type: 'patch',
+            payload: {
+              updatedPosition: position,
+              updatedPositionMessage: null,
+            },
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          dispatch({
+            type: 'patch',
+            payload: {
+              updatedPosition: null,
+              updatedPositionMessage:
+                '현재 보유 수량을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.',
+            },
+          });
+        }
+      }
+    };
+
+    void loadUpdatedPosition();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accountId,
+    orderSession,
+  ]);
+
+  useEffect(() => {
+    const pollingOrderSessionId = orderSession?.orderSessionId ?? null;
+    const pollingOrderSessionStatus = orderSession?.status ?? null;
+
+    if (!pollingOrderSessionId || !pollingOrderSessionStatus || !isPollingStatus(pollingOrderSessionStatus)) {
       return;
     }
 
@@ -488,7 +642,7 @@ export const useOrderRecoveryController = ({
 
     const pollOrderSession = async () => {
       try {
-        const session = await getOrderSession(orderSession.orderSessionId);
+        const session = await getOrderSession(pollingOrderSessionId);
         if (!cancelled) {
           applySessionStateEvent(session, {
             restoring: true,
@@ -505,7 +659,12 @@ export const useOrderRecoveryController = ({
           return;
         }
 
-        setInlineError(getErrorMessage(error));
+        dispatch({
+          type: 'patch',
+          payload: {
+            inlineError: getErrorMessage(error),
+          },
+        });
       }
     };
 
@@ -533,14 +692,25 @@ export const useOrderRecoveryController = ({
       });
 
       if (!request) {
-        setInlineError('주문에 사용할 계좌 정보를 확인할 수 없습니다.');
-        setPresentation(null);
+        dispatch({
+          type: 'patch',
+          payload: {
+            errorReasonCategory: null,
+            inlineError: '주문에 사용할 계좌 정보를 확인할 수 없습니다.',
+            presentation: null,
+          },
+        });
         return;
       }
 
       clearTransientFeedback();
       clearServerFieldErrors();
-      setIsSubmitting(true);
+      clearUpdatedPositionState();
+      dispatch({
+        type: 'setBusyFlag',
+        flag: 'isSubmitting',
+        value: true,
+      });
       const operationVersion = ++operationVersionRef.current;
 
       try {
@@ -554,29 +724,51 @@ export const useOrderRecoveryController = ({
         }
 
         const validationPresentation = resolveServerValidationFieldErrors(error);
+        const reasonCategory = resolveOrderReasonCategory(getErrorCode(error)) ?? 'validation';
         if (
           validationPresentation.fieldErrors.symbol
           || validationPresentation.fieldErrors.quantity
         ) {
-          setServerFieldErrors(validationPresentation.fieldErrors);
-          setInlineError(validationPresentation.inlineError);
-          setFeedbackMessage(
-            validationPresentation.guidance
-            ?? buildServerValidationGuidance(validationPresentation.fieldErrors),
-          );
+          dispatch({
+            type: 'patch',
+            payload: {
+              errorReasonCategory: reasonCategory,
+              serverFieldErrors: validationPresentation.fieldErrors,
+              inlineError: validationPresentation.inlineError,
+              feedbackMessage:
+                validationPresentation.guidance
+                ?? buildServerValidationGuidance(validationPresentation.fieldErrors),
+            },
+          });
           return;
         }
 
         if (validationPresentation.guidance || validationPresentation.inlineError) {
-          setFeedbackMessage(validationPresentation.guidance);
-          setInlineError(validationPresentation.inlineError);
+          dispatch({
+            type: 'patch',
+            payload: {
+              errorReasonCategory: reasonCategory,
+              feedbackMessage: validationPresentation.guidance,
+              inlineError: validationPresentation.inlineError,
+            },
+          });
           return;
         }
 
-        setInlineError(getErrorMessage(error));
+        dispatch({
+          type: 'patch',
+          payload: {
+            errorReasonCategory: resolveOrderReasonCategory(getErrorCode(error)),
+            inlineError: getErrorMessage(error),
+          },
+        });
       } finally {
         if (operationVersion === operationVersionRef.current) {
-          setIsSubmitting(false);
+          dispatch({
+            type: 'setBusyFlag',
+            flag: 'isSubmitting',
+            value: false,
+          });
         }
       }
     }, () => {
@@ -590,7 +782,11 @@ export const useOrderRecoveryController = ({
     }
 
     clearTransientFeedback();
-    setIsVerifyingOtp(true);
+    dispatch({
+      type: 'setBusyFlag',
+      flag: 'isVerifyingOtp',
+      value: true,
+    });
     const operationVersion = ++operationVersionRef.current;
 
     try {
@@ -599,7 +795,10 @@ export const useOrderRecoveryController = ({
         return;
       }
 
-      setOtpValueState('');
+      dispatch({
+        type: 'setOtpValue',
+        value: '',
+      });
       applySessionState(session);
     } catch (error) {
       if (operationVersion !== operationVersionRef.current) {
@@ -607,7 +806,10 @@ export const useOrderRecoveryController = ({
       }
 
       const normalized = error as NormalizedApiError;
-      setOtpValueState('');
+      dispatch({
+        type: 'setOtpValue',
+        value: '',
+      });
       if (isSessionExpiredError(normalized)) {
         markSessionExpired();
         return;
@@ -640,10 +842,20 @@ export const useOrderRecoveryController = ({
         }
       }
 
-      setInlineError(formatOtpError(normalized));
+      dispatch({
+        type: 'patch',
+        payload: {
+          errorReasonCategory: resolveOrderReasonCategory(getErrorCode(normalized)),
+          inlineError: formatOtpError(normalized),
+        },
+      });
     } finally {
       if (operationVersion === operationVersionRef.current) {
-        setIsVerifyingOtp(false);
+        dispatch({
+          type: 'setBusyFlag',
+          flag: 'isVerifyingOtp',
+          value: false,
+        });
       }
     }
   };
@@ -680,7 +892,12 @@ export const useOrderRecoveryController = ({
     }
 
     clearTransientFeedback();
-    setIsExecuting(true);
+    clearUpdatedPositionState();
+    dispatch({
+      type: 'setBusyFlag',
+      flag: 'isExecuting',
+      value: true,
+    });
     const operationVersion = ++operationVersionRef.current;
 
     try {
@@ -706,7 +923,14 @@ export const useOrderRecoveryController = ({
       }
 
       if (isVisibleExternalOrderError(error)) {
-        setPresentation(resolveExternalOrderErrorPresentation(error));
+        const nextPresentation = resolveExternalOrderErrorPresentation(error);
+        dispatch({
+          type: 'patch',
+          payload: {
+            presentation: nextPresentation,
+            errorReasonCategory: nextPresentation.reasonCategory,
+          },
+        });
         const handled = await refreshOrderSessionState(
           orderSession.orderSessionId,
           operationVersion,
@@ -717,10 +941,20 @@ export const useOrderRecoveryController = ({
         }
         return;
       }
-      setInlineError(getErrorMessage(error));
+      dispatch({
+        type: 'patch',
+        payload: {
+          errorReasonCategory: resolveOrderReasonCategory(getErrorCode(error)),
+          inlineError: getErrorMessage(error),
+        },
+      });
     } finally {
       if (operationVersion === operationVersionRef.current) {
-        setIsExecuting(false);
+        dispatch({
+          type: 'setBusyFlag',
+          flag: 'isExecuting',
+          value: false,
+        });
       }
     }
   };
@@ -731,7 +965,11 @@ export const useOrderRecoveryController = ({
     }
 
     clearTransientFeedback();
-    setIsExtending(true);
+    dispatch({
+      type: 'setBusyFlag',
+      flag: 'isExtending',
+      value: true,
+    });
     const operationVersion = ++operationVersionRef.current;
 
     try {
@@ -747,10 +985,20 @@ export const useOrderRecoveryController = ({
         markSessionExpired();
         return;
       }
-      setInlineError(getErrorMessage(error));
+      dispatch({
+        type: 'patch',
+        payload: {
+          errorReasonCategory: resolveOrderReasonCategory(getErrorCode(error)),
+          inlineError: getErrorMessage(error),
+        },
+      });
     } finally {
       if (operationVersion === operationVersionRef.current) {
-        setIsExtending(false);
+        dispatch({
+          type: 'setBusyFlag',
+          flag: 'isExtending',
+          value: false,
+        });
       }
     }
   };
@@ -759,6 +1007,7 @@ export const useOrderRecoveryController = ({
     step,
     feedbackMessage,
     inlineError,
+    errorReasonCategoryLabel: getOrderReasonCategoryLabel(errorReasonCategory),
     isSubmitting,
     isVerifyingOtp,
     isExecuting,
@@ -766,6 +1015,8 @@ export const useOrderRecoveryController = ({
     isRestoring,
     presentation,
     orderSession,
+    updatedPositionQuantity: updatedPosition?.quantity ?? null,
+    updatedPositionQuantityMessage: updatedPositionMessage,
     hasDetectedSessionExpiry,
     otpValue,
     authorizationReasonMessage: orderSession
@@ -825,7 +1076,10 @@ export const useOrderRecoveryController = ({
     },
     setOtpValue: (value: string) => {
       const nextValue = value.replace(/\D/g, '').slice(0, 6);
-      setOtpValueState(nextValue);
+      dispatch({
+        type: 'setOtpValue',
+        value: nextValue,
+      });
       if (nextValue.length === 6) {
         void handleVerifyOtp(nextValue);
       }

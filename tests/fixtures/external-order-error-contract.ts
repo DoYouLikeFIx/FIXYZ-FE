@@ -19,6 +19,7 @@ export interface ExternalOrderErrorContractCase {
   codes?: string[];
   operatorCode?: string;
   retryAfterSeconds?: number;
+  reasonCategory?: string;
   semantic: string;
   recoveryAction: string;
   severity: string;
@@ -29,6 +30,14 @@ export interface ExternalOrderErrorContractCase {
 
 export interface ExternalOrderErrorContract {
   supportReferenceLabel: string;
+  reasonCategories?: Array<{
+    name: string;
+    codeFamilies: string[];
+    badgeLabel: string;
+    guidanceTone: string;
+    defaultNextAction: string;
+    description: string;
+  }>;
   cases: ExternalOrderErrorContractCase[];
   unknownFallback: Omit<ExternalOrderErrorContractCase, 'codes'>;
 }

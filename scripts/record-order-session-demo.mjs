@@ -22,8 +22,15 @@ const outputPath = path.join(outputDir, `${outputBasename}.mp4`);
 const host = '127.0.0.1';
 const port = Number(process.env.FE_DEMO_PORT ?? '4276');
 const baseURL = `http://${host}:${port}`;
-const orderScenario = process.env.FE_ORDER_DEMO_SCENARIO === 'trusted'
-  ? 'trusted'
+const requestedOrderScenario = process.env.FE_ORDER_DEMO_SCENARIO ?? 'step-up';
+const orderScenario = [
+  'trusted',
+  'step-up',
+  'validation-cash',
+  'external-pending',
+  'success-refresh',
+].includes(requestedOrderScenario)
+  ? requestedOrderScenario
   : 'step-up';
 const startAuthenticated = process.env.FE_ORDER_DEMO_START_AUTHENTICATED !== '0';
 
@@ -32,9 +39,17 @@ let createdViteProcess = false;
 const LOGIN_TOKEN = 'login-fe-demo-token';
 
 const demoCredentials = {
-  email: 'order-stepup@fix.com',
+  email: orderScenario === 'validation-cash'
+    ? 'cash-order@fix.com'
+    : orderScenario === 'external-pending'
+      ? 'pending-order@fix.com'
+      : 'order-stepup@fix.com',
   password: 'Test1234!',
-  name: 'Order Step-Up Demo',
+  name: orderScenario === 'validation-cash'
+    ? 'Insufficient Cash Demo'
+    : orderScenario === 'external-pending'
+      ? 'Pending Order Demo'
+      : 'Order Step-Up Demo',
 };
 
 const member = {
@@ -43,7 +58,7 @@ const member = {
   name: demoCredentials.name,
   role: 'ROLE_USER',
   totpEnrolled: true,
-  accountId: '12',
+  accountId: orderScenario === 'validation-cash' ? '13' : '12',
 };
 
 const wait = (ms) => new Promise((resolve) => {
@@ -151,11 +166,13 @@ const findRecordedVideo = async (directoryPath) => {
   return path.join(directoryPath, webmFile);
 };
 
-const createDirectError = (code, message, pathName) => ({
+const createDirectError = (code, message, pathName, options = {}) => ({
   code,
   message,
   path: pathName,
-  correlationId: `corr-${code.toLowerCase()}`,
+  correlationId: options.correlationId ?? `corr-${code.toLowerCase()}`,
+  operatorCode: options.operatorCode,
+  userMessageKey: options.userMessageKey,
 });
 
 const createSuccessEnvelope = (data) => ({
@@ -169,6 +186,7 @@ const installMockRoutes = async (page) => {
   let csrfCounter = 0;
   let orderSession = null;
   let pendingLoginToken = null;
+  let currentPositionQuantity = 120;
 
   const nextCsrfToken = () => `csrf-token-${++csrfCounter}`;
   const nextExpiry = () => new Date(Date.now() + 5 * 60 * 1000).toISOString();
@@ -280,6 +298,25 @@ const installMockRoutes = async (page) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/orders/sessions') {
+      if (orderScenario === 'validation-cash') {
+        await route.fulfill({
+          status: 422,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            createDirectError(
+              'ORD-006',
+              '주문 가능 금액이 부족합니다.',
+              pathname,
+              {
+                operatorCode: 'INSUFFICIENT_CASH',
+                userMessageKey: 'error.order.insufficient_cash',
+              },
+            ),
+          ),
+        });
+        return;
+      }
+
       const body = request.postDataJSON();
       const now = new Date().toISOString();
       const requiresChallenge = orderScenario === 'step-up';
@@ -307,6 +344,30 @@ const installMockRoutes = async (page) => {
         status: 201,
         contentType: 'application/json',
         body: JSON.stringify(createSuccessEnvelope(buildOrderSessionResponse(orderSession))),
+      });
+      return;
+    }
+
+    const accountPositionMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/positions$/);
+    if (method === 'GET' && accountPositionMatch) {
+      const requestedAccountId = accountPositionMatch[1];
+      const symbol = url.searchParams.get('symbol') ?? '005930';
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createSuccessEnvelope({
+          accountId: Number(requestedAccountId),
+          memberId: 1,
+          symbol,
+          quantity: symbol === '005930' ? currentPositionQuantity : 15,
+          availableQuantity: 20,
+          availableQty: 20,
+          balance: 100_000_000,
+          availableBalance: 100_000_000,
+          currency: 'KRW',
+          asOf: new Date().toISOString(),
+        })),
       });
       return;
     }
@@ -377,6 +438,28 @@ const installMockRoutes = async (page) => {
         return;
       }
 
+      if (orderScenario === 'external-pending') {
+        orderSession = {
+          ...orderSession,
+          status: 'EXECUTING',
+          updatedAt: new Date().toISOString(),
+        };
+        await route.fulfill({
+          status: 504,
+          contentType: 'application/json',
+          body: JSON.stringify(createDirectError(
+            'FEP-002',
+            '주문이 아직 확정되지 않았습니다. 체결 완료로 간주하지 말고 알림이나 주문 상태를 확인해 주세요.',
+            pathname,
+            {
+              correlationId: 'trace-fep-002',
+              operatorCode: 'TIMEOUT',
+            },
+          )),
+        });
+        return;
+      }
+
       orderSession = {
         ...orderSession,
         status: 'COMPLETED',
@@ -388,6 +471,9 @@ const installMockRoutes = async (page) => {
         executedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+      currentPositionQuantity += orderSession.side === 'SELL'
+        ? -orderSession.qty
+        : orderSession.qty;
 
       await route.fulfill({
         status: 200,
@@ -453,6 +539,13 @@ const recordDemo = async (videoTempDir) => {
     await wait(800);
     await page.getByTestId('order-session-create').click();
 
+    if (orderScenario === 'validation-cash') {
+      await page.getByTestId('order-session-error').waitFor();
+      await wait(1_400);
+      await page.close();
+      return;
+    }
+
     if (orderScenario === 'step-up') {
       await page.getByTestId('order-session-otp-input').waitFor();
       await wait(900);
@@ -466,8 +559,13 @@ const recordDemo = async (videoTempDir) => {
     }
 
     await page.getByTestId('order-session-execute').click();
-    await page.getByTestId('order-session-result-body').waitFor();
-    await wait(1_300);
+    if (orderScenario === 'external-pending') {
+      await page.getByTestId('external-order-error-title').waitFor();
+      await wait(1_500);
+    } else {
+      await page.getByTestId('order-result-position-qty').waitFor();
+      await wait(1_500);
+    }
 
     await page.close();
   } finally {
