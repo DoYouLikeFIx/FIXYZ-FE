@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
+
 const INVALID_CREDENTIALS_MESSAGE = '이메일 또는 비밀번호가 올바르지 않습니다.';
 const DEFAULT_REGISTER_PASSWORD = 'LiveTest1!';
 const DEFAULT_INVALID_PASSWORD = 'DefinitelyWrong1!';
@@ -29,6 +31,10 @@ test.describe.serial('live backend auth', () => {
   const identity = createLiveIdentity();
   const liveResetToken = process.env.LIVE_RESET_TOKEN?.trim();
   const liveResetPassword = process.env.LIVE_RESET_PASSWORD ?? DEFAULT_RESET_PASSWORD;
+
+  test.beforeEach(async ({ request }) => {
+    await requireLiveAuthContractHealthy(request);
+  });
 
   test('registers a fresh account through the live backend', async ({ page }) => {
     await goToRegister(page);
