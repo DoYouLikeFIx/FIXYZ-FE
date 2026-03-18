@@ -85,6 +85,8 @@ describe('AdminConsolePage', () => {
 
   it('applies audit filters and page navigation to the query contract', async () => {
     const user = userEvent.setup();
+    const expectedFrom = new Date('2026-03-18T00:00').toISOString();
+    const expectedTo = new Date('2026-03-18T23:59').toISOString();
     vi.mocked(fetchAdminAuditLogs)
       .mockResolvedValueOnce(createAuditPage('log-0', 1))
       .mockResolvedValueOnce({
@@ -115,27 +117,33 @@ describe('AdminConsolePage', () => {
     await user.click(screen.getByTestId('admin-audit-search'));
 
     expect(await screen.findByTestId('admin-audit-row-log-1')).toBeInTheDocument();
-    expect(vi.mocked(fetchAdminAuditLogs)).toHaveBeenNthCalledWith(2, {
-      page: 0,
-      size: 20,
-      memberId: 'member-001',
-      from: '2026-03-18T00:00',
-      to: '2026-03-18T23:59',
-      eventType: 'LOGIN_FAIL',
-    });
+    expect(vi.mocked(fetchAdminAuditLogs).mock.calls[1]).toEqual([
+      {
+        page: 0,
+        size: 20,
+        memberId: 'member-001',
+        from: expectedFrom,
+        to: expectedTo,
+        eventType: 'LOGIN_FAIL',
+      },
+      expect.any(AbortSignal),
+    ]);
 
     await user.click(screen.getByTestId('admin-audit-next'));
     expect(await screen.findByTestId('admin-audit-row-log-2')).toBeInTheDocument();
     expect(screen.getByTestId('admin-audit-page-indicator')).toHaveTextContent('2 / 2');
 
-    expect(vi.mocked(fetchAdminAuditLogs)).toHaveBeenNthCalledWith(3, {
-      page: 1,
-      size: 20,
-      memberId: 'member-001',
-      from: '2026-03-18T00:00',
-      to: '2026-03-18T23:59',
-      eventType: 'LOGIN_FAIL',
-    });
+    expect(vi.mocked(fetchAdminAuditLogs).mock.calls[2]).toEqual([
+      {
+        page: 1,
+        size: 20,
+        memberId: 'member-001',
+        from: expectedFrom,
+        to: expectedTo,
+        eventType: 'LOGIN_FAIL',
+      },
+      expect.any(AbortSignal),
+    ]);
 
     await waitFor(() => {
       expect(vi.mocked(fetchAdminAuditLogs)).toHaveBeenCalledTimes(3);
@@ -186,14 +194,17 @@ describe('AdminConsolePage', () => {
 
     expect(await screen.findByTestId('admin-audit-row-log-1')).toBeInTheDocument();
     expect(screen.getByTestId('admin-audit-page-indicator')).toHaveTextContent('2 / 2');
-    expect(vi.mocked(fetchAdminAuditLogs)).toHaveBeenNthCalledWith(2, {
-      page: 1,
-      size: 20,
-      memberId: undefined,
-      from: undefined,
-      to: undefined,
-      eventType: undefined,
-    });
+    expect(vi.mocked(fetchAdminAuditLogs).mock.calls[1]).toEqual([
+      {
+        page: 1,
+        size: 20,
+        memberId: undefined,
+        from: undefined,
+        to: undefined,
+        eventType: undefined,
+      },
+      expect.any(AbortSignal),
+    ]);
   });
 
   it('does not show stale audit error when a newer request succeeds', async () => {

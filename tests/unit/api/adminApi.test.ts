@@ -1,11 +1,29 @@
 import { fetchAdminAuditLogs, invalidateMemberSessions } from '@/api/adminApi';
 import { api } from '@/lib/axios';
 
+const createNormalizedApiError = (message: string, metadata: {
+  code: string;
+  status: number;
+  detail?: string;
+}) => {
+  const error = new Error(message);
+  error.name = 'ApiClientError';
+
+  const normalized = error as { code?: string; status?: number; detail?: string };
+  normalized.code = metadata.code;
+  normalized.status = metadata.status;
+  normalized.detail = metadata.detail;
+
+  return normalized;
+};
+
 vi.mock('@/lib/axios', () => ({
   api: {
     delete: vi.fn(),
     get: vi.fn(),
   },
+  createNormalizedApiError: (...args: Parameters<typeof createNormalizedApiError>) =>
+    createNormalizedApiError(...args),
 }));
 
 describe('adminApi', () => {
@@ -118,5 +136,30 @@ describe('adminApi', () => {
         size: 20,
       },
     });
+  });
+
+  it('rejects invalid page size on client side before calling backend', async () => {
+    await expect(
+      fetchAdminAuditLogs({
+        page: 0,
+        size: 101,
+      }),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION-001',
+    });
+
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid iso date-time query values on client side', async () => {
+    await expect(
+      fetchAdminAuditLogs({
+        from: '2026-03-18',
+      }),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION-001',
+    });
+
+    expect(api.get).not.toHaveBeenCalled();
   });
 });
