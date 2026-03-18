@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useController, useForm } from 'react-hook-form';
 
+import { fetchAccountPosition } from '@/api/accountApi';
 import {
   createOrderSession,
   extendOrderSession,
@@ -37,10 +38,16 @@ import {
   type ExternalOrderErrorPresentation,
 } from '@/order/external-errors';
 import {
+  getOrderReasonCategoryLabel,
+  resolveOrderReasonCategory,
+  type OrderReasonCategory,
+} from '@/order/order-error-category';
+import {
   resolveOrderAuthorizationGuidance,
   resolveOrderFinalResultContent,
   resolveOrderProcessingContent,
 } from '@/order/order-session-guidance';
+import type { AccountPosition } from '@/types/account';
 import type {
   OrderFlowStep,
   OrderSessionResponse,
@@ -48,6 +55,12 @@ import type {
 } from '@/types/order';
 
 const ORDER_STATUS_POLL_INTERVAL_MS = 30_000;
+const POSITION_EXECUTION_RESULTS = new Set([
+  'FILLED',
+  'PARTIAL_FILL',
+  'VIRTUAL_FILL',
+  'PARTIAL_FILL_CANCEL',
+]);
 
 interface UseOrderRecoveryControllerInput {
   accountId?: string;
@@ -74,6 +87,14 @@ const isPollingStatus = (status?: OrderSessionStatus | null) =>
   status === 'EXECUTING'
   || status === 'REQUERYING'
   || status === 'ESCALATED';
+
+const shouldLoadUpdatedPositionQuantity = (session?: OrderSessionResponse | null) =>
+  Boolean(
+    session
+    && isFinalResultStatus(session.status)
+    && session.executionResult
+    && POSITION_EXECUTION_RESULTS.has(session.executionResult),
+  );
 
 const isSessionExpiredError = (error: unknown) => {
   const code = getErrorCode(error);
@@ -118,6 +139,49 @@ const formatOtpError = (error: NormalizedApiError) => {
   return error.message;
 };
 
+const ORDERABILITY_BOUNDARY_GUIDANCE =
+  '보유 수량 또는 일일 매도 가능 한도를 확인한 뒤 수량을 조정해 주세요.';
+const ORDERABILITY_BOUNDARY_FIELD_ERROR =
+  '주문 수량이 현재 주문 가능 범위를 초과했습니다.';
+const POSITION_QUANTITY_GUIDANCE =
+  '보유 수량을 확인한 뒤 수량을 조정해 주세요.';
+const POSITION_QUANTITY_FIELD_ERROR =
+  '보유 수량을 다시 확인해 주세요.';
+const DAILY_SELL_LIMIT_GUIDANCE =
+  '일일 매도 가능 한도를 확인한 뒤 수량을 조정해 주세요.';
+const DAILY_SELL_LIMIT_FIELD_ERROR =
+  '일일 매도 가능 한도를 초과했습니다.';
+const VALIDATION_GUIDANCE =
+  '입력값을 확인한 뒤 다시 시도해 주세요.';
+
+type OrderabilityBoundaryType =
+  | 'insufficient-position'
+  | 'daily-sell-limit'
+  | 'generic-orderability';
+
+const resolveOrderabilityBoundaryType = (
+  normalized: Partial<NormalizedApiError>,
+  code?: string,
+): OrderabilityBoundaryType => {
+  if (
+    normalized.userMessageKey === 'error.order.insufficient_position'
+    || normalized.operatorCode === 'INSUFFICIENT_POSITION'
+    || code === 'ORD-003'
+  ) {
+    return 'insufficient-position';
+  }
+
+  if (
+    normalized.userMessageKey === 'error.order.daily_sell_limit_exceeded'
+    || normalized.operatorCode === 'DAILY_SELL_LIMIT_EXCEEDED'
+    || code === 'ORD-002'
+  ) {
+    return 'daily-sell-limit';
+  }
+
+  return 'generic-orderability';
+};
+
 const resolveServerValidationFieldErrors = (
   error: unknown,
 ): {
@@ -134,50 +198,46 @@ const resolveServerValidationFieldErrors = (
   }
 
   const normalized = error as Partial<NormalizedApiError>;
+  const code = canonicalizeErrorCode(normalized.code);
   const message = normalized.message ?? '';
 
-  if (
-    normalized.code === 'ORD-001'
-    || /available cash|insufficient cash|매수 자금|가용 현금|cash/i.test(message)
-  ) {
+  if (code === 'ORD-006' || code === 'ORD-001') {
     return {
       fieldErrors: {},
       guidance: '매수 가능 금액을 확인하거나 수량을 조정한 뒤 다시 시도해 주세요.',
-      inlineError: message,
+      inlineError: message || null,
     };
   }
 
-  if (
-    normalized.code === 'ORD-002'
-    || /daily sell limit|매도 한도/i.test(message)
-  ) {
+  if (code === 'ORD-005' || code === 'ORD-002' || code === 'ORD-003') {
+    const orderabilityType = resolveOrderabilityBoundaryType(normalized, code);
+    const fieldError =
+      orderabilityType === 'insufficient-position'
+        ? POSITION_QUANTITY_FIELD_ERROR
+        : orderabilityType === 'daily-sell-limit'
+          ? DAILY_SELL_LIMIT_FIELD_ERROR
+          : message || ORDERABILITY_BOUNDARY_FIELD_ERROR;
+    const guidance =
+      orderabilityType === 'insufficient-position'
+        ? POSITION_QUANTITY_GUIDANCE
+        : orderabilityType === 'daily-sell-limit'
+          ? DAILY_SELL_LIMIT_GUIDANCE
+          : ORDERABILITY_BOUNDARY_GUIDANCE;
+
+    return {
+      fieldErrors: {
+        quantity: fieldError,
+      },
+      guidance,
+      inlineError: null,
+    };
+  }
+
+  if (code === 'VALIDATION-001' || code === 'VALIDATION-003') {
     return {
       fieldErrors: {},
-      guidance: '일일 매도 가능 한도를 확인한 뒤 다시 시도해 주세요.',
-      inlineError: message,
-    };
-  }
-
-  if (
-    normalized.code === 'ORD-003'
-    || /수량|quantity|position|가용/i.test(message)
-  ) {
-    return {
-      fieldErrors: {
-        quantity: message,
-      },
-      guidance: null,
-      inlineError: null,
-    };
-  }
-
-  if (/종목|symbol/i.test(message)) {
-    return {
-      fieldErrors: {
-        symbol: message,
-      },
-      guidance: null,
-      inlineError: null,
+      guidance: VALIDATION_GUIDANCE,
+      inlineError: message || null,
     };
   }
 
@@ -227,10 +287,14 @@ export const useOrderRecoveryController = ({
   const [step, setStep] = useState<OrderFlowStep>('A');
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const [errorReasonCategory, setErrorReasonCategory] =
+    useState<OrderReasonCategory | null>(null);
   const [serverFieldErrors, setServerFieldErrors] = useState<ExternalOrderFieldErrors>({});
   const [presentation, setPresentation] =
     useState<ExternalOrderErrorPresentation | null>(null);
   const [orderSession, setOrderSession] = useState<OrderSessionResponse | null>(null);
+  const [updatedPosition, setUpdatedPosition] = useState<AccountPosition | null>(null);
+  const [updatedPositionMessage, setUpdatedPositionMessage] = useState<string | null>(null);
   const [hasDetectedSessionExpiry, setHasDetectedSessionExpiry] = useState(false);
   const [otpValue, setOtpValueState] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -260,6 +324,7 @@ export const useOrderRecoveryController = ({
     setInlineError(null);
     if (!options?.preservePresentation) {
       setPresentation(null);
+      setErrorReasonCategory(null);
     }
   };
 
@@ -290,15 +355,22 @@ export const useOrderRecoveryController = ({
     clearPersistedOrderSessionId(accountId);
   };
 
+  const clearUpdatedPositionState = () => {
+    setUpdatedPosition(null);
+    setUpdatedPositionMessage(null);
+  };
+
   const resetFlow = (options?: { keepPreset?: boolean; message?: string }) => {
     invalidatePendingOperations();
     clearPersistedSessionId();
     setStep('A');
     setOrderSession(null);
+    clearUpdatedPositionState();
     setHasDetectedSessionExpiry(false);
     setOtpValueState('');
     clearServerFieldErrors();
     setPresentation(null);
+    setErrorReasonCategory(null);
     setInlineError(options?.message ?? null);
     setFeedbackMessage(null);
     setIsSubmitting(false);
@@ -319,9 +391,11 @@ export const useOrderRecoveryController = ({
     invalidatePendingOperations();
     clearPersistedSessionId();
     setOrderSession(null);
+    clearUpdatedPositionState();
     setHasDetectedSessionExpiry(false);
     setOtpValueState('');
     setPresentation(null);
+    setErrorReasonCategory(null);
     setInlineError(null);
     setFeedbackMessage(null);
     setIsExtending(false);
@@ -363,6 +437,8 @@ export const useOrderRecoveryController = ({
     clearPersistedSessionId();
     clearServerFieldErrors();
     setPresentation(null);
+    clearUpdatedPositionState();
+    setErrorReasonCategory(null);
     setFeedbackMessage(null);
     setInlineError(null);
     setOrderSession(expiredSession);
@@ -480,7 +556,59 @@ export const useOrderRecoveryController = ({
   }, [accountId]);
 
   useEffect(() => {
-    if (!orderSession || !isPollingStatus(orderSession.status)) {
+    const completedOrderSession = orderSession;
+    if (!completedOrderSession || !shouldLoadUpdatedPositionQuantity(completedOrderSession)) {
+      setUpdatedPosition(null);
+      setUpdatedPositionMessage(null);
+      return;
+    }
+
+    const queryAccountId = accountId ?? String(completedOrderSession.accountId);
+    if (!queryAccountId) {
+      setUpdatedPosition(null);
+      setUpdatedPositionMessage(null);
+      return;
+    }
+
+    let cancelled = false;
+    setUpdatedPosition(null);
+    setUpdatedPositionMessage('현재 보유 수량 확인 중...');
+
+    const loadUpdatedPosition = async () => {
+      try {
+        const position = await fetchAccountPosition({
+          accountId: queryAccountId,
+          symbol: completedOrderSession.symbol,
+        });
+        if (!cancelled) {
+          setUpdatedPosition(position);
+          setUpdatedPositionMessage(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setUpdatedPosition(null);
+          setUpdatedPositionMessage(
+            '현재 보유 수량을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.',
+          );
+        }
+      }
+    };
+
+    void loadUpdatedPosition();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accountId,
+    orderSession,
+  ]);
+
+  useEffect(() => {
+    const pollingOrderSessionId = orderSession?.orderSessionId ?? null;
+    const pollingOrderSessionStatus = orderSession?.status ?? null;
+
+    if (!pollingOrderSessionId || !pollingOrderSessionStatus || !isPollingStatus(pollingOrderSessionStatus)) {
       return;
     }
 
@@ -488,7 +616,7 @@ export const useOrderRecoveryController = ({
 
     const pollOrderSession = async () => {
       try {
-        const session = await getOrderSession(orderSession.orderSessionId);
+        const session = await getOrderSession(pollingOrderSessionId);
         if (!cancelled) {
           applySessionStateEvent(session, {
             restoring: true,
@@ -533,6 +661,7 @@ export const useOrderRecoveryController = ({
       });
 
       if (!request) {
+        setErrorReasonCategory(null);
         setInlineError('주문에 사용할 계좌 정보를 확인할 수 없습니다.');
         setPresentation(null);
         return;
@@ -540,6 +669,7 @@ export const useOrderRecoveryController = ({
 
       clearTransientFeedback();
       clearServerFieldErrors();
+      clearUpdatedPositionState();
       setIsSubmitting(true);
       const operationVersion = ++operationVersionRef.current;
 
@@ -554,10 +684,12 @@ export const useOrderRecoveryController = ({
         }
 
         const validationPresentation = resolveServerValidationFieldErrors(error);
+        const reasonCategory = resolveOrderReasonCategory(getErrorCode(error)) ?? 'validation';
         if (
           validationPresentation.fieldErrors.symbol
           || validationPresentation.fieldErrors.quantity
         ) {
+          setErrorReasonCategory(reasonCategory);
           setServerFieldErrors(validationPresentation.fieldErrors);
           setInlineError(validationPresentation.inlineError);
           setFeedbackMessage(
@@ -568,11 +700,13 @@ export const useOrderRecoveryController = ({
         }
 
         if (validationPresentation.guidance || validationPresentation.inlineError) {
+          setErrorReasonCategory(reasonCategory);
           setFeedbackMessage(validationPresentation.guidance);
           setInlineError(validationPresentation.inlineError);
           return;
         }
 
+        setErrorReasonCategory(resolveOrderReasonCategory(getErrorCode(error)));
         setInlineError(getErrorMessage(error));
       } finally {
         if (operationVersion === operationVersionRef.current) {
@@ -640,6 +774,7 @@ export const useOrderRecoveryController = ({
         }
       }
 
+      setErrorReasonCategory(resolveOrderReasonCategory(getErrorCode(normalized)));
       setInlineError(formatOtpError(normalized));
     } finally {
       if (operationVersion === operationVersionRef.current) {
@@ -680,6 +815,7 @@ export const useOrderRecoveryController = ({
     }
 
     clearTransientFeedback();
+    clearUpdatedPositionState();
     setIsExecuting(true);
     const operationVersion = ++operationVersionRef.current;
 
@@ -706,7 +842,9 @@ export const useOrderRecoveryController = ({
       }
 
       if (isVisibleExternalOrderError(error)) {
-        setPresentation(resolveExternalOrderErrorPresentation(error));
+        const nextPresentation = resolveExternalOrderErrorPresentation(error);
+        setPresentation(nextPresentation);
+        setErrorReasonCategory(nextPresentation.reasonCategory);
         const handled = await refreshOrderSessionState(
           orderSession.orderSessionId,
           operationVersion,
@@ -717,6 +855,7 @@ export const useOrderRecoveryController = ({
         }
         return;
       }
+      setErrorReasonCategory(resolveOrderReasonCategory(getErrorCode(error)));
       setInlineError(getErrorMessage(error));
     } finally {
       if (operationVersion === operationVersionRef.current) {
@@ -747,6 +886,7 @@ export const useOrderRecoveryController = ({
         markSessionExpired();
         return;
       }
+      setErrorReasonCategory(resolveOrderReasonCategory(getErrorCode(error)));
       setInlineError(getErrorMessage(error));
     } finally {
       if (operationVersion === operationVersionRef.current) {
@@ -759,6 +899,7 @@ export const useOrderRecoveryController = ({
     step,
     feedbackMessage,
     inlineError,
+    errorReasonCategoryLabel: getOrderReasonCategoryLabel(errorReasonCategory),
     isSubmitting,
     isVerifyingOtp,
     isExecuting,
@@ -766,6 +907,8 @@ export const useOrderRecoveryController = ({
     isRestoring,
     presentation,
     orderSession,
+    updatedPositionQuantity: updatedPosition?.quantity ?? null,
+    updatedPositionQuantityMessage: updatedPositionMessage,
     hasDetectedSessionExpiry,
     otpValue,
     authorizationReasonMessage: orderSession
