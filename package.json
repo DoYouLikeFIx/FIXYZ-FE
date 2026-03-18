@@ -13,6 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e:live": "playwright test",
+    "e2e:live:preflight": "node scripts/check-live-auth-contract.mjs",
+    "e2e:live:if-healthy": "pnpm e2e:live:preflight && pnpm e2e:live",
     "e2e:live:headed": "playwright test --headed",
     "e2e:live:install": "playwright install chromium",
     "test:collab-webhook": "node --test tests/collab-webhook/*.test.js",
