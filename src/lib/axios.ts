@@ -354,6 +354,17 @@ const shouldAttachCsrf = (config: ApiRequestConfig) => {
 
 const isCsrfEndpoint = (url?: string) => url?.includes('/api/v1/auth/csrf') ?? false;
 
+const isAuthChallengeEndpoint = (url?: string) => {
+  if (!url) {
+    return false;
+  }
+
+  return (
+    url.includes('/api/v1/auth/login')
+    || url.includes('/api/v1/auth/register')
+  );
+};
+
 const shouldRetryCsrf = (config?: ApiRequestConfig) => {
   if (!config || config._csrfRetried || config._skipCsrf) {
     return false;
@@ -466,12 +477,19 @@ api.interceptors.request.use(async (config) => {
     return request;
   }
 
-  const tokenPayload = await fetchCsrfToken();
-  csrfHeaderName = tokenPayload.headerName || DEFAULT_CSRF_HEADER;
-  csrfToken = tokenPayload.csrfToken;
-  setCsrfHeader(request, tokenPayload.csrfToken);
+  try {
+    const tokenPayload = await fetchCsrfToken();
+    csrfHeaderName = tokenPayload.headerName || DEFAULT_CSRF_HEADER;
+    csrfToken = tokenPayload.csrfToken;
+    setCsrfHeader(request, tokenPayload.csrfToken);
+    return request;
+  } catch (error) {
+    if (isAuthChallengeEndpoint(request.url)) {
+      return request;
+    }
 
-  return request;
+    throw error;
+  }
 });
 
 api.interceptors.response.use(
