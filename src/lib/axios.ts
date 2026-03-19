@@ -335,6 +335,9 @@ const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
 const resolvedBaseUrl = configuredBaseUrl && configuredBaseUrl.length > 0
   ? configuredBaseUrl
   : DEFAULT_BASE_URL;
+const resolvedBaseUrlForParsing = /^https?:\/\//.test(resolvedBaseUrl)
+  ? resolvedBaseUrl
+  : 'http://localhost';
 
 type ApiRequestConfig = InternalAxiosRequestConfig;
 
@@ -352,7 +355,45 @@ const shouldAttachCsrf = (config: ApiRequestConfig) => {
   return method !== undefined && !['get', 'head', 'options'].includes(method);
 };
 
-const isCsrfEndpoint = (url?: string) => url?.includes('/api/v1/auth/csrf') ?? false;
+const isCsrfEndpoint = (url: string) => isAnyAuthEndpoint(url, ['/api/v1/auth/csrf']);
+
+const resolvePathname = (url: string) => {
+  return new URL(url, resolvedBaseUrlForParsing).pathname.replace(/\/+$/u, '');
+};
+
+const hasPathBoundary = (value: string, target: string) => {
+  const index = value.indexOf(target);
+
+  if (index === -1) {
+    return false;
+  }
+
+  const boundaryIndex = index + target.length;
+  const boundaryChar = value[boundaryIndex];
+
+  return boundaryChar === undefined
+    || boundaryChar === '/'
+    || boundaryChar === '?'
+    || boundaryChar === '#';
+};
+
+const isExactAuthEndpoint = (url: string, targetPath: string) => {
+  const normalizedTarget = targetPath.replace(/\/+$/u, '');
+
+  try {
+    return resolvePathname(url) === normalizedTarget;
+  } catch {
+    return hasPathBoundary(url, targetPath);
+  }
+};
+
+const isAuthEndpoint = (url: string, targetPath: string) => (
+  isExactAuthEndpoint(url ?? '', targetPath)
+);
+
+const isAnyAuthEndpoint = (url: string, targetPaths: string[]) => (
+  targetPaths.some((path) => isAuthEndpoint(url, path))
+);
 
 const isAuthChallengeEndpoint = (url?: string) => {
   if (!url) {
@@ -360,8 +401,8 @@ const isAuthChallengeEndpoint = (url?: string) => {
   }
 
   return (
-    url.includes('/api/v1/auth/login')
-    || url.includes('/api/v1/auth/register')
+    isAuthEndpoint(url, '/api/v1/auth/login')
+    || isAuthEndpoint(url, '/api/v1/auth/register')
   );
 };
 
@@ -370,7 +411,7 @@ const shouldRetryCsrf = (config?: ApiRequestConfig) => {
     return false;
   }
 
-  return shouldAttachCsrf(config) && !isCsrfEndpoint(config.url);
+  return shouldAttachCsrf(config) && !isCsrfEndpoint(config.url ?? '');
 };
 
 const csrfClient = axios.create({
@@ -456,12 +497,12 @@ const shouldHandleAuthFailure = (
 
   const url = config?.url ?? '';
 
-  return ![
+  return !isAnyAuthEndpoint(url, [
     '/api/v1/auth/login',
     '/api/v1/auth/register',
     '/api/v1/auth/csrf',
     '/api/v1/auth/session',
-  ].some((segment) => url.includes(segment));
+  ]);
 };
 
 export const api = axios.create({
