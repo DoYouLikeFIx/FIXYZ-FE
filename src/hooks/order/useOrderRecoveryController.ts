@@ -871,7 +871,8 @@ export const useOrderRecoveryController = ({
         return true;
       }
       applySessionState(session, {
-        preservePresentation: options?.preservePresentation,
+        preservePresentation:
+          options?.preservePresentation && !isFinalResultStatus(session.status),
       });
       return true;
     } catch (error) {
