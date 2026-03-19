@@ -34,6 +34,12 @@ LIVE_REGISTER_PASSWORD='LiveTest1!' \
 pnpm run e2e:live
 ```
 
+Run the suite only when the live backend is already healthy:
+
+```bash
+pnpm run e2e:live:if-healthy
+```
+
 Optional variables:
 
 - `LIVE_REGISTER_PASSWORD`: password used for the fresh-account register/login flow. Default: `LiveTest1!`
@@ -47,10 +53,12 @@ The suite covers:
 - fresh account registration against the live backend
 - successful login with an existing live account
 - canonical invalid-credentials error handling from the live backend
+- live auth responses exposing `X-Correlation-Id` and `traceparent` in browser-observed response headers
 - forgot-password acceptance guidance against the live backend
 - challenge-bootstrap contract rendering against the live backend
 - invalid reset-token guidance against the live backend
 - optional reset-success handoff when `LIVE_RESET_TOKEN` is provided
+- live order-session create/execute responses exposing `X-Correlation-Id` and `traceparent` in browser-observed response headers
 
 ## Email-first auth contract
 
