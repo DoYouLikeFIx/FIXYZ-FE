@@ -296,6 +296,7 @@ describe('AdminConsolePage', () => {
   });
 
   it('disables page size controls while audit logs are loading', async () => {
+    const user = userEvent.setup();
     let resolveRequest!: (value: AdminAuditLogsPage) => void;
     vi.mocked(fetchAdminAuditLogs).mockImplementation(
       () =>
@@ -312,7 +313,7 @@ describe('AdminConsolePage', () => {
       expect(sizeButton).toBeDisabled();
     });
 
-    await userEvent.click(sizeButton);
+    await user.click(sizeButton);
 
     expect(vi.mocked(fetchAdminAuditLogs)).toHaveBeenCalledTimes(1);
 
