@@ -27,6 +27,19 @@ const goToRegister = async (page: Page) => {
   await expect(page.getByTestId('register-email')).toBeVisible();
 };
 
+const firstHeaderValue = (value: string | undefined) =>
+  value
+    ?.split(',')
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0);
+
+const expectCorrelationHeaders = (headers: Record<string, string>) => {
+  expect(firstHeaderValue(headers['x-correlation-id'])).toBeTruthy();
+  expect(firstHeaderValue(headers.traceparent)).toMatch(
+    /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/i,
+  );
+};
+
 test.describe.serial('live backend auth', () => {
   const identity = createLiveIdentity();
   const liveResetToken = process.env.LIVE_RESET_TOKEN?.trim();
@@ -61,11 +74,20 @@ test.describe.serial('live backend auth', () => {
   test('shows the canonical invalid credentials message for the registered live account', async ({
     page,
   }) => {
+    const invalidLoginResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v1/auth/login')
+        && response.request().method() === 'POST',
+    );
+
     await goToLogin(page);
     await page.getByTestId('login-email').fill(identity.email);
     await page.getByTestId('login-password').fill(process.env.LIVE_INVALID_PASSWORD ?? DEFAULT_INVALID_PASSWORD);
     await page.getByTestId('login-submit').click();
 
+    const invalidLoginResponse = await invalidLoginResponsePromise;
+    expect(invalidLoginResponse.status()).toBeGreaterThanOrEqual(400);
+    expectCorrelationHeaders(await invalidLoginResponse.allHeaders());
     await expect(page.getByTestId('error-message')).toHaveText(INVALID_CREDENTIALS_MESSAGE);
     await expect(page.getByTestId('login-submit')).toBeVisible();
   });
