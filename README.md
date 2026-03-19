@@ -47,6 +47,7 @@ Optional variables:
 - `LIVE_RESET_TOKEN`: optional password-reset token for the live reset-success handoff flow.
 - `LIVE_RESET_PASSWORD`: new password used with `LIVE_RESET_TOKEN`. Default: `FreshLive1!`
 - `PLAYWRIGHT_FE_PORT`: local Vite port for Playwright. Default: `4173`
+- `VITE_API_TIMEOUT_MS`: optional FE axios timeout override in milliseconds. Default: `10000`
 
 The suite covers:
 
@@ -82,4 +83,5 @@ When FE is pointed at `MOB/scripts/mock-auth-server.mjs` through `VITE_DEV_PROXY
 Copy `.env.example` to `.env.local` when needed.
 
 - `VITE_API_BASE_URL`: absolute API URL (typically for deployed environments)
+- `VITE_API_TIMEOUT_MS`: optional FE axios timeout override in milliseconds for slow live demos or diagnostics
 - `VITE_DEV_PROXY_TARGET`: backend target for local Vite proxy (`/api`, `/actuator`)
