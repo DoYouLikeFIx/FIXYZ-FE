@@ -2,15 +2,8 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom';
 
 import { RouteStatusShell } from '@/components/layout/RouteStatusShell';
 import { buildLoginRedirect, buildRedirectPath, DEFAULT_PROTECTED_ROUTE } from '@/router/navigation';
+import { isAdminRole } from '@/lib/admin-role';
 import { useAuthStore } from '@/store/useAuthStore';
-
-const isAdminRole = (role: string | undefined) => {
-  if (!role) {
-    return false;
-  }
-
-  return role === 'ROLE_ADMIN' || /ROLE_.*ADMIN/.test(role);
-};
 
 export function AdminRoute() {
   const status = useAuthStore((state) => state.status);
