@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+import { AxiosError } from 'axios';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -12,6 +13,7 @@ import {
   getOrderSession,
   verifyOrderSessionOtp,
 } from '@/api/orderApi';
+import { normalizeApiError } from '@/lib/axios';
 import { OrderPage } from '@/pages/OrderPage';
 import { resetAuthStore, useAuthStore } from '@/store/useAuthStore';
 import type { Member } from '@/types/auth';
@@ -55,6 +57,35 @@ const createDeferred = <T,>() => {
     resolve: resolvePromise,
   };
 };
+
+const createNormalizedOrderApiError = (options: {
+  code: string;
+  message: string;
+  status: number;
+  operatorCode?: string;
+  retryAfterSeconds?: number;
+  correlationIdHeader?: string;
+}) =>
+  normalizeApiError(
+    new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
+      config: {} as never,
+      data: {
+        code: options.code,
+        message: options.message,
+        path: '/api/v1/orders/sessions/sess-001/execute',
+        operatorCode: options.operatorCode,
+        retryAfterSeconds: options.retryAfterSeconds,
+        timestamp: '2026-03-19T00:00:00Z',
+      },
+      headers: options.correlationIdHeader
+        ? {
+            'x-correlation-id': options.correlationIdHeader,
+          }
+        : {},
+      status: options.status,
+      statusText: 'Request failed',
+    }),
+  );
 
 const testFileUrl = import.meta.url.startsWith('file:')
   ? import.meta.url
@@ -175,11 +206,11 @@ describe('OrderPage', () => {
       expiresAt: futureIso(),
     });
     vi.mocked(executeOrderSession).mockRejectedValue(
-      Object.assign(new Error('pending confirmation'), {
-        name: 'ApiClientError',
+      createNormalizedOrderApiError({
         code: 'FEP-002',
         message: '주문이 아직 확정되지 않았습니다. 체결 완료로 간주하지 말고 알림이나 주문 상태를 확인해 주세요.',
-        traceId: 'trace-fep-002',
+        status: 202,
+        correlationIdHeader: 'trace-fep-002',
       }),
     );
     vi.mocked(getOrderSession).mockResolvedValue({
@@ -234,12 +265,13 @@ describe('OrderPage', () => {
       expiresAt: futureIso(),
     });
     vi.mocked(executeOrderSession).mockRejectedValue(
-      Object.assign(new Error('거래소 연결이 일시적으로 불안정합니다. 주문이 접수되지 않았을 수 있습니다.'), {
-        name: 'ApiClientError',
+      createNormalizedOrderApiError({
         code: 'FEP-001',
+        message: '거래소 연결이 일시적으로 불안정합니다. 주문이 접수되지 않았을 수 있습니다.',
         operatorCode: 'CIRCUIT_OPEN',
         retryAfterSeconds: 10,
-        traceId: 'trace-fep-001',
+        status: 503,
+        correlationIdHeader: 'trace-fep-001',
       }),
     );
     vi.mocked(getOrderSession).mockResolvedValue({
@@ -303,11 +335,12 @@ describe('OrderPage', () => {
       expiresAt: futureIso(),
     });
     vi.mocked(executeOrderSession).mockRejectedValue(
-      Object.assign(new Error('주문이 아직 확정되지 않았습니다. 체결 완료로 간주하지 말고 알림이나 주문 상태를 확인해 주세요.'), {
-        name: 'ApiClientError',
+      createNormalizedOrderApiError({
         code: 'FEP-002',
+        message: '주문이 아직 확정되지 않았습니다. 체결 완료로 간주하지 말고 알림이나 주문 상태를 확인해 주세요.',
         operatorCode: 'TIMEOUT',
-        traceId: 'trace-fep-002-final',
+        status: 202,
+        correlationIdHeader: 'trace-fep-002-final',
       }),
     );
     vi.mocked(getOrderSession).mockResolvedValue({
