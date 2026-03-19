@@ -47,9 +47,20 @@ const assertPaginationIsSafe = (query: AdminAuditLogQuery) => {
     }
   }
 
-  const isoLike = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}/;
+  const isValidIsoDateTime = (value: string): boolean => {
+    const isoPattern =
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/;
 
-  if (query.from !== undefined && !isoLike.test(query.from)) {
+    if (!isoPattern.test(value)) {
+      return false;
+    }
+
+    const asTime = Date.parse(value);
+
+    return Number.isFinite(asTime);
+  };
+
+  if (query.from !== undefined && !isValidIsoDateTime(query.from)) {
     throw createNormalizedApiError(
       '조회 조건이 올바르지 않습니다.',
       {
@@ -60,7 +71,7 @@ const assertPaginationIsSafe = (query: AdminAuditLogQuery) => {
     );
   }
 
-  if (query.to !== undefined && !isoLike.test(query.to)) {
+  if (query.to !== undefined && !isValidIsoDateTime(query.to)) {
     throw createNormalizedApiError(
       '조회 조건이 올바르지 않습니다.',
       {

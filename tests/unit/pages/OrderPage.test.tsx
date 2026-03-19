@@ -218,6 +218,129 @@ describe('OrderPage', () => {
     );
   });
 
+  it('shows circuit-breaker retry guidance and clears it when returning to a fresh draft', async () => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-fep-001',
+      clOrdId: 'cl-fep-001',
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 71000,
+      expiresAt: futureIso(),
+    });
+    vi.mocked(executeOrderSession).mockRejectedValue(
+      Object.assign(new Error('거래소 연결이 일시적으로 불안정합니다. 주문이 접수되지 않았을 수 있습니다.'), {
+        name: 'ApiClientError',
+        code: 'FEP-001',
+        operatorCode: 'CIRCUIT_OPEN',
+        retryAfterSeconds: 10,
+        traceId: 'trace-fep-001',
+      }),
+    );
+    vi.mocked(getOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-fep-001',
+      clOrdId: 'cl-fep-001',
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 71000,
+      expiresAt: futureIso(),
+    });
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+    await user.click(await screen.findByTestId('order-session-execute'));
+
+    await waitFor(() => {
+      expect(getOrderSession).toHaveBeenCalledWith('sess-fep-001');
+    });
+    expect(await screen.findByTestId('external-order-error-title')).toHaveTextContent(
+      '주문 서비스를 잠시 사용할 수 없습니다',
+    );
+    expect(screen.getByTestId('external-order-error-message')).toHaveTextContent(
+      '거래소 연결이 일시적으로 불안정합니다. 주문이 접수되지 않았을 수 있습니다.',
+    );
+    expect(screen.getByTestId('external-order-error-next-step')).toHaveTextContent(
+      '약 10초 후 다시 주문해 주세요.',
+    );
+    expect(screen.getByTestId('external-order-error-support-reference')).toHaveTextContent(
+      '문의 코드: trace-fep-001',
+    );
+
+    await user.click(screen.getByTestId('order-session-reset'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('external-order-error-panel')).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('order-session-create')).toBeInTheDocument();
+  });
+
+  it('clears execute-time external timeout guidance when the refreshed session reaches a final result', async () => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-timeout-final',
+      clOrdId: 'cl-timeout-final',
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 71000,
+      expiresAt: futureIso(),
+    });
+    vi.mocked(executeOrderSession).mockRejectedValue(
+      Object.assign(new Error('주문이 아직 확정되지 않았습니다. 체결 완료로 간주하지 말고 알림이나 주문 상태를 확인해 주세요.'), {
+        name: 'ApiClientError',
+        code: 'FEP-002',
+        operatorCode: 'TIMEOUT',
+        traceId: 'trace-fep-002-final',
+      }),
+    );
+    vi.mocked(getOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-timeout-final',
+      clOrdId: 'cl-timeout-final',
+      status: 'COMPLETED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 2,
+      price: 71000,
+      executionResult: 'FILLED',
+      expiresAt: futureIso(),
+    });
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('order-session-create'));
+    await user.click(await screen.findByTestId('order-session-execute'));
+
+    await waitFor(() => {
+      expect(getOrderSession).toHaveBeenCalledWith('sess-timeout-final');
+    });
+    expect(await screen.findByTestId('order-session-result-title')).toHaveTextContent(
+      '주문이 체결되었습니다',
+    );
+    expect(screen.queryByTestId('external-order-error-panel')).not.toBeInTheDocument();
+  });
+
   it('shows inline feedback for create-stage application errors', async () => {
     vi.mocked(createOrderSession).mockRejectedValue(
       Object.assign(new Error('입력 값을 다시 확인해 주세요.'), {

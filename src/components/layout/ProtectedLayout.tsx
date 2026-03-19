@@ -1,16 +1,9 @@
 import { Link, Outlet } from 'react-router-dom';
 
 import { SiteFooter } from '@/components/layout/SiteFooter';
+import { isAdminRole } from '@/lib/admin-role';
 import { useProtectedSession } from '@/hooks/auth/useProtectedSession';
 import { ADMIN_ROUTE } from '@/router/navigation';
-
-const isAdminRole = (role: string | undefined) => {
-  if (!role) {
-    return false;
-  }
-
-  return role === 'ROLE_ADMIN' || /ROLE_.*ADMIN/.test(role);
-};
 
 export function ProtectedLayout() {
   const {

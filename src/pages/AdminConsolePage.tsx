@@ -157,10 +157,6 @@ export function AdminConsolePage() {
         return;
       }
 
-      if (latestAuditLogRequestIdRef.current !== requestId) {
-        return;
-      }
-
       setAuditError({
         message: getAuditErrorMessage(error),
       });

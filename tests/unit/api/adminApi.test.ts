@@ -162,4 +162,16 @@ describe('adminApi', () => {
 
     expect(api.get).not.toHaveBeenCalled();
   });
+
+  it('rejects syntactically invalid date-time values on client side', async () => {
+    await expect(
+      fetchAdminAuditLogs({
+        from: '2026-99-99T99:99',
+      }),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION-001',
+    });
+
+    expect(api.get).not.toHaveBeenCalled();
+  });
 });

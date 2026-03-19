@@ -22,6 +22,14 @@ const regularMemberFixture: Member = {
   totpEnrolled: true,
 };
 
+const adminLikeMemberFixture: Member = {
+  memberUuid: 'member-admin-like-001',
+  email: 'admin-like@example.com',
+  name: 'Adminlike User',
+  role: 'ROLE_FOOADMIN',
+  totpEnrolled: true,
+};
+
 const LoginRouteProbe = () => {
   const { search } = useLocation();
 
@@ -68,6 +76,17 @@ describe('AdminRoute', () => {
     expect(await screen.findByTestId('route-default')).toBeInTheDocument();
   });
 
+  it('blocks admin-like role strings when they are not exact ROLE_ADMIN', async () => {
+    useAuthStore.setState({
+      member: adminLikeMemberFixture,
+      status: 'authenticated',
+    });
+
+    renderAdminLayout();
+
+    expect(await screen.findByTestId('route-default')).toBeInTheDocument();
+  });
+
   it('redirects unauthenticated users to login with return path', async () => {
     useAuthStore.setState({
       member: null,
@@ -90,4 +109,3 @@ describe('AdminRoute', () => {
     expect(screen.getByText('관리자 권한을 확인하고 있습니다.')).toBeInTheDocument();
   });
 });
-
