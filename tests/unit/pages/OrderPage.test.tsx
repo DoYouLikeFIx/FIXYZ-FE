@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { AxiosError } from 'axios';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -13,10 +12,11 @@ import {
   getOrderSession,
   verifyOrderSessionOtp,
 } from '@/api/orderApi';
-import { normalizeApiError } from '@/lib/axios';
 import { OrderPage } from '@/pages/OrderPage';
 import { resetAuthStore, useAuthStore } from '@/store/useAuthStore';
 import type { Member } from '@/types/auth';
+
+import { createNormalizedApiErrorFromResponse } from '../../fixtures/createNormalizedApiErrorFromResponse';
 
 vi.mock('@/api/orderApi', () => ({
   createOrderSession: vi.fn(),
@@ -66,26 +66,15 @@ const createNormalizedOrderApiError = (options: {
   retryAfterSeconds?: number;
   correlationIdHeader?: string;
 }) =>
-  normalizeApiError(
-    new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
-      config: {} as never,
-      data: {
-        code: options.code,
-        message: options.message,
-        path: '/api/v1/orders/sessions/sess-001/execute',
-        operatorCode: options.operatorCode,
-        retryAfterSeconds: options.retryAfterSeconds,
-        timestamp: '2026-03-19T00:00:00Z',
-      },
-      headers: options.correlationIdHeader
-        ? {
-            'x-correlation-id': options.correlationIdHeader,
-          }
-        : {},
-      status: options.status,
-      statusText: 'Request failed',
-    }),
-  );
+  createNormalizedApiErrorFromResponse({
+    code: options.code,
+    message: options.message,
+    status: options.status,
+    operatorCode: options.operatorCode,
+    retryAfterSeconds: options.retryAfterSeconds,
+    correlationIdHeader: options.correlationIdHeader,
+    path: '/api/v1/orders/sessions/sess-001/execute',
+  });
 
 const testFileUrl = import.meta.url.startsWith('file:')
   ? import.meta.url

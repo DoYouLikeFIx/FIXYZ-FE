@@ -7,6 +7,8 @@ import {
   successEnvelope,
 } from '../fixtures/mockAxiosModule';
 
+const originalEventSource = globalThis.EventSource;
+
 class MockEventSource {
   close() {}
 
@@ -18,6 +20,19 @@ class MockEventSource {
 describe.sequential('App auth transport coverage', () => {
   beforeAll(() => {
     vi.stubGlobal('EventSource', MockEventSource);
+  });
+
+  afterAll(() => {
+    if (originalEventSource) {
+      globalThis.EventSource = originalEventSource;
+      return;
+    }
+
+    const mutableGlobal = globalThis as typeof globalThis & {
+      EventSource?: typeof EventSource;
+    };
+
+    Reflect.deleteProperty(mutableGlobal, 'EventSource');
   });
 
   afterEach(() => {
