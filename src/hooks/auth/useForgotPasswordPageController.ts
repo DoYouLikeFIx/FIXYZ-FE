@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useController, useForm } from 'react-hook-form';
 
 import {
+  sendPasswordRecoveryChallengeFailClosedTelemetry,
   requestPasswordRecoveryChallenge,
   requestPasswordResetEmail,
 } from '@/api/authApi';
@@ -95,8 +96,13 @@ export const useForgotPasswordPageController = () => {
     resetChallengeField();
   };
 
-  const failClosedChallenge = (reason: Parameters<typeof recoveryChallengeFailClosedMessage>[0]) => {
-    reportRecoveryChallengeFailClosed(reason);
+  const failClosedChallenge = (
+    reason: Parameters<typeof recoveryChallengeFailClosedMessage>[0],
+    context?: Parameters<typeof reportRecoveryChallengeFailClosed>[1],
+  ) => {
+    reportRecoveryChallengeFailClosed(reason, context, {
+      transport: sendPasswordRecoveryChallengeFailClosedTelemetry,
+    });
     clearActiveChallenge();
     setErrorMessage(recoveryChallengeFailClosedMessage(reason));
   };
@@ -173,7 +179,9 @@ export const useForgotPasswordPageController = () => {
         return;
       }
 
-      failClosedChallenge('validity-untrusted');
+      failClosedChallenge('validity-untrusted', {
+        challengeIssuedAtEpochMs: session.challengeIssuedAtEpochMs,
+      });
     }
   };
 
@@ -201,7 +209,9 @@ export const useForgotPasswordPageController = () => {
       };
     }
 
-    failClosedChallenge(parsed.reason);
+    failClosedChallenge(parsed.reason, {
+      challengeIssuedAtEpochMs: parsed.challengeIssuedAtEpochMs,
+    });
     return null;
   };
 
@@ -218,12 +228,16 @@ export const useForgotPasswordPageController = () => {
       const remainingMs = currentChallenge.challengeExpiresAtEpochMs - now;
 
       if (skewMs > CLOCK_SKEW_THRESHOLD_MS) {
-        failClosedChallenge('clock-skew');
+        failClosedChallenge('clock-skew', {
+          challengeIssuedAtEpochMs: currentChallenge.challengeIssuedAtEpochMs,
+        });
         return;
       }
 
       if (remainingMs <= EXPIRY_SAFETY_MARGIN_MS) {
-        failClosedChallenge('validity-untrusted');
+        failClosedChallenge('validity-untrusted', {
+          challengeIssuedAtEpochMs: currentChallenge.challengeIssuedAtEpochMs,
+        });
       }
     };
 
@@ -296,7 +310,9 @@ export const useForgotPasswordPageController = () => {
       const parsed = parseRecoveryChallengeBootstrap(response, receivedAtEpochMs);
 
       if (parsed.kind === 'fail-closed') {
-        failClosedChallenge(parsed.reason);
+        failClosedChallenge(parsed.reason, {
+          challengeIssuedAtEpochMs: parsed.challengeIssuedAtEpochMs,
+        });
         return;
       }
 
@@ -311,7 +327,9 @@ export const useForgotPasswordPageController = () => {
       }
 
       if (selection.kind === 'fail-closed') {
-        failClosedChallenge(selection.reason);
+        failClosedChallenge(selection.reason, {
+          challengeIssuedAtEpochMs: selection.challengeIssuedAtEpochMs,
+        });
         return;
       }
 
