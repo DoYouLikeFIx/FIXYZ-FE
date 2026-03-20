@@ -161,6 +161,76 @@ describe('password recovery routes', () => {
     });
   });
 
+  it('parses the v2 proof-of-work challenge, auto-solves it, and submits the solved nonce with the original email string', async () => {
+    const user = userEvent.setup();
+    const issuedAtEpochMs = Date.now();
+    const expiresAtEpochMs = issuedAtEpochMs + 300_000;
+    mockRequestPasswordRecoveryChallenge.mockResolvedValue({
+      challengeToken: 'challenge-token-v2',
+      challengeType: 'proof-of-work',
+      challengeTtlSeconds: 300,
+      challengeContractVersion: 2,
+      challengeId: 'challenge-id-v2',
+      challengeIssuedAtEpochMs: issuedAtEpochMs,
+      challengeExpiresAtEpochMs: expiresAtEpochMs,
+      challengePayload: {
+        kind: 'proof-of-work',
+        proofOfWork: {
+          algorithm: 'SHA-256',
+          seed: 'seed-value',
+          difficultyBits: 1,
+          answerFormat: 'nonce-decimal',
+          inputTemplate: '{seed}:{nonce}',
+          inputEncoding: 'utf-8',
+          successCondition: {
+            type: 'leading-zero-bits',
+            minimum: 1,
+          },
+        },
+      },
+    });
+    mockRequestPasswordResetEmail.mockResolvedValue({
+      accepted: true,
+      message: 'If the account is eligible, a reset email will be sent.',
+      recovery: {
+        challengeEndpoint: '/api/v1/auth/password/forgot/challenge',
+        challengeMayBeRequired: true,
+      },
+    });
+
+    window.history.pushState({}, '', '/forgot-password');
+    render(<App />);
+
+    await user.type(await screen.findByTestId('forgot-password-email'), 'Demo+Tag@Fix.com');
+    await user.click(screen.getByTestId('forgot-password-submit'));
+    await user.click(await screen.findByTestId('forgot-password-bootstrap-challenge'));
+
+    expect(await screen.findByTestId('forgot-password-challenge-state')).toHaveTextContent(
+      '자동 보안 확인',
+    );
+    expect(screen.getByTestId('forgot-password-challenge-state')).not.toHaveTextContent(
+      'challenge-id-v2',
+    );
+    expect(screen.queryByTestId('forgot-password-challenge-answer')).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('forgot-password-challenge-state')).toHaveTextContent(
+        '계산 완료',
+      );
+    });
+
+    await user.click(screen.getByTestId('forgot-password-submit'));
+
+    expect(mockRequestPasswordResetEmail).toHaveBeenCalledTimes(2);
+    expect(mockRequestPasswordResetEmail.mock.calls[1]?.[0]).toMatchObject({
+      email: 'Demo+Tag@Fix.com',
+      challengeToken: 'challenge-token-v2',
+    });
+    expect(
+      String(mockRequestPasswordResetEmail.mock.calls[1]?.[0]?.challengeAnswer ?? ''),
+    ).toMatch(/^\d+$/);
+  });
+
   it('clears touched challenge validation before bootstrapping a fresh challenge after the email changes', async () => {
     const user = userEvent.setup();
     mockRequestPasswordRecoveryChallenge
@@ -387,7 +457,7 @@ describe('password recovery routes', () => {
     );
     expect(screen.queryByTestId('forgot-password-accepted')).not.toBeInTheDocument();
     expect(screen.queryByTestId('forgot-password-challenge-state')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('forgot-password-bootstrap-challenge')).not.toBeInTheDocument();
+    expect(screen.getByTestId('forgot-password-bootstrap-challenge')).toBeInTheDocument();
   });
 
   it('clears stale challenge state when a challenged forgot submit is rate-limited', async () => {
@@ -430,7 +500,7 @@ describe('password recovery routes', () => {
     );
     expect(screen.queryByTestId('forgot-password-accepted')).not.toBeInTheDocument();
     expect(screen.queryByTestId('forgot-password-challenge-state')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('forgot-password-bootstrap-challenge')).not.toBeInTheDocument();
+    expect(screen.getByTestId('forgot-password-bootstrap-challenge')).toBeInTheDocument();
   });
 
   it('routes reset AUTH-016 outcomes back to login with re-auth guidance and preserves redirect intent', async () => {

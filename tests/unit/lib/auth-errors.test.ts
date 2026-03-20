@@ -142,6 +142,28 @@ describe('auth error messages', () => {
     ).toBe('비밀번호 재설정 요청이 너무 많습니다. 45초 후 다시 시도해 주세요.');
   });
 
+  it('includes Retry-After guidance for recovery challenge bootstrap and verify unavailability', () => {
+    expect(
+      getAuthErrorMessage(
+        createApiError({
+          code: 'AUTH-023',
+          retryAfterSeconds: 12,
+          status: 503,
+        }),
+      ),
+    ).toBe('지금은 보안 확인을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요. 12초 후 다시 시도해 주세요.');
+
+    expect(
+      getAuthErrorMessage(
+        createApiError({
+          code: 'AUTH-025',
+          retryAfterSeconds: 18,
+          status: 503,
+        }),
+      ),
+    ).toBe('보안 확인을 검증하는 중 문제가 발생했습니다. 현재 보안 확인을 지우고 다시 시작해 주세요. 18초 후 다시 시도해 주세요.');
+  });
+
   it('maps MFA recovery proof failures to deterministic retry guidance', () => {
     expect(
       resolveMfaErrorPresentation(createApiError({ code: 'AUTH-019', status: 401 })),

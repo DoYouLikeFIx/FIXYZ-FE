@@ -308,6 +308,64 @@ describe('auth api', () => {
     );
   });
 
+  it('returns the v2 proof-of-work recovery challenge contract as-is', async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        challengeToken: 'challenge-token-v2',
+        challengeType: 'proof-of-work',
+        challengeTtlSeconds: 300,
+        challengeContractVersion: 2,
+        challengeId: 'challenge-id-v2',
+        challengeIssuedAtEpochMs: 1710000000000,
+        challengeExpiresAtEpochMs: 1710000300000,
+        challengePayload: {
+          kind: 'proof-of-work',
+          proofOfWork: {
+            algorithm: 'SHA-256',
+            seed: 'seed-value',
+            difficultyBits: 1,
+            answerFormat: 'nonce-decimal',
+            inputTemplate: '{seed}:{nonce}',
+            inputEncoding: 'utf-8',
+            successCondition: {
+              type: 'leading-zero-bits',
+              minimum: 1,
+            },
+          },
+        },
+      },
+    });
+
+    await expect(
+      requestPasswordRecoveryChallenge({
+        email: 'demo@fix.com',
+      }),
+    ).resolves.toEqual({
+      challengeToken: 'challenge-token-v2',
+      challengeType: 'proof-of-work',
+      challengeTtlSeconds: 300,
+      challengeContractVersion: 2,
+      challengeId: 'challenge-id-v2',
+      challengeIssuedAtEpochMs: 1710000000000,
+      challengeExpiresAtEpochMs: 1710000300000,
+      challengePayload: {
+        kind: 'proof-of-work',
+        proofOfWork: {
+          algorithm: 'SHA-256',
+          seed: 'seed-value',
+          difficultyBits: 1,
+          answerFormat: 'nonce-decimal',
+          inputTemplate: '{seed}:{nonce}',
+          inputEncoding: 'utf-8',
+          successCondition: {
+            type: 'leading-zero-bits',
+            minimum: 1,
+          },
+        },
+      },
+    });
+  });
+
   it('submits the password reset payload as JSON and returns empty recovery continuation by default', async () => {
     mockPost.mockResolvedValue({
       status: 204,
