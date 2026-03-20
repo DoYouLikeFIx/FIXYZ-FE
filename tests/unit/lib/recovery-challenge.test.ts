@@ -125,6 +125,7 @@ describe('recovery challenge parsing', () => {
       kind: 'fail-closed',
       reason: 'kind-mismatch',
       message: recoveryChallengeFailClosedMessage('kind-mismatch'),
+      challengeIssuedAtEpochMs: 1710000000000,
     });
   });
 
@@ -158,6 +159,7 @@ describe('recovery challenge parsing', () => {
       kind: 'fail-closed',
       reason: 'unknown-version',
       message: recoveryChallengeFailClosedMessage('unknown-version'),
+      challengeIssuedAtEpochMs: 1710000000000,
     });
   });
 
@@ -194,6 +196,7 @@ describe('recovery challenge parsing', () => {
       kind: 'fail-closed',
       reason: 'clock-skew',
       message: recoveryChallengeFailClosedMessage('clock-skew'),
+      challengeIssuedAtEpochMs: 1710000000000,
     });
   });
 
@@ -230,6 +233,7 @@ describe('recovery challenge parsing', () => {
       kind: 'fail-closed',
       reason: 'validity-untrusted',
       message: recoveryChallengeFailClosedMessage('validity-untrusted'),
+      challengeIssuedAtEpochMs: 1710000000000,
     });
   });
 
@@ -296,6 +300,7 @@ describe('recovery challenge parsing', () => {
       kind: 'fail-closed',
       reason: 'validity-untrusted',
       message: recoveryChallengeFailClosedMessage('validity-untrusted'),
+      challengeIssuedAtEpochMs: 1710000000000,
     });
   });
 
