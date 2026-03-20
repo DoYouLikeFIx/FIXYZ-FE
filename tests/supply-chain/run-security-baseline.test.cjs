@@ -551,6 +551,27 @@ test("run-security-baseline fails branch-protection audit in GitHub Actions when
   assert.equal(branchProtection.status, "operator-action-required");
 });
 
+test("run-security-baseline logs an actionable branch-protection failure summary", () => {
+  const { result } = runBaseline({
+    alertsPayload: [],
+    exceptionRecords: [],
+    evidenceRunId: "missing-branch-proof-logs",
+    branchProtectionFixture: null,
+    extraEnv: {
+      GITHUB_ACTIONS: "true",
+    },
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /\[supply-chain-security\] repo=/);
+  assert.match(result.stdout, /status=blocked/);
+  assert.match(result.stdout, /::error title=Branch Protection Audit Failed::/);
+  assert.match(result.stderr, /Branch protection audit/);
+  assert.match(result.stderr, /BRANCH_PROTECTION_TOKEN is not configured/);
+  assert.match(result.stderr, /tokenConfigured=false/);
+  assert.match(result.stderr, /Failing workflow: branch protection audit is not bound/);
+});
+
 test("run-security-baseline keeps local manual runs audit-pending when branch proof is missing", () => {
   const { repoContext, result, outputRoot } = runBaseline({
     alertsPayload: [],
@@ -639,7 +660,9 @@ test("run-security-baseline surfaces upstream non-JSON failures clearly", async 
     const repoContext = getRepoContext();
 
     assert.equal(result.status, 1);
-    assert.equal(result.stderr, "");
+    assert.match(result.stdout, /\[supply-chain-security\] repo=/);
+    assert.match(result.stderr, /Blocking findings/);
+    assert.match(result.stderr, /scan-error/);
     assert.equal(fs.existsSync(path.join(outputRoot, "index.json")), true);
 
     const summary = readJson(path.join(outputRoot, `scan-summary-${repoContext.repoKey}.json`));

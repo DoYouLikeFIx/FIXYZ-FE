@@ -386,6 +386,164 @@ function emitGithubOutput(name, value) {
   fs.appendFileSync(outputPath, `${name}=${String(value)}\n`, "utf8");
 }
 
+function appendStepSummary(lines) {
+  const summaryPath = normalizeText(process.env.GITHUB_STEP_SUMMARY);
+  if (!summaryPath) {
+    return;
+  }
+
+  fs.appendFileSync(summaryPath, `${lines.join("\n")}\n`, "utf8");
+}
+
+function escapeGithubCommandData(value) {
+  return String(value)
+    .replace(/%/g, "%25")
+    .replace(/\r/g, "%0D")
+    .replace(/\n/g, "%0A");
+}
+
+function escapeGithubCommandProperty(value) {
+  return escapeGithubCommandData(value)
+    .replace(/:/g, "%3A")
+    .replace(/,/g, "%2C");
+}
+
+function emitGithubAnnotation(level, title, message, properties = {}) {
+  if (!normalizeText(process.env.GITHUB_ACTIONS)) {
+    return;
+  }
+
+  const normalizedLevel = normalizeText(level, "notice").toLowerCase();
+  const propertyEntries = [["title", normalizeText(title, "Supply Chain Security")]]
+    .concat(Object.entries(properties))
+    .filter(([, value]) => value !== null && value !== undefined && String(value).length > 0)
+    .map(([key, value]) => `${key}=${escapeGithubCommandProperty(value)}`);
+  const propertySegment = propertyEntries.length > 0 ? ` ${propertyEntries.join(",")}` : "";
+  const escapedMessage = escapeGithubCommandData(message);
+
+  console.log(`::${normalizedLevel}${propertySegment}::${escapedMessage}`);
+}
+
+function formatFindingForConsole(finding) {
+  const segments = [normalizeText(finding.type, "finding")];
+
+  if (normalizeText(finding.package)) {
+    segments.push(`package=${finding.package}`);
+  }
+
+  if (normalizeText(finding.manifestPath)) {
+    segments.push(`manifest=${finding.manifestPath}`);
+  }
+
+  if (normalizeText(finding.workflowFile)) {
+    segments.push(`workflow=${finding.workflowFile}`);
+  }
+
+  if (finding.cvss !== null && finding.cvss !== undefined && Number.isFinite(Number(finding.cvss))) {
+    segments.push(`cvss=${Number(finding.cvss).toFixed(1)}`);
+  }
+
+  segments.push(normalizeText(finding.reason, "No reason provided"));
+  return segments.join(" | ");
+}
+
+function logRunOutcome({
+  repoKey,
+  repoSlug,
+  branch,
+  finalStatus,
+  summary,
+  findings,
+  branchProtection,
+  expectedRequiredCheck,
+  outputDirectoryRelative,
+  failOnBranchProtectionAudit,
+  branchProtectionTokenConfigured,
+}) {
+  const summaryLine =
+    `[supply-chain-security] repo=${repoKey} status=${finalStatus} ` +
+    `blockingFindings=${summary.blockingFindings} branchProtectionStatus=${branchProtection.status} ` +
+    `evidence=${outputDirectoryRelative}`;
+
+  console.log(summaryLine);
+
+  const blockingFindings = findings.filter((finding) => finding.blocker);
+  if (blockingFindings.length > 0) {
+    console.error("[supply-chain-security] Blocking findings:");
+    blockingFindings.slice(0, 5).forEach((finding, index) => {
+      console.error(`  ${index + 1}. ${formatFindingForConsole(finding)}`);
+    });
+
+    if (blockingFindings.length > 5) {
+      console.error(`  ...and ${blockingFindings.length - 5} more blocking finding(s)`);
+    }
+
+    const firstBlockingFinding = formatFindingForConsole(blockingFindings[0]);
+    const blockingAnnotationMessage =
+      `Detected ${blockingFindings.length} blocking finding(s) for ${repoSlug}@${branch}. ` +
+      `First finding: ${firstBlockingFinding}. Evidence: ${outputDirectoryRelative}`;
+    emitGithubAnnotation("error", "Supply Chain Security Blocked", blockingAnnotationMessage);
+    console.error(
+      `[supply-chain-security] Failing workflow: detected ${blockingFindings.length} blocking finding(s)`,
+    );
+  }
+
+  if (branchProtection.status !== "bound") {
+    const branchProtectionReason =
+      normalizeText(branchProtection.reason) ||
+      normalizeText(branchProtection.actionsPermissions && branchProtection.actionsPermissions.reason) ||
+      `Expected required check '${expectedRequiredCheck}' is not bound on branch '${branch}'`;
+    const branchProtectionLine =
+      `[supply-chain-security] Branch protection audit for ${repoSlug}@${branch} ` +
+      `returned status=${branchProtection.status}; expectedCheck=${expectedRequiredCheck}; ` +
+      `tokenConfigured=${branchProtectionTokenConfigured}; reason=${branchProtectionReason}`;
+
+    if (failOnBranchProtectionAudit) {
+      console.error(branchProtectionLine);
+      emitGithubAnnotation(
+        "error",
+        "Branch Protection Audit Failed",
+        `Expected required check '${expectedRequiredCheck}' is not verifiably bound for ${repoSlug}@${branch}. ` +
+          `Status=${branchProtection.status}. Reason: ${branchProtectionReason}. Evidence: ${outputDirectoryRelative}`,
+      );
+      console.error(
+        `[supply-chain-security] Failing workflow: branch protection audit is not bound to '${expectedRequiredCheck}'`,
+      );
+    } else {
+      console.log(branchProtectionLine);
+      emitGithubAnnotation(
+        "warning",
+        "Branch Protection Audit Pending",
+        `Required check '${expectedRequiredCheck}' is not yet proven bound for ${repoSlug}@${branch}. ` +
+          `Status=${branchProtection.status}. Reason: ${branchProtectionReason}. Evidence: ${outputDirectoryRelative}`,
+      );
+    }
+  }
+
+  appendStepSummary([
+    "## Supply Chain Security Result",
+    `- Repository: \`${repoSlug}\``,
+    `- Branch: \`${branch}\``,
+    `- Final status: \`${finalStatus}\``,
+    `- Blocking findings: \`${summary.blockingFindings}\``,
+    `- Branch protection status: \`${branchProtection.status}\``,
+    `- Evidence directory: \`${outputDirectoryRelative}\``,
+    "",
+    "### Top Blocking Findings",
+    ...(blockingFindings.length > 0
+      ? blockingFindings
+          .slice(0, 5)
+          .map((finding) => `- ${formatFindingForConsole(finding)}`)
+      : ["- None"]),
+    "",
+    "### Branch Protection Audit",
+    `- Expected required check: \`${expectedRequiredCheck}\``,
+    `- Token configured: \`${branchProtectionTokenConfigured}\``,
+    `- Status: \`${branchProtection.status}\``,
+    `- Reason: ${normalizeText(branchProtection.reason) || normalizeText(branchProtection.actionsPermissions && branchProtection.actionsPermissions.reason) || "None"}`,
+  ]);
+}
+
 function createBlockingErrorFinding({
   type,
   repo,
@@ -628,6 +786,20 @@ async function main() {
   );
   emitGithubOutput("blocking_findings", summary.blockingFindings);
   emitGithubOutput("branch_protection_status", branchProtection.status);
+  emitGithubOutput("final_status", finalStatus);
+  logRunOutcome({
+    repoKey,
+    repoSlug,
+    branch: defaultBranch,
+    finalStatus,
+    summary,
+    findings,
+    branchProtection,
+    expectedRequiredCheck,
+    outputDirectoryRelative,
+    failOnBranchProtectionAudit,
+    branchProtectionTokenConfigured: Boolean(branchProtectionToken),
+  });
 
   if (summary.blockingFindings > 0) {
     process.exitCode = 1;
