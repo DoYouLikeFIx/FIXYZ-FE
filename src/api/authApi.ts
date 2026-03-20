@@ -120,8 +120,11 @@ export const sendPasswordRecoveryChallengeFailClosedTelemetry = async (
 
   await api.post(
     RECOVERY_CHALLENGE_FAIL_CLOSED_PATH,
-    body,
+    body.toString(),
     {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      },
       _skipAuthHandling: true,
     },
   );
