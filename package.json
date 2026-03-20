@@ -16,7 +16,9 @@
     "e2e:live:headed": "playwright test --headed",
     "e2e:live:install": "playwright install chromium",
     "test:collab-webhook": "node --test tests/collab-webhook/*.test.js",
+    "test:supply-chain": "node --test tests/supply-chain/*.test.cjs",
     "lint:collab-webhook": "node --check .github/scripts/collab-webhook/*.js",
+    "lint:supply-chain": "node --check .github/scripts/supply-chain/security-utils.cjs && node --check .github/scripts/supply-chain/run-security-baseline.cjs",
     "prepare": "husky"
   },
   "dependencies": {
