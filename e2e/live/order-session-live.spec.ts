@@ -142,6 +142,19 @@ const goToLogin = async (page: Page) => {
   await expect(page.getByTestId('login-email')).toBeVisible();
 };
 
+const firstHeaderValue = (value: string | undefined) =>
+  value
+    ?.split(',')
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0);
+
+const expectCorrelationHeaders = (headers: Record<string, string>) => {
+  expect(firstHeaderValue(headers['x-correlation-id'])).toBeTruthy();
+  expect(firstHeaderValue(headers.traceparent)).toMatch(
+    /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/i,
+  );
+};
+
 const registerEnrollAndLoginToOrders = async (page: Page) => {
   const identity = createLiveIdentity();
 
@@ -233,7 +246,16 @@ test.describe.serial('live backend order session flow', () => {
 
     await registerEnrollAndLoginToOrders(page);
 
+    const createOrderSessionResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v1/orders/sessions')
+        && !response.url().includes('/execute')
+        && response.request().method() === 'POST',
+    );
     await page.getByTestId('order-session-create').click();
+    const createOrderSessionResponse = await createOrderSessionResponsePromise;
+    expect(createOrderSessionResponse.ok()).toBe(true);
+    expectCorrelationHeaders(await createOrderSessionResponse.allHeaders());
 
     await expect(page.getByTestId('order-session-execute')).toBeVisible();
     await expect(page.getByTestId('order-session-summary')).toContainText('상태 AUTHED');
@@ -241,7 +263,16 @@ test.describe.serial('live backend order session flow', () => {
       authorizationScenario('auto-authorized-confirm').body,
     );
 
+    const executeOrderSessionResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v1/orders/sessions/')
+        && response.url().includes('/execute')
+        && response.request().method() === 'POST',
+    );
     await page.getByTestId('order-session-execute').click();
+    const executeOrderSessionResponse = await executeOrderSessionResponsePromise;
+    expect(executeOrderSessionResponse.ok()).toBe(true);
+    expectCorrelationHeaders(await executeOrderSessionResponse.allHeaders());
 
     await expect(page.getByTestId('order-session-summary')).toContainText('상태 COMPLETED');
     await expect(page.getByTestId('order-session-result')).toBeVisible();

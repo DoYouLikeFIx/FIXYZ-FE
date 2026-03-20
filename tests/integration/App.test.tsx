@@ -2,13 +2,13 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import App from '@/App';
-import type { NormalizedApiError } from '@/lib/axios';
 import { resetAuthStore } from '@/store/useAuthStore';
 import type {
   LoginChallenge,
   Member,
   TotpEnrollmentBootstrap,
 } from '@/types/auth';
+import { createNormalizedApiErrorFromResponse } from '../fixtures/createNormalizedApiErrorFromResponse';
 
 const mockFetchAccountPositions = vi.fn();
 const mockFetchAccountSummary = vi.fn();
@@ -112,24 +112,6 @@ const enrollmentBootstrapFixture: TotpEnrollmentBootstrap = {
   manualEntryKey: 'ABC123',
   enrollmentToken: 'enrollment-token',
   expiresAt: '2026-03-12T10:05:00Z',
-};
-
-const createApiError = (
-  overrides: Partial<NormalizedApiError> & { message?: string } = {},
-): NormalizedApiError => {
-  const error = new Error(
-    overrides.message ?? 'Unexpected server response. Please try again.',
-  ) as NormalizedApiError;
-
-  error.name = 'ApiClientError';
-  error.code = overrides.code;
-  error.status = overrides.status;
-  error.detail = overrides.detail;
-  error.traceId = overrides.traceId;
-  error.enrollUrl = overrides.enrollUrl;
-  error.retryAfterSeconds = overrides.retryAfterSeconds;
-
-  return error;
 };
 
 const createDeferred = <T,>() => {
@@ -238,10 +220,11 @@ describe('App auth flow', () => {
     resetAuthStore();
     window.history.pushState({}, '', '/login');
     mockFetchSession.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-003',
         status: 401,
         message: 'Authentication required',
+        path: '/api/v1/auth/session',
       }),
     );
   });
@@ -273,10 +256,11 @@ describe('App auth flow', () => {
 
     await act(async () => {
       deferred.reject(
-        createApiError({
+        createNormalizedApiErrorFromResponse({
           code: 'AUTH-003',
           status: 401,
           message: 'Authentication required',
+          path: '/api/v1/auth/session',
         }),
       );
       await Promise.resolve();
@@ -678,10 +662,11 @@ describe('App auth flow', () => {
 
   it('renders the standardized register error message once when the email is already taken', async () => {
     mockRegisterMember.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-017',
         status: 409,
         message: 'Email already exists',
+        path: '/api/v1/auth/register',
       }),
     );
     const user = userEvent.setup();
@@ -704,7 +689,7 @@ describe('App auth flow', () => {
 
   it('renders the standardized auth error message when login fails', async () => {
     mockStartLoginFlow.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-001',
         status: 401,
         message: 'Credential mismatch',
@@ -731,7 +716,7 @@ describe('App auth flow', () => {
     'renders the standardized login recovery guidance for %s',
     async (code, expectedMessage) => {
       mockStartLoginFlow.mockRejectedValue(
-        createApiError({
+        createNormalizedApiErrorFromResponse({
           code,
           status: code === 'RATE-001' ? 429 : 401,
           message: `${code} backend message`,
@@ -754,11 +739,12 @@ describe('App auth flow', () => {
     mockStartLoginFlow.mockResolvedValue(loginChallengeFixture);
     mockBeginTotpEnrollment.mockResolvedValue(enrollmentBootstrapFixture);
     mockVerifyLoginOtp.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-009',
         status: 403,
         message: 'TOTP enrollment required',
         enrollUrl: 'https://evil.example/settings/totp/enroll',
+        path: '/api/v1/auth/otp/verify',
       }),
     );
     const user = userEvent.setup();
@@ -777,11 +763,11 @@ describe('App auth flow', () => {
 
   it('shows the safe fallback and visible correlation id for unknown auth codes', async () => {
     mockStartLoginFlow.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-999',
         status: 500,
         message: 'Internal backend details should not leak',
-        traceId: 'corr-123',
+        correlationIdHeader: 'corr-123',
       }),
     );
     const user = userEvent.setup();
@@ -961,10 +947,11 @@ describe('App auth flow', () => {
 
   it('redirects to login with re-auth guidance when session extension falls back to auth failure', async () => {
     mockFetchSession.mockResolvedValueOnce(memberFixture).mockRejectedValueOnce(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'CHANNEL-001',
         status: 410,
         message: 'Redis session expired',
+        path: '/api/v1/auth/session',
       }),
     );
     const user = userEvent.setup();
@@ -993,10 +980,11 @@ describe('App auth flow', () => {
 
   it('redirects to login with preserved destination when the session was invalidated by a newer login', async () => {
     mockFetchSession.mockResolvedValueOnce(memberFixture).mockRejectedValueOnce(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-016',
         status: 401,
         message: 'Session invalidated by another login',
+        path: '/api/v1/auth/session',
       }),
     );
     const user = userEvent.setup();
@@ -1028,10 +1016,11 @@ describe('App auth flow', () => {
 
   it('keeps the protected view active and shows a retryable error when session extension fails for a non-reauth reason', async () => {
     mockFetchSession.mockResolvedValueOnce(memberFixture).mockRejectedValueOnce(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'SYS-001',
         status: 503,
         message: 'Auth service unavailable',
+        path: '/api/v1/auth/session',
       }),
     );
     const user = userEvent.setup();

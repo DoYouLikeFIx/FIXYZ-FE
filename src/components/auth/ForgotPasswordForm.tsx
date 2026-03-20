@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 
-import type { PasswordRecoveryChallengeResponse } from '@/types/auth';
+import type { RecoveryChallengeSession } from '@/lib/recovery-challenge';
 
 interface ForgotPasswordFormProps {
   email: string;
@@ -12,7 +12,7 @@ interface ForgotPasswordFormProps {
   isSubmitting: boolean;
   isBootstrappingChallenge: boolean;
   challengeMayBeRequired: boolean;
-  challengeState: PasswordRecoveryChallengeResponse | null;
+  challengeState: RecoveryChallengeSession | null;
   resetPasswordHref: string;
   onEmailChange: (value: string) => void;
   onEmailBlur?: () => void;
@@ -102,18 +102,37 @@ export function ForgotPasswordForm({
       ) : null}
 
       {challengeState ? (
-        <div className="auth-inline-help auth-inline-help--challenge" data-testid="forgot-password-challenge-state">
+        <div
+          className="auth-inline-help auth-inline-help--challenge"
+          data-testid="forgot-password-challenge-state"
+        >
           <strong className="auth-inline-help__title">보안 확인 정보가 준비되었습니다.</strong>
           <p className="auth-inline-help__body">
-            유형: {challengeState.challengeType}
+            유형: {challengeState.kind === 'proof-of-work' ? '자동 보안 확인' : challengeState.challengeType}
           </p>
           <p className="auth-inline-help__detail">
             유효 시간: {challengeState.challengeTtlSeconds}초
           </p>
+          {challengeState.kind === 'proof-of-work' ? (
+            <>
+              <p className="auth-inline-help__detail">
+                상태: {
+                  challengeState.solveStatus === 'solving'
+                    ? '계산 중...'
+                    : challengeState.solveStatus === 'solved'
+                      ? '계산 완료'
+                      : '대기 중'
+                }
+              </p>
+              <p className="auth-inline-help__detail">
+                응답은 자동으로 계산되어 전송됩니다.
+              </p>
+            </>
+          ) : null}
         </div>
       ) : null}
 
-      {challengeState ? (
+      {challengeState && challengeState.kind !== 'proof-of-work' ? (
         <div className="field">
           <label className="field-label" htmlFor="forgot-password-challenge-answer">
             보안 확인 응답
@@ -142,10 +161,20 @@ export function ForgotPasswordForm({
       <button
         className="auth-submit"
         data-testid="forgot-password-submit"
-        disabled={isSubmitting || isBootstrappingChallenge}
+        disabled={
+          isSubmitting ||
+          isBootstrappingChallenge ||
+          (challengeState?.kind === 'proof-of-work' && challengeState?.solveStatus !== 'solved')
+        }
         type="submit"
       >
-        {isSubmitting ? '요청 중...' : challengeState ? '보안 확인 포함 요청' : '재설정 메일 요청'}
+        {isSubmitting
+          ? '요청 중...'
+          : challengeState
+            ? challengeState.kind === 'proof-of-work' && challengeState.solveStatus === 'solving'
+              ? '보안 확인 계산 중...'
+              : '보안 확인 포함 요청'
+            : '재설정 메일 요청'}
       </button>
 
       <div className="auth-secondary-links">

@@ -1,9 +1,10 @@
+import { z } from 'zod';
+
 import {
   getPasswordPolicyChecks,
   isPasswordPolicySatisfied,
 } from '@/lib/password-policy';
 import type { RegisterFieldErrors } from '@/types/auth-ui';
-import { z } from 'zod';
 
 const PASSWORD_POLICY_GUIDANCE = '8자 이상, 대문자, 숫자, 특수문자를 포함해 주세요.';
 const PASSWORD_POLICY_ERROR = '비밀번호 정책을 모두 충족해 주세요.';

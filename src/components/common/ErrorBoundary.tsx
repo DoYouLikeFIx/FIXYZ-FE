@@ -4,6 +4,8 @@ import {
   type ReactNode,
 } from 'react';
 
+import { getApiErrorDiagnosticLog } from '@/lib/axios';
+
 interface ErrorBoundaryProps {
   children: ReactNode;
 }
@@ -27,7 +29,11 @@ export class ErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Unhandled React error', error, errorInfo);
+    console.error(
+      'Unhandled React error',
+      getApiErrorDiagnosticLog(error) ?? error,
+      errorInfo,
+    );
   }
 
   render() {

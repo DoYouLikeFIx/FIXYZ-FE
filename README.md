@@ -34,6 +34,12 @@ LIVE_REGISTER_PASSWORD='LiveTest1!' \
 pnpm run e2e:live
 ```
 
+Run the suite only when the live backend is already healthy:
+
+```bash
+pnpm run e2e:live:if-healthy
+```
+
 Optional variables:
 
 - `LIVE_REGISTER_PASSWORD`: password used for the fresh-account register/login flow. Default: `LiveTest1!`
@@ -41,16 +47,19 @@ Optional variables:
 - `LIVE_RESET_TOKEN`: optional password-reset token for the live reset-success handoff flow.
 - `LIVE_RESET_PASSWORD`: new password used with `LIVE_RESET_TOKEN`. Default: `FreshLive1!`
 - `PLAYWRIGHT_FE_PORT`: local Vite port for Playwright. Default: `4173`
+- `VITE_API_TIMEOUT_MS`: optional FE axios timeout override in milliseconds. Default: `10000`
 
 The suite covers:
 
 - fresh account registration against the live backend
 - successful login with an existing live account
 - canonical invalid-credentials error handling from the live backend
+- live auth responses exposing `X-Correlation-Id` and `traceparent` in browser-observed response headers
 - forgot-password acceptance guidance against the live backend
 - challenge-bootstrap contract rendering against the live backend
 - invalid reset-token guidance against the live backend
 - optional reset-success handoff when `LIVE_RESET_TOKEN` is provided
+- live order-session create/execute responses exposing `X-Correlation-Id` and `traceparent` in browser-observed response headers
 
 ## Email-first auth contract
 
@@ -74,4 +83,5 @@ When FE is pointed at `MOB/scripts/mock-auth-server.mjs` through `VITE_DEV_PROXY
 Copy `.env.example` to `.env.local` when needed.
 
 - `VITE_API_BASE_URL`: absolute API URL (typically for deployed environments)
+- `VITE_API_TIMEOUT_MS`: optional FE axios timeout override in milliseconds for slow live demos or diagnostics
 - `VITE_DEV_PROXY_TARGET`: backend target for local Vite proxy (`/api`, `/actuator`)

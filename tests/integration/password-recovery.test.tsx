@@ -2,9 +2,9 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import App from '@/App';
-import type { NormalizedApiError } from '@/lib/axios';
 import { resetAuthStore } from '@/store/useAuthStore';
 import type { Member } from '@/types/auth';
+import { createNormalizedApiErrorFromResponse } from '../fixtures/createNormalizedApiErrorFromResponse';
 
 const mockFetchSession = vi.fn();
 const mockStartLoginFlow = vi.fn();
@@ -44,24 +44,6 @@ vi.mock('@/api/authApi', () => ({
   confirmMfaRecoveryRebind: (payload: unknown) => mockConfirmMfaRecoveryRebind(payload),
 }));
 
-const createApiError = (
-  overrides: Partial<NormalizedApiError> & { message?: string } = {},
-): NormalizedApiError => {
-  const error = new Error(
-    overrides.message ?? 'Unexpected server response. Please try again.',
-  ) as NormalizedApiError;
-
-  error.name = 'ApiClientError';
-  error.code = overrides.code;
-  error.status = overrides.status;
-  error.retryAfterSeconds = overrides.retryAfterSeconds;
-  error.traceId = overrides.traceId;
-  error.enrollUrl = overrides.enrollUrl;
-  error.recoveryUrl = overrides.recoveryUrl;
-
-  return error;
-};
-
 describe('password recovery routes', () => {
   beforeEach(() => {
     mockFetchSession.mockReset();
@@ -79,10 +61,11 @@ describe('password recovery routes', () => {
     resetAuthStore();
     window.history.pushState({}, '', '/login');
     mockFetchSession.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-003',
         status: 401,
         message: 'Authentication required',
+        path: '/api/v1/auth/session',
       }),
     );
   });
@@ -178,6 +161,76 @@ describe('password recovery routes', () => {
     });
   });
 
+  it('parses the v2 proof-of-work challenge, auto-solves it, and submits the solved nonce with the original email string', async () => {
+    const user = userEvent.setup();
+    const issuedAtEpochMs = Date.now();
+    const expiresAtEpochMs = issuedAtEpochMs + 300_000;
+    mockRequestPasswordRecoveryChallenge.mockResolvedValue({
+      challengeToken: 'challenge-token-v2',
+      challengeType: 'proof-of-work',
+      challengeTtlSeconds: 300,
+      challengeContractVersion: 2,
+      challengeId: 'challenge-id-v2',
+      challengeIssuedAtEpochMs: issuedAtEpochMs,
+      challengeExpiresAtEpochMs: expiresAtEpochMs,
+      challengePayload: {
+        kind: 'proof-of-work',
+        proofOfWork: {
+          algorithm: 'SHA-256',
+          seed: 'seed-value',
+          difficultyBits: 1,
+          answerFormat: 'nonce-decimal',
+          inputTemplate: '{seed}:{nonce}',
+          inputEncoding: 'utf-8',
+          successCondition: {
+            type: 'leading-zero-bits',
+            minimum: 1,
+          },
+        },
+      },
+    });
+    mockRequestPasswordResetEmail.mockResolvedValue({
+      accepted: true,
+      message: 'If the account is eligible, a reset email will be sent.',
+      recovery: {
+        challengeEndpoint: '/api/v1/auth/password/forgot/challenge',
+        challengeMayBeRequired: true,
+      },
+    });
+
+    window.history.pushState({}, '', '/forgot-password');
+    render(<App />);
+
+    await user.type(await screen.findByTestId('forgot-password-email'), 'Demo+Tag@Fix.com');
+    await user.click(screen.getByTestId('forgot-password-submit'));
+    await user.click(await screen.findByTestId('forgot-password-bootstrap-challenge'));
+
+    expect(await screen.findByTestId('forgot-password-challenge-state')).toHaveTextContent(
+      '자동 보안 확인',
+    );
+    expect(screen.getByTestId('forgot-password-challenge-state')).not.toHaveTextContent(
+      'challenge-id-v2',
+    );
+    expect(screen.queryByTestId('forgot-password-challenge-answer')).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('forgot-password-challenge-state')).toHaveTextContent(
+        '계산 완료',
+      );
+    });
+
+    await user.click(screen.getByTestId('forgot-password-submit'));
+
+    expect(mockRequestPasswordResetEmail).toHaveBeenCalledTimes(2);
+    expect(mockRequestPasswordResetEmail.mock.calls[1]?.[0]).toMatchObject({
+      email: 'Demo+Tag@Fix.com',
+      challengeToken: 'challenge-token-v2',
+    });
+    expect(
+      String(mockRequestPasswordResetEmail.mock.calls[1]?.[0]?.challengeAnswer ?? ''),
+    ).toMatch(/^\d+$/);
+  });
+
   it('clears touched challenge validation before bootstrapping a fresh challenge after the email changes', async () => {
     const user = userEvent.setup();
     mockRequestPasswordRecoveryChallenge
@@ -248,10 +301,11 @@ describe('password recovery routes', () => {
         challengeTtlSeconds: 300,
       })
       .mockRejectedValueOnce(
-        createApiError({
+        createNormalizedApiErrorFromResponse({
           code: 'AUTH-023',
           status: 503,
           message: 'challenge bootstrap unavailable',
+          path: '/api/v1/auth/password/forgot/challenge',
         }),
       );
     mockRequestPasswordResetEmail.mockResolvedValue({
@@ -341,10 +395,11 @@ describe('password recovery routes', () => {
   it('shows deterministic invalid-token guidance when reset is rejected', async () => {
     const user = userEvent.setup();
     mockResetPassword.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-012',
         status: 401,
         message: 'reset token invalid or expired',
+        path: '/api/v1/auth/password/reset',
       }),
     );
 
@@ -380,10 +435,11 @@ describe('password recovery routes', () => {
         },
       })
       .mockRejectedValueOnce(
-        createApiError({
+        createNormalizedApiErrorFromResponse({
           code: 'AUTH-012',
           status: 401,
           message: 'challenge replay invalid or expired',
+          path: '/api/v1/auth/password/forgot',
         }),
       );
 
@@ -401,7 +457,7 @@ describe('password recovery routes', () => {
     );
     expect(screen.queryByTestId('forgot-password-accepted')).not.toBeInTheDocument();
     expect(screen.queryByTestId('forgot-password-challenge-state')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('forgot-password-bootstrap-challenge')).not.toBeInTheDocument();
+    expect(screen.getByTestId('forgot-password-bootstrap-challenge')).toBeInTheDocument();
   });
 
   it('clears stale challenge state when a challenged forgot submit is rate-limited', async () => {
@@ -421,11 +477,12 @@ describe('password recovery routes', () => {
         },
       })
       .mockRejectedValueOnce(
-        createApiError({
+        createNormalizedApiErrorFromResponse({
           code: 'AUTH-014',
           status: 429,
           retryAfterSeconds: 30,
           message: 'Too many password recovery attempts',
+          path: '/api/v1/auth/password/forgot',
         }),
       );
 
@@ -443,16 +500,17 @@ describe('password recovery routes', () => {
     );
     expect(screen.queryByTestId('forgot-password-accepted')).not.toBeInTheDocument();
     expect(screen.queryByTestId('forgot-password-challenge-state')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('forgot-password-bootstrap-challenge')).not.toBeInTheDocument();
+    expect(screen.getByTestId('forgot-password-bootstrap-challenge')).toBeInTheDocument();
   });
 
   it('routes reset AUTH-016 outcomes back to login with re-auth guidance and preserves redirect intent', async () => {
     const user = userEvent.setup();
     mockResetPassword.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-016',
         status: 401,
         message: 'Session invalidated by another login',
+        path: '/api/v1/auth/password/reset',
       }),
     );
 
@@ -520,10 +578,11 @@ describe('password recovery routes', () => {
       recoveryProofExpiresInSeconds: 600,
     });
     mockBootstrapRecoveryTotpRebind.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-020',
         status: 409,
         message: 'mfa recovery proof already consumed',
+        path: '/api/v1/auth/mfa/recovery/rebind/recovery/bootstrap',
       }),
     );
 
@@ -558,11 +617,12 @@ describe('password recovery routes', () => {
       expiresAt: '2026-03-12T10:00:00Z',
     });
     mockVerifyLoginOtp.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-021',
         status: 403,
         message: 'MFA recovery required',
         recoveryUrl: '/mfa-recovery',
+        path: '/api/v1/auth/otp/verify',
       }),
     );
 
@@ -589,10 +649,11 @@ describe('password recovery routes', () => {
     const user = userEvent.setup();
     mockFetchSession.mockResolvedValue(memberFixture);
     mockBootstrapAuthenticatedTotpRebind.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-026',
         status: 401,
         message: 'current password mismatch',
+        path: '/api/v1/auth/mfa/recovery/rebind/authenticated/bootstrap',
       }),
     );
 
@@ -617,11 +678,12 @@ describe('password recovery routes', () => {
     const user = userEvent.setup();
     mockFetchSession.mockResolvedValue(memberFixture);
     mockBootstrapAuthenticatedTotpRebind.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-009',
         status: 403,
         message: 'totp enrollment required',
         enrollUrl: '/settings/totp/enroll?source=mfa-recovery',
+        path: '/api/v1/auth/mfa/recovery/rebind/authenticated/bootstrap',
       }),
     );
 
@@ -703,10 +765,11 @@ describe('password recovery routes', () => {
       expiresAt: '2026-03-12T10:05:00Z',
     });
     mockConfirmMfaRecoveryRebind.mockRejectedValue(
-      createApiError({
+      createNormalizedApiErrorFromResponse({
         code: 'AUTH-020',
         status: 409,
         message: 'mfa recovery proof already consumed',
+        path: '/api/v1/auth/mfa/recovery/rebind/confirm',
       }),
     );
 

@@ -16,6 +16,8 @@ import { OrderPage } from '@/pages/OrderPage';
 import { resetAuthStore, useAuthStore } from '@/store/useAuthStore';
 import type { Member } from '@/types/auth';
 
+import { createNormalizedApiErrorFromResponse } from '../../fixtures/createNormalizedApiErrorFromResponse';
+
 vi.mock('@/api/orderApi', () => ({
   createOrderSession: vi.fn(),
   extendOrderSession: vi.fn(),
@@ -55,6 +57,24 @@ const createDeferred = <T,>() => {
     resolve: resolvePromise,
   };
 };
+
+const createNormalizedOrderApiError = (options: {
+  code: string;
+  message: string;
+  status: number;
+  operatorCode?: string;
+  retryAfterSeconds?: number;
+  correlationIdHeader?: string;
+}) =>
+  createNormalizedApiErrorFromResponse({
+    code: options.code,
+    message: options.message,
+    status: options.status,
+    operatorCode: options.operatorCode,
+    retryAfterSeconds: options.retryAfterSeconds,
+    correlationIdHeader: options.correlationIdHeader,
+    path: '/api/v1/orders/sessions/sess-001/execute',
+  });
 
 const testFileUrl = import.meta.url.startsWith('file:')
   ? import.meta.url
@@ -175,11 +195,11 @@ describe('OrderPage', () => {
       expiresAt: futureIso(),
     });
     vi.mocked(executeOrderSession).mockRejectedValue(
-      Object.assign(new Error('pending confirmation'), {
-        name: 'ApiClientError',
+      createNormalizedOrderApiError({
         code: 'FEP-002',
         message: '주문이 아직 확정되지 않았습니다. 체결 완료로 간주하지 말고 알림이나 주문 상태를 확인해 주세요.',
-        traceId: 'trace-fep-002',
+        status: 202,
+        correlationIdHeader: 'trace-fep-002',
       }),
     );
     vi.mocked(getOrderSession).mockResolvedValue({
@@ -234,12 +254,13 @@ describe('OrderPage', () => {
       expiresAt: futureIso(),
     });
     vi.mocked(executeOrderSession).mockRejectedValue(
-      Object.assign(new Error('거래소 연결이 일시적으로 불안정합니다. 주문이 접수되지 않았을 수 있습니다.'), {
-        name: 'ApiClientError',
+      createNormalizedOrderApiError({
         code: 'FEP-001',
+        message: '거래소 연결이 일시적으로 불안정합니다. 주문이 접수되지 않았을 수 있습니다.',
         operatorCode: 'CIRCUIT_OPEN',
         retryAfterSeconds: 10,
-        traceId: 'trace-fep-001',
+        status: 503,
+        correlationIdHeader: 'trace-fep-001',
       }),
     );
     vi.mocked(getOrderSession).mockResolvedValue({
@@ -303,11 +324,12 @@ describe('OrderPage', () => {
       expiresAt: futureIso(),
     });
     vi.mocked(executeOrderSession).mockRejectedValue(
-      Object.assign(new Error('주문이 아직 확정되지 않았습니다. 체결 완료로 간주하지 말고 알림이나 주문 상태를 확인해 주세요.'), {
-        name: 'ApiClientError',
+      createNormalizedOrderApiError({
         code: 'FEP-002',
+        message: '주문이 아직 확정되지 않았습니다. 체결 완료로 간주하지 말고 알림이나 주문 상태를 확인해 주세요.',
         operatorCode: 'TIMEOUT',
-        traceId: 'trace-fep-002-final',
+        status: 202,
+        correlationIdHeader: 'trace-fep-002-final',
       }),
     );
     vi.mocked(getOrderSession).mockResolvedValue({

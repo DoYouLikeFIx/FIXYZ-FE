@@ -34,18 +34,51 @@ declare module 'axios' {
 
 const DEFAULT_BASE_URL = '/';
 const DEFAULT_CSRF_HEADER = 'X-CSRF-TOKEN';
+const CORRELATION_ID_HEADER = 'X-Correlation-Id';
+const DEFAULT_API_TIMEOUT_MS = 10_000;
 
-export interface NormalizedApiError extends Error {
+export interface ApiErrorDiagnosticContext {
+  code?: string;
+  status?: number;
+  traceId?: string;
+  traceparent?: string;
+  operatorCode?: string;
+  retryAfterSeconds?: number;
+  remainingAttempts?: number;
+  userMessageKey?: string;
+}
+
+export interface ApiErrorDiagnosticLog extends ApiErrorDiagnosticContext {
+  stackFrames?: string[];
+}
+
+type NormalizedApiErrorOptions = {
   code?: string;
   status?: number;
   detail?: string;
   traceId?: string;
+  traceparent?: string;
   operatorCode?: string;
   retryAfterSeconds?: number;
   remainingAttempts?: number;
   enrollUrl?: string;
   recoveryUrl?: string;
   userMessageKey?: string;
+};
+
+export interface NormalizedApiError extends Error {
+  code?: string;
+  status?: number;
+  detail?: string;
+  traceId?: string;
+  traceparent?: string;
+  operatorCode?: string;
+  retryAfterSeconds?: number;
+  remainingAttempts?: number;
+  enrollUrl?: string;
+  recoveryUrl?: string;
+  userMessageKey?: string;
+  diagnosticContext?: ApiErrorDiagnosticContext;
 }
 
 interface DirectApiErrorPayload {
@@ -94,18 +127,7 @@ const isDirectApiErrorPayload = (
 
 export const createNormalizedApiError = (
   message: string,
-  options?: {
-    code?: string;
-    status?: number;
-    detail?: string;
-    traceId?: string;
-    operatorCode?: string;
-    retryAfterSeconds?: number;
-    remainingAttempts?: number;
-    enrollUrl?: string;
-    recoveryUrl?: string;
-    userMessageKey?: string;
-  },
+  options?: NormalizedApiErrorOptions,
 ): NormalizedApiError => {
   const normalized = new Error(message) as NormalizedApiError;
   normalized.name = 'ApiClientError';
@@ -113,14 +135,68 @@ export const createNormalizedApiError = (
   normalized.status = options?.status;
   normalized.detail = options?.detail;
   normalized.traceId = options?.traceId;
+  normalized.traceparent = options?.traceparent;
   normalized.operatorCode = options?.operatorCode;
   normalized.retryAfterSeconds = options?.retryAfterSeconds;
   normalized.remainingAttempts = options?.remainingAttempts;
   normalized.enrollUrl = options?.enrollUrl;
   normalized.recoveryUrl = options?.recoveryUrl;
   normalized.userMessageKey = options?.userMessageKey;
+  normalized.diagnosticContext = sanitizeApiErrorDiagnosticContext(options);
 
   return normalized;
+};
+
+const hasDiagnosticContextValues = (
+  diagnosticContext: ApiErrorDiagnosticContext,
+) => Object.values(diagnosticContext).some((value) => value !== undefined);
+
+const sanitizeApiErrorDiagnosticContext = (
+  value: Partial<ApiErrorDiagnosticContext> | undefined,
+): ApiErrorDiagnosticContext => ({
+  code: asNonEmptyString(value?.code),
+  status:
+    typeof value?.status === 'number' && Number.isFinite(value.status)
+      ? value.status
+      : undefined,
+  traceId: asNonEmptyString(value?.traceId),
+  traceparent: asNonEmptyString(value?.traceparent),
+  operatorCode: asNonEmptyString(value?.operatorCode),
+  retryAfterSeconds: parseRetryAfterSeconds(value?.retryAfterSeconds),
+  remainingAttempts: parseRemainingAttempts(value?.remainingAttempts),
+  userMessageKey: asNonEmptyString(value?.userMessageKey),
+});
+
+export const getApiErrorDiagnosticContext = (
+  error: unknown,
+): ApiErrorDiagnosticContext | undefined => {
+  if (typeof error !== 'object' || error === null) {
+    return undefined;
+  }
+
+  const candidate = error as Partial<NormalizedApiError>;
+
+  if (
+    typeof candidate.diagnosticContext === 'object'
+    && candidate.diagnosticContext !== null
+  ) {
+    const diagnosticContext = sanitizeApiErrorDiagnosticContext(
+      candidate.diagnosticContext,
+    );
+    return hasDiagnosticContextValues(diagnosticContext)
+      ? diagnosticContext
+      : undefined;
+  }
+
+  if (candidate.name !== 'ApiClientError') {
+    return undefined;
+  }
+
+  const diagnosticContext = sanitizeApiErrorDiagnosticContext(candidate);
+
+  return hasDiagnosticContextValues(diagnosticContext)
+    ? diagnosticContext
+    : undefined;
 };
 
 const parseRetryAfterSeconds = (value: unknown) => {
@@ -165,6 +241,58 @@ const parseRemainingAttempts = (value: unknown) => {
   return undefined;
 };
 
+const asNonEmptyString = (value: unknown) =>
+  typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+
+const getSanitizedStackFrames = (error: unknown) => {
+  if (!(error instanceof Error) || typeof error.stack !== 'string') {
+    return undefined;
+  }
+
+  const stackFrames = error.stack
+    .split('\n')
+    .slice(1)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  return stackFrames.length > 0 ? stackFrames : undefined;
+};
+
+export const getApiErrorDiagnosticLog = (
+  error: unknown,
+): ApiErrorDiagnosticLog | undefined => {
+  const diagnosticContext = getApiErrorDiagnosticContext(error);
+  if (!diagnosticContext) {
+    return undefined;
+  }
+
+  const stackFrames = getSanitizedStackFrames(error);
+
+  return stackFrames
+    ? {
+        ...diagnosticContext,
+        stackFrames,
+      }
+    : diagnosticContext;
+};
+
+const getPrimaryHeaderValue = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return getPrimaryHeaderValue(value[0]);
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0);
+};
+
 const getHeaderValue = (headers: unknown, name: string) => {
   if (!headers) {
     return undefined;
@@ -177,18 +305,13 @@ const getHeaderValue = (headers: unknown, name: string) => {
     && typeof (headers as { get: (headerName: string) => unknown }).get === 'function'
   ) {
     const value = (headers as { get: (headerName: string) => unknown }).get(name);
-    return typeof value === 'string' ? value : undefined;
+    return getPrimaryHeaderValue(value);
   }
 
   if (typeof headers === 'object' && headers !== null) {
     const record = headers as Record<string, unknown>;
     const direct = record[name] ?? record[name.toLowerCase()] ?? record[name.toUpperCase()];
-
-    if (Array.isArray(direct)) {
-      return typeof direct[0] === 'string' ? direct[0] : undefined;
-    }
-
-    return typeof direct === 'string' ? direct : undefined;
+    return getPrimaryHeaderValue(direct);
   }
 
   return undefined;
@@ -198,7 +321,19 @@ const resolveRetryAfterSeconds = (value: unknown, headers: unknown) =>
   parseRetryAfterSeconds(value)
   ?? parseRetryAfterSeconds(getHeaderValue(headers, 'retry-after'));
 
-const unwrapEnvelope = <T>(response: AxiosResponse<T>): AxiosResponse<T> => {
+const resolveTraceId = (options?: {
+  traceId?: unknown;
+  correlationId?: unknown;
+  headers?: unknown;
+}) =>
+  asNonEmptyString(options?.traceId)
+  ?? asNonEmptyString(options?.correlationId)
+  ?? asNonEmptyString(getHeaderValue(options?.headers, CORRELATION_ID_HEADER));
+
+const resolveTraceparent = (headers: unknown) =>
+  asNonEmptyString(getHeaderValue(headers, 'traceparent'));
+
+export const unwrapApiResponseEnvelope = <T>(response: AxiosResponse<T>): AxiosResponse<T> => {
   const payload = response.data;
 
   if (!isApiResponseEnvelope(payload)) {
@@ -212,7 +347,11 @@ const unwrapEnvelope = <T>(response: AxiosResponse<T>): AxiosResponse<T> => {
         code: payload.error?.code,
         detail: payload.error?.detail ?? undefined,
         status: response.status,
-        traceId: payload.traceId,
+        traceId: resolveTraceId({
+          traceId: payload.traceId,
+          headers: response.headers,
+        }),
+        traceparent: resolveTraceparent(response.headers),
         operatorCode:
           typeof payload.error?.operatorCode === 'string'
             ? payload.error.operatorCode
@@ -249,6 +388,9 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
 
   const status = error.response?.status;
   const responseData = error.response?.data;
+  const responseHeaders = error.response?.headers;
+  const fallbackTraceId = resolveTraceId({ headers: responseHeaders });
+  const fallbackTraceparent = resolveTraceparent(responseHeaders);
 
   if (isApiResponseEnvelope(responseData) && responseData.error) {
     return createNormalizedApiError(
@@ -257,7 +399,11 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
         code: responseData.error.code,
         detail: responseData.error.detail ?? undefined,
         status,
-        traceId: responseData.traceId,
+        traceId: resolveTraceId({
+          traceId: responseData.traceId,
+          headers: responseHeaders,
+        }),
+        traceparent: resolveTraceparent(responseHeaders),
         operatorCode:
           typeof responseData.error.operatorCode === 'string'
             ? responseData.error.operatorCode
@@ -290,7 +436,11 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
         code: responseData.code,
         detail: responseData.path,
         status,
-        traceId: responseData.correlationId,
+        traceId: resolveTraceId({
+          correlationId: responseData.correlationId,
+          headers: responseHeaders,
+        }),
+        traceparent: resolveTraceparent(responseHeaders),
         operatorCode:
           typeof responseData.operatorCode === 'string'
             ? responseData.operatorCode
@@ -317,21 +467,38 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
   }
 
   if (status === 403) {
-    return createNormalizedApiError(FORBIDDEN_ERROR_MESSAGE, { status });
+    return createNormalizedApiError(FORBIDDEN_ERROR_MESSAGE, {
+      status,
+      traceId: fallbackTraceId,
+      traceparent: fallbackTraceparent,
+    });
   }
 
   if (error.code === AxiosError.ECONNABORTED) {
-    return createNormalizedApiError(TIMEOUT_ERROR_MESSAGE, { status });
+    return createNormalizedApiError(TIMEOUT_ERROR_MESSAGE, {
+      status,
+      traceId: fallbackTraceId,
+      traceparent: fallbackTraceparent,
+    });
   }
 
   if (!error.response) {
     return createNormalizedApiError(NETWORK_ERROR_MESSAGE, { status });
   }
 
-  return createNormalizedApiError(DEFAULT_SERVER_ERROR_MESSAGE, { status });
+  return createNormalizedApiError(DEFAULT_SERVER_ERROR_MESSAGE, {
+    status,
+    traceId: fallbackTraceId,
+    traceparent: fallbackTraceparent,
+  });
 };
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+const configuredTimeoutMs = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? DEFAULT_API_TIMEOUT_MS);
+const resolvedApiTimeoutMs =
+  Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
+    ? configuredTimeoutMs
+    : DEFAULT_API_TIMEOUT_MS;
 const resolvedBaseUrl = configuredBaseUrl && configuredBaseUrl.length > 0
   ? configuredBaseUrl
   : DEFAULT_BASE_URL;
@@ -417,7 +584,7 @@ const shouldRetryCsrf = (config?: ApiRequestConfig) => {
 const csrfClient = axios.create({
   baseURL: resolvedBaseUrl,
   withCredentials: true,
-  timeout: 10_000,
+  timeout: resolvedApiTimeoutMs,
 });
 
 const setCsrfHeader = (config: ApiRequestConfig, token: string) => {
@@ -508,7 +675,7 @@ const shouldHandleAuthFailure = (
 export const api = axios.create({
   baseURL: resolvedBaseUrl,
   withCredentials: true,
-  timeout: 10_000,
+  timeout: resolvedApiTimeoutMs,
 });
 
 api.interceptors.request.use(async (config) => {
@@ -534,7 +701,7 @@ api.interceptors.request.use(async (config) => {
 });
 
 api.interceptors.response.use(
-  (response) => unwrapEnvelope(response),
+  (response) => unwrapApiResponseEnvelope(response),
   async (error: unknown) => {
     if (axios.isAxiosError(error)) {
       const config = error.config as ApiRequestConfig | undefined;

@@ -1,5 +1,5 @@
 import { isAxiosError } from 'axios';
-import { type FormEvent, useEffect, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchAdminAuditLogs, invalidateMemberSessions } from '@/api/adminApi';
 import { getAuthErrorMessage } from '@/lib/auth-errors';
@@ -118,7 +118,7 @@ export function AdminConsolePage() {
   const latestAuditLogRequestIdRef = useRef(0);
   const latestAuditLogAbortControllerRef = useRef<AbortController | null>(null);
 
-  const currentAuditQuery: AdminAuditLogQuery = {
+  const currentAuditQuery = useMemo<AdminAuditLogQuery>(() => ({
     page: auditPage,
     size: auditSize,
     memberId: normalizeFilter(appliedMemberIdFilter),
@@ -127,7 +127,14 @@ export function AdminConsolePage() {
     eventType: appliedEventTypeFilter
       ? (appliedEventTypeFilter as AdminAuditEventType)
       : undefined,
-  };
+  }), [
+    auditPage,
+    auditSize,
+    appliedEventTypeFilter,
+    appliedFromFilter,
+    appliedMemberIdFilter,
+    appliedToFilter,
+  ]);
 
   const loadAuditLogs = async (query: AdminAuditLogQuery) => {
     const requestId = ++latestAuditLogRequestIdRef.current;
@@ -169,7 +176,7 @@ export function AdminConsolePage() {
 
   useEffect(() => {
     void loadAuditLogs(currentAuditQuery);
-  }, [auditPage, auditSize, appliedMemberIdFilter, appliedFromFilter, appliedToFilter, appliedEventTypeFilter]);
+  }, [currentAuditQuery]);
 
   useEffect(() => () => {
     latestAuditLogAbortControllerRef.current?.abort();
