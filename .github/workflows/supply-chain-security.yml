@@ -1,0 +1,50 @@
+name: supply-chain-security
+
+on:
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: "17 1 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  security-events: read
+
+jobs:
+  supply-chain-security:
+    name: supply-chain-security
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Node 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "20"
+
+      - name: Run supply-chain baseline
+        id: baseline
+        env:
+          REPO_SLUG: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || github.base_ref || 'main' }}
+          EVIDENCE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          ALERTS_TOKEN: ${{ secrets.DEPENDABOT_ALERTS_TOKEN || github.token }}
+          BRANCH_PROTECTION_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
+          FAIL_ON_BRANCH_PROTECTION_AUDIT_ERROR: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
+          EXPECTED_REQUIRED_CHECK: supply-chain-security
+        run: node .github/scripts/supply-chain/run-security-baseline.cjs
+
+      - name: Upload supply-chain evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: supply-chain-security-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.baseline.outputs.output_directory }}
+          if-no-files-found: error
+          retention-days: 90

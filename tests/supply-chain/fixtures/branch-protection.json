@@ -1,0 +1,28 @@
+{
+  "branchProtection": {
+    "required_status_checks": {
+      "contexts": [
+        "ci-quality-gate",
+        "supply-chain-security"
+      ],
+      "checks": [
+        {
+          "context": "ci-quality-gate",
+          "app_id": 15368
+        },
+        {
+          "context": "supply-chain-security",
+          "app_id": 15368
+        }
+      ]
+    },
+    "enforce_admins": {
+      "enabled": true
+    }
+  },
+  "actionsPermissions": {
+    "enabled": true,
+    "allowed_actions": "selected",
+    "sha_pinning_required": true
+  }
+}

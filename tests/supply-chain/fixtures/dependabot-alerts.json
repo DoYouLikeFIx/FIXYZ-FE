@@ -1,0 +1,105 @@
+[
+  {
+    "number": 101,
+    "dependency": {
+      "manifest_path": "package-lock.json",
+      "package": {
+        "name": "axios",
+        "ecosystem": "npm"
+      }
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-high-risk",
+      "severity": "high",
+      "cvss": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "identifiers": [
+        {
+          "type": "GHSA",
+          "value": "GHSA-high-risk"
+        },
+        {
+          "type": "CVE",
+          "value": "CVE-2026-0001"
+        }
+      ]
+    },
+    "security_vulnerability": {
+      "package": {
+        "name": "axios",
+        "ecosystem": "npm"
+      },
+      "severity": "high",
+      "first_patched_version": {
+        "identifier": "1.13.2"
+      }
+    }
+  },
+  {
+    "number": 102,
+    "dependency": {
+      "manifest_path": "package-lock.json",
+      "package": {
+        "name": "left-pad",
+        "ecosystem": "npm"
+      }
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-nvd-fallback",
+      "severity": "high",
+      "cvss": null,
+      "identifiers": [
+        {
+          "type": "GHSA",
+          "value": "GHSA-nvd-fallback"
+        },
+        {
+          "type": "CVE",
+          "value": "CVE-2026-0002"
+        }
+      ]
+    },
+    "security_vulnerability": {
+      "package": {
+        "name": "left-pad",
+        "ecosystem": "npm"
+      },
+      "severity": "high",
+      "first_patched_version": {
+        "identifier": "1.1.4"
+      }
+    }
+  },
+  {
+    "number": 103,
+    "dependency": {
+      "manifest_path": "package-lock.json",
+      "package": {
+        "name": "mystery-package",
+        "ecosystem": "npm"
+      }
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-manual-triage",
+      "severity": "moderate",
+      "cvss": null,
+      "identifiers": [
+        {
+          "type": "GHSA",
+          "value": "GHSA-manual-triage"
+        }
+      ]
+    },
+    "security_vulnerability": {
+      "package": {
+        "name": "mystery-package",
+        "ecosystem": "npm"
+      },
+      "severity": "moderate",
+      "first_patched_version": null
+    }
+  }
+]
+

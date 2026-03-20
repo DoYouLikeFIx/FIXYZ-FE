@@ -1,0 +1,21 @@
+{
+  "CVE-2026-0002": {
+    "vulnerabilities": [
+      {
+        "cve": {
+          "metrics": {
+            "cvssMetricV31": [
+              {
+                "cvssData": {
+                  "baseScore": 7.4,
+                  "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:L"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
+

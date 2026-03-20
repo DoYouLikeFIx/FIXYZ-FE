@@ -28,10 +28,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
 
@@ -59,7 +59,7 @@ jobs:
       - name: Restore dedupe state (GitHub 10m window)
         id: dedupe_restore
         if: steps.config.outputs.configured == 'true'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           key: ${{ steps.payload.outputs.cache_key }}
           path: .tmp/mm-dedupe/${{ steps.payload.outputs.dedupe_hash }}/${{ steps.payload.outputs.window_bucket_10m }}/marker.txt
@@ -106,7 +106,7 @@ jobs:
 
       - name: Save dedupe state cache
         if: steps.config.outputs.configured == 'true' && steps.suppression.outputs.skip_post == 'false' && steps.post.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           key: ${{ steps.payload.outputs.cache_key }}
           path: ${{ steps.dedupe_marker.outputs.marker_path }}
@@ -137,7 +137,7 @@ jobs:
 
       - name: Upload validation artifacts (retention >= 90 days)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: webhook-validation-github-${{ github.run_id }}
           path: .tmp/webhook-validation/
