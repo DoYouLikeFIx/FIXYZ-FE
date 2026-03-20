@@ -217,6 +217,92 @@ async function requestJson(url, token) {
   throw lastError || new Error(`Request failed for ${url}`);
 }
 
+function extractNextLink(linkHeaderValue) {
+  const linkHeader = normalizeText(linkHeaderValue, "");
+  if (!linkHeader) {
+    return null;
+  }
+
+  for (const segment of linkHeader.split(",")) {
+    const trimmed = segment.trim();
+    const match = trimmed.match(/^<([^>]+)>;\s*rel="([^"]+)"$/);
+    if (match && match[2] === "next") {
+      return match[1];
+    }
+  }
+
+  return null;
+}
+
+async function requestJsonWithHeaders(url, token) {
+  const isGitHubRequest = url.startsWith(GITHUB_API_URL);
+  const headers = {
+    Accept: isGitHubRequest ? "application/vnd.github+json" : "application/json",
+    "User-Agent": "fixyz-supply-chain-baseline",
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  if (isGitHubRequest) {
+    headers["X-GitHub-Api-Version"] = GITHUB_API_VERSION;
+  }
+
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    const abortController = new AbortController();
+    const timeoutHandle = setTimeout(() => abortController.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, {
+        headers,
+        signal: abortController.signal,
+      });
+      const text = await response.text();
+      const payload = parseResponsePayload(text, response.headers.get("content-type"));
+
+      if (!response.ok) {
+        const error = new Error(
+          `${response.status} ${response.statusText} while requesting ${url}: ${extractErrorDetail(payload, text)}`,
+        );
+        error.status = response.status;
+        error.payload = payload;
+        error.responseHeaders = response.headers;
+        throw error;
+      }
+
+      return {
+        payload:
+          payload === null || payload === undefined || payload === ""
+            ? {}
+            : payload,
+        headers: response.headers,
+      };
+    } catch (error) {
+      lastError =
+        error.name === "AbortError"
+          ? Object.assign(
+              new Error(`Request timed out after ${REQUEST_TIMEOUT_MS}ms while requesting ${url}`),
+              { name: "AbortError" },
+            )
+          : error;
+
+      if (attempt < REQUEST_MAX_ATTEMPTS && shouldRetryRequest(lastError)) {
+        await sleep(getRetryDelayMs(attempt));
+        continue;
+      }
+
+      throw lastError;
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+  }
+
+  throw lastError || new Error(`Request failed for ${url}`);
+}
+
 async function loadDependabotAlerts(repoSlug, token) {
   const fixturePath = normalizeText(process.env.DEPENDABOT_ALERTS_FIXTURE);
   if (fixturePath) {
@@ -228,23 +314,15 @@ async function loadDependabotAlerts(repoSlug, token) {
   }
 
   const alerts = [];
-  let page = 1;
+  let nextUrl = new URL(`${GITHUB_API_URL}/repos/${repoSlug}/dependabot/alerts`);
+  nextUrl.searchParams.set("state", "open");
+  nextUrl.searchParams.set("per_page", "100");
 
-  while (true) {
-    const url = new URL(`${GITHUB_API_URL}/repos/${repoSlug}/dependabot/alerts`);
-    url.searchParams.set("state", "open");
-    url.searchParams.set("per_page", "100");
-    url.searchParams.set("page", String(page));
-
-    const response = await requestJson(url.toString(), token);
-    const pageItems = Array.isArray(response) ? response : [];
+  while (nextUrl) {
+    const { payload, headers } = await requestJsonWithHeaders(nextUrl.toString(), token);
+    const pageItems = Array.isArray(payload) ? payload : [];
     alerts.push(...pageItems);
-
-    if (pageItems.length < 100) {
-      break;
-    }
-
-    page += 1;
+    nextUrl = extractNextLink(headers.get("link"));
   }
 
   return alerts;

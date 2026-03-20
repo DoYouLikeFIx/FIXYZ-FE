@@ -744,6 +744,60 @@ test("run-security-baseline retries transient NVD failures before succeeding", a
   });
 });
 
+test("run-security-baseline follows Dependabot cursor pagination without using the page parameter", async () => {
+  const repoContext = getRepoContext();
+  const requests = [];
+
+  await withHttpServer((request, response) => {
+    const requestUrl = new URL(request.url, "http://127.0.0.1");
+    requests.push({
+      pathname: requestUrl.pathname,
+      searchParams: new URLSearchParams(requestUrl.searchParams.toString()),
+    });
+
+    if (requestUrl.searchParams.has("page")) {
+      response.writeHead(400, { "Content-Type": "text/plain" });
+      response.end("page query is not supported");
+      return;
+    }
+
+    if (requestUrl.searchParams.get("after") === "cursor-1") {
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end("[]");
+      return;
+    }
+
+    response.writeHead(200, {
+      "Content-Type": "application/json",
+      Link: `<http://127.0.0.1:${response.socket.localPort}${requestUrl.pathname}?state=open&per_page=100&after=cursor-1>; rel="next"`,
+    });
+    response.end("[]");
+  }, async ({ baseUrl }) => {
+    const { result, outputRoot } = await runBaselineAsync({
+      alertsPayload: [],
+      exceptionRecords: [],
+      evidenceRunId: "cursor-pagination",
+      useAlertsFixture: false,
+      extraEnv: {
+        ALERTS_TOKEN: "integration-test-token",
+        GITHUB_API_URL: baseUrl,
+        REQUEST_MAX_ATTEMPTS: "1",
+        REQUEST_RETRY_BASE_MS: "1",
+      },
+    });
+
+    assert.equal(result.status, 0);
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].searchParams.has("page"), false);
+    assert.equal(requests[1].searchParams.has("page"), false);
+    assert.equal(requests[1].searchParams.get("after"), "cursor-1");
+
+    const summary = readJson(path.join(outputRoot, `scan-summary-${repoContext.repoKey}.json`));
+    assert.equal(summary.summary.blockingFindings, 0);
+    assert.equal(summary.summary.status, "pass");
+  });
+});
+
 test("run-security-baseline retains evidence when the exception registry JSON is invalid", () => {
   const repoContext = getRepoContext();
   const { result, outputRoot } = runBaseline({

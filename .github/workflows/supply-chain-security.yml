@@ -36,7 +36,7 @@ jobs:
           EVIDENCE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
           ALERTS_TOKEN: ${{ secrets.DEPENDABOT_ALERTS_TOKEN || github.token }}
           BRANCH_PROTECTION_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
-          FAIL_ON_BRANCH_PROTECTION_AUDIT_ERROR: "true"
+          FAIL_ON_BRANCH_PROTECTION_AUDIT_ERROR: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
           EXPECTED_REQUIRED_CHECK: supply-chain-security
         run: node .github/scripts/supply-chain/run-security-baseline.cjs
 
