@@ -1,4 +1,7 @@
 import { api, clearCsrfToken, fetchCsrfToken } from '@/lib/axios';
+import {
+  type RecoveryChallengeFailClosedTelemetryEvent,
+} from '@/lib/recovery-challenge';
 import type {
   LoginChallenge,
   LoginRequest,
@@ -68,6 +71,10 @@ const createFormBody = (
   payload: Record<string, string>,
 ) => new URLSearchParams(payload);
 
+const RECOVERY_CHALLENGE_FAIL_CLOSED_PATH =
+  '/api/v1/auth/password/forgot/challenge/fail-closed';
+const CSRF_PARAMETER_NAME = '_csrf';
+
 const createCompatMember = (payload: AuthMutationResponse): Member => ({
   memberUuid: payload.memberUuid ?? String(payload.memberId ?? ''),
   email: payload.email,
@@ -76,6 +83,49 @@ const createCompatMember = (payload: AuthMutationResponse): Member => ({
   totpEnrolled: payload.totpEnrolled ?? false,
   accountId: payload.accountId ?? undefined,
 });
+
+export const sendPasswordRecoveryChallengeFailClosedTelemetry = async (
+  event: RecoveryChallengeFailClosedTelemetryEvent,
+) => {
+  const csrf = await fetchCsrfToken();
+  const payload: Record<string, string> = {
+    reason: event.payload.reason,
+    surface: event.payload.surface,
+    [CSRF_PARAMETER_NAME]: csrf.csrfToken,
+  };
+  if (typeof event.payload.challengeIssuedAtEpochMs === 'number') {
+    payload.challengeIssuedAtEpochMs = String(event.payload.challengeIssuedAtEpochMs);
+  }
+  const body = createFormBody(payload);
+
+  if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+    const sent = navigator.sendBeacon(RECOVERY_CHALLENGE_FAIL_CLOSED_PATH, body);
+    if (sent) {
+      return;
+    }
+  }
+
+  if (typeof globalThis.fetch === 'function') {
+    await globalThis.fetch(RECOVERY_CHALLENGE_FAIL_CLOSED_PATH, {
+      method: 'POST',
+      credentials: 'include',
+      keepalive: true,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      },
+      body: body.toString(),
+    });
+    return;
+  }
+
+  await api.post(
+    RECOVERY_CHALLENGE_FAIL_CLOSED_PATH,
+    body,
+    {
+      _skipAuthHandling: true,
+    },
+  );
+};
 
 export const fetchSession = async (): Promise<Member> => {
   const response = await api.get<Member>('/api/v1/auth/session', {
