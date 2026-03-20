@@ -164,7 +164,7 @@ export function ForgotPasswordForm({
         disabled={
           isSubmitting ||
           isBootstrappingChallenge ||
-          (challengeState?.kind === 'proof-of-work' && challengeState?.solveStatus === 'solving')
+          (challengeState?.kind === 'proof-of-work' && challengeState?.solveStatus !== 'solved')
         }
         type="submit"
       >
