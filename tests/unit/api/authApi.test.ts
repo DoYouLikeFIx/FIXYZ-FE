@@ -401,6 +401,46 @@ describe('auth api', () => {
     consoleWarn.mockRestore();
   });
 
+  it('falls back to axios form posting when sendBeacon and fetch are unavailable', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    Object.defineProperty(window.navigator, 'sendBeacon', {
+      configurable: true,
+      value: undefined,
+    });
+    vi.stubGlobal('fetch', undefined);
+    mockFetchCsrfToken.mockResolvedValue({
+      csrfToken: 'csrf-telemetry',
+      headerName: 'X-CSRF-TOKEN',
+    });
+    mockPost.mockResolvedValue({ status: 204, data: null });
+
+    reportRecoveryChallengeFailClosed(
+      'unknown-version',
+      {
+        challengeIssuedAtEpochMs: 1_710_000_000_000,
+      },
+      {
+        transport: sendPasswordRecoveryChallengeFailClosedTelemetry,
+      },
+    );
+
+    await vi.waitFor(() => {
+      expect(mockPost).toHaveBeenCalledTimes(1);
+    });
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/auth/password/forgot/challenge/fail-closed',
+      'reason=unknown-version&surface=forgot-password-web&_csrf=csrf-telemetry&challengeIssuedAtEpochMs=1710000000000',
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        },
+        _skipAuthHandling: true,
+      },
+    );
+    vi.unstubAllGlobals();
+    consoleWarn.mockRestore();
+  });
+
   it('prefers the shared auth telemetry sink over the transport bridge when one is installed', async () => {
     const sendBeacon = createSendBeaconMock(true);
     const sink = vi.fn();
