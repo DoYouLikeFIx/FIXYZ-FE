@@ -93,14 +93,44 @@ export interface PasswordForgotResponse {
   recovery: PasswordRecoveryMetadata;
 }
 
-export interface PasswordRecoveryChallengeRequest {
-  email: string;
-}
-
-export interface PasswordRecoveryChallengeResponse {
+export interface PasswordRecoveryChallengeLegacyResponse {
   challengeToken: string;
   challengeType: string;
   challengeTtlSeconds: number;
+}
+
+export interface PasswordRecoveryChallengeProofOfWorkPayload {
+  kind: 'proof-of-work';
+  proofOfWork: {
+    algorithm: 'SHA-256';
+    seed: string;
+    difficultyBits: number;
+    answerFormat: 'nonce-decimal';
+    inputTemplate: '{seed}:{nonce}';
+    inputEncoding: 'utf-8';
+    successCondition: {
+      type: 'leading-zero-bits';
+      minimum: number;
+    };
+  };
+}
+
+export interface PasswordRecoveryChallengeV2Response
+  extends PasswordRecoveryChallengeLegacyResponse {
+  challengeContractVersion: 2;
+  challengeId: string;
+  challengeType: 'proof-of-work';
+  challengeIssuedAtEpochMs: number;
+  challengeExpiresAtEpochMs: number;
+  challengePayload: PasswordRecoveryChallengeProofOfWorkPayload;
+}
+
+export type PasswordRecoveryChallengeResponse =
+  | PasswordRecoveryChallengeLegacyResponse
+  | PasswordRecoveryChallengeV2Response;
+
+export interface PasswordRecoveryChallengeRequest {
+  email: string;
 }
 
 export interface PasswordResetRequest {

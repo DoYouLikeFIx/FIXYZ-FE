@@ -232,7 +232,11 @@ const toPresentation = (
   semantic: template.semantic,
   recoveryAction: template.recoveryAction,
   message:
-    template.semantic === 'password-reset-rate-limited' && options?.retryAfterSeconds !== undefined
+    (
+      template.semantic === 'password-reset-rate-limited' ||
+      template.semantic === 'recovery-challenge-bootstrap-unavailable' ||
+      template.semantic === 'recovery-challenge-verify-unavailable'
+    ) && options?.retryAfterSeconds !== undefined
       ? `${template.message} ${options.retryAfterSeconds}초 후 다시 시도해 주세요.`
       : template.semantic === 'unknown' && options?.traceId
       ? `${template.message} ${SUPPORT_REFERENCE_LABEL}: ${options.traceId}`
