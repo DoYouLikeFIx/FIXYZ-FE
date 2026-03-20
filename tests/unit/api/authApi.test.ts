@@ -40,7 +40,10 @@ const memberFixture: Member = {
 };
 
 const createSendBeaconMock = (result: boolean) =>
-  vi.fn((..._args: Parameters<Navigator['sendBeacon']>) => result);
+  vi.fn((...args: Parameters<Navigator['sendBeacon']>) => {
+    void args;
+    return result;
+  });
 
 describe('auth api', () => {
   beforeEach(() => {

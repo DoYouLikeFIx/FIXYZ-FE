@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useController, useForm } from 'react-hook-form';
@@ -106,6 +106,7 @@ export const useForgotPasswordPageController = () => {
     clearActiveChallenge();
     setErrorMessage(recoveryChallengeFailClosedMessage(reason));
   };
+  const failClosedChallengeEvent = useEffectEvent(failClosedChallenge);
 
   const solveActiveProofOfWork = async (session: RecoveryChallengeSession) => {
     if (session.kind !== 'proof-of-work') {
@@ -228,14 +229,14 @@ export const useForgotPasswordPageController = () => {
       const remainingMs = currentChallenge.challengeExpiresAtEpochMs - now;
 
       if (skewMs > CLOCK_SKEW_THRESHOLD_MS) {
-        failClosedChallenge('clock-skew', {
+        failClosedChallengeEvent('clock-skew', {
           challengeIssuedAtEpochMs: currentChallenge.challengeIssuedAtEpochMs,
         });
         return;
       }
 
       if (remainingMs <= EXPIRY_SAFETY_MARGIN_MS) {
-        failClosedChallenge('validity-untrusted', {
+        failClosedChallengeEvent('validity-untrusted', {
           challengeIssuedAtEpochMs: currentChallenge.challengeIssuedAtEpochMs,
         });
       }
