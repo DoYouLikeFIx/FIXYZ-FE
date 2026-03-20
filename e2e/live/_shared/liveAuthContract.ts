@@ -1,4 +1,4 @@
-import type { APIResponse, Page } from '@playwright/test';
+import type { APIRequestContext, APIResponse } from '@playwright/test';
 
 const LIVE_AUTH_HEALTH_TIMEOUT_MS = 5_000;
 const LIVE_FORGOT_PREREQUISITE_PATH = '/api/v1/auth/password/forgot';
@@ -26,9 +26,7 @@ const readResponsePayload = async (response: APIResponse) => {
 const createForgotPreflightEmail = () =>
   `live-preflight-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}@example.com`;
 
-const runLiveAuthContractHealthcheck = async (page: Page) => {
-  await page.goto('/login');
-  const request = page.request;
+const runLiveAuthContractHealthcheck = async (request: APIRequestContext) => {
   let response;
 
   try {
@@ -107,9 +105,9 @@ const runLiveAuthContractHealthcheck = async (page: Page) => {
   }
 };
 
-export const requireLiveAuthContractHealthy = async (page: Page) => {
+export const requireLiveAuthContractHealthy = async (request: APIRequestContext) => {
   if (!liveAuthContractHealthcheck) {
-    liveAuthContractHealthcheck = runLiveAuthContractHealthcheck(page).catch((error) => {
+    liveAuthContractHealthcheck = runLiveAuthContractHealthcheck(request).catch((error) => {
       liveAuthContractHealthcheck = null;
       throw error;
     });

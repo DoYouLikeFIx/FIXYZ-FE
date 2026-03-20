@@ -45,8 +45,8 @@ test.describe.serial('live backend auth', () => {
   const liveResetToken = process.env.LIVE_RESET_TOKEN?.trim();
   const liveResetPassword = process.env.LIVE_RESET_PASSWORD ?? DEFAULT_RESET_PASSWORD;
 
-  test.beforeEach(async ({ page }) => {
-    await requireLiveAuthContractHealthy(page);
+  test.beforeEach(async ({ request }) => {
+    await requireLiveAuthContractHealthy(request);
   });
 
   test('registers a fresh account through the live backend', async ({ page }) => {
