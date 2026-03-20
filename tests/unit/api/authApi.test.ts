@@ -39,6 +39,9 @@ const memberFixture: Member = {
   accountId: '1',
 };
 
+const createSendBeaconMock = (result: boolean) =>
+  vi.fn((..._args: Parameters<Navigator['sendBeacon']>) => result);
+
 describe('auth api', () => {
   beforeEach(() => {
     mockGet.mockReset();
@@ -319,7 +322,7 @@ describe('auth api', () => {
   });
 
   it('sends fail-closed telemetry with sendBeacon when available', async () => {
-    const sendBeacon = vi.fn(() => true);
+    const sendBeacon = createSendBeaconMock(true);
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     Object.defineProperty(window.navigator, 'sendBeacon', {
       configurable: true,
@@ -343,17 +346,22 @@ describe('auth api', () => {
     await vi.waitFor(() => {
       expect(sendBeacon).toHaveBeenCalledTimes(1);
     });
-    const [url, body] = sendBeacon.mock.calls[0] ?? [];
+    const firstCall = sendBeacon.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const [url, body] = firstCall!;
     expect(url).toBe('/api/v1/auth/password/forgot/challenge/fail-closed');
     expect(body).toBeInstanceOf(URLSearchParams);
-    expect((body as URLSearchParams).toString()).toBe(
+    if (!(body instanceof URLSearchParams)) {
+      throw new Error('Expected URLSearchParams beacon payload.');
+    }
+    expect(body.toString()).toBe(
       'reason=unknown-version&surface=forgot-password-web&_csrf=csrf-telemetry&challengeIssuedAtEpochMs=1710000000000',
     );
     consoleWarn.mockRestore();
   });
 
   it('falls back to keepalive fetch when sendBeacon declines the payload', async () => {
-    const sendBeacon = vi.fn(() => false);
+    const sendBeacon = createSendBeaconMock(false);
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     Object.defineProperty(window.navigator, 'sendBeacon', {
@@ -394,7 +402,7 @@ describe('auth api', () => {
   });
 
   it('prefers the shared auth telemetry sink over the transport bridge when one is installed', async () => {
-    const sendBeacon = vi.fn(() => true);
+    const sendBeacon = createSendBeaconMock(true);
     const sink = vi.fn();
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     Object.defineProperty(window.navigator, 'sendBeacon', {
@@ -444,7 +452,7 @@ describe('auth api', () => {
   });
 
   it('does not retain fail-closed transport state across independent report calls', async () => {
-    const sendBeacon = vi.fn(() => true);
+    const sendBeacon = createSendBeaconMock(true);
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     Object.defineProperty(window.navigator, 'sendBeacon', {
       configurable: true,
