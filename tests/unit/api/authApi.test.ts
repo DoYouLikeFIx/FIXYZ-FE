@@ -9,9 +9,11 @@ import {
   requestPasswordResetEmail,
   registerMember,
   resetPassword,
+  sendPasswordRecoveryChallengeFailClosedTelemetry,
   startLoginFlow,
   verifyLoginOtp,
 } from '@/api/authApi';
+import { reportRecoveryChallengeFailClosed } from '@/lib/recovery-challenge';
 import type { Member } from '@/types/auth';
 
 const mockGet = vi.fn();
@@ -37,12 +39,26 @@ const memberFixture: Member = {
   accountId: '1',
 };
 
+const createSendBeaconMock = (result: boolean) =>
+  vi.fn((...args: Parameters<Navigator['sendBeacon']>) => {
+    void args;
+    return result;
+  });
+
 describe('auth api', () => {
   beforeEach(() => {
     mockGet.mockReset();
     mockPost.mockReset();
     mockFetchCsrfToken.mockReset();
     mockClearCsrfToken.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    Object.defineProperty(window.navigator, 'sendBeacon', {
+      configurable: true,
+      value: undefined,
+    });
   });
 
   it('fetches the current session with auth-failure handling disabled', async () => {
@@ -306,6 +322,219 @@ describe('auth api', () => {
         _skipAuthHandling: true,
       },
     );
+  });
+
+  it('sends fail-closed telemetry with sendBeacon when available', async () => {
+    const sendBeacon = createSendBeaconMock(true);
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    Object.defineProperty(window.navigator, 'sendBeacon', {
+      configurable: true,
+      value: sendBeacon,
+    });
+    mockFetchCsrfToken.mockResolvedValue({
+      csrfToken: 'csrf-telemetry',
+      headerName: 'X-CSRF-TOKEN',
+    });
+
+    reportRecoveryChallengeFailClosed(
+      'unknown-version',
+      {
+        challengeIssuedAtEpochMs: 1_710_000_000_000,
+      },
+      {
+        transport: sendPasswordRecoveryChallengeFailClosedTelemetry,
+      },
+    );
+
+    await vi.waitFor(() => {
+      expect(sendBeacon).toHaveBeenCalledTimes(1);
+    });
+    const firstCall = sendBeacon.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const [url, body] = firstCall!;
+    expect(url).toBe('/api/v1/auth/password/forgot/challenge/fail-closed');
+    expect(body).toBeInstanceOf(URLSearchParams);
+    if (!(body instanceof URLSearchParams)) {
+      throw new Error('Expected URLSearchParams beacon payload.');
+    }
+    expect(body.toString()).toBe(
+      'reason=unknown-version&surface=forgot-password-web&_csrf=csrf-telemetry&challengeIssuedAtEpochMs=1710000000000',
+    );
+    consoleWarn.mockRestore();
+  });
+
+  it('falls back to keepalive fetch when sendBeacon declines the payload', async () => {
+    const sendBeacon = createSendBeaconMock(false);
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    Object.defineProperty(window.navigator, 'sendBeacon', {
+      configurable: true,
+      value: sendBeacon,
+    });
+    vi.stubGlobal('fetch', fetchMock as typeof fetch);
+    mockFetchCsrfToken.mockResolvedValue({
+      csrfToken: 'csrf-telemetry',
+      headerName: 'X-CSRF-TOKEN',
+    });
+
+    reportRecoveryChallengeFailClosed(
+      'clock-skew',
+      {},
+      {
+        transport: sendPasswordRecoveryChallengeFailClosedTelemetry,
+      },
+    );
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/auth/password/forgot/challenge/fail-closed',
+      {
+        method: 'POST',
+        credentials: 'include',
+        keepalive: true,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        },
+        body: 'reason=clock-skew&surface=forgot-password-web&_csrf=csrf-telemetry',
+      },
+    );
+    vi.unstubAllGlobals();
+    consoleWarn.mockRestore();
+  });
+
+  it('falls back to axios form posting when sendBeacon and fetch are unavailable', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    Object.defineProperty(window.navigator, 'sendBeacon', {
+      configurable: true,
+      value: undefined,
+    });
+    vi.stubGlobal('fetch', undefined);
+    mockFetchCsrfToken.mockResolvedValue({
+      csrfToken: 'csrf-telemetry',
+      headerName: 'X-CSRF-TOKEN',
+    });
+    mockPost.mockResolvedValue({ status: 204, data: null });
+
+    reportRecoveryChallengeFailClosed(
+      'unknown-version',
+      {
+        challengeIssuedAtEpochMs: 1_710_000_000_000,
+      },
+      {
+        transport: sendPasswordRecoveryChallengeFailClosedTelemetry,
+      },
+    );
+
+    await vi.waitFor(() => {
+      expect(mockPost).toHaveBeenCalledTimes(1);
+    });
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/auth/password/forgot/challenge/fail-closed',
+      'reason=unknown-version&surface=forgot-password-web&_csrf=csrf-telemetry&challengeIssuedAtEpochMs=1710000000000',
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        },
+        _skipAuthHandling: true,
+      },
+    );
+    vi.unstubAllGlobals();
+    consoleWarn.mockRestore();
+  });
+
+  it('prefers the shared auth telemetry sink over the transport bridge when one is installed', async () => {
+    const sendBeacon = createSendBeaconMock(true);
+    const sink = vi.fn();
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    Object.defineProperty(window.navigator, 'sendBeacon', {
+      configurable: true,
+      value: sendBeacon,
+    });
+    (
+      globalThis as typeof globalThis & {
+        __FIXYZ_AUTH_TELEMETRY__?: (event: unknown) => void;
+      }
+    ).__FIXYZ_AUTH_TELEMETRY__ = sink;
+
+    try {
+      reportRecoveryChallengeFailClosed(
+        'kind-mismatch',
+        {
+          challengeIssuedAtEpochMs: 1_710_000_000_000,
+        },
+        {
+          transport: sendPasswordRecoveryChallengeFailClosedTelemetry,
+        },
+      );
+
+      expect(sink).toHaveBeenCalledWith({
+        name: 'password-recovery-challenge-fail-closed',
+        payload: {
+          reason: 'kind-mismatch',
+          surface: 'forgot-password-web',
+          challengeIssuedAtEpochMs: 1_710_000_000_000,
+        },
+      });
+      expect(mockFetchCsrfToken).not.toHaveBeenCalled();
+      expect(sendBeacon).not.toHaveBeenCalled();
+      expect(mockPost).not.toHaveBeenCalledWith(
+        '/api/v1/auth/password/forgot/challenge/fail-closed',
+        expect.anything(),
+        expect.anything(),
+      );
+    } finally {
+      delete (
+        globalThis as typeof globalThis & {
+          __FIXYZ_AUTH_TELEMETRY__?: (event: unknown) => void;
+        }
+      ).__FIXYZ_AUTH_TELEMETRY__;
+      consoleWarn.mockRestore();
+    }
+  });
+
+  it('does not retain fail-closed transport state across independent report calls', async () => {
+    const sendBeacon = createSendBeaconMock(true);
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    Object.defineProperty(window.navigator, 'sendBeacon', {
+      configurable: true,
+      value: sendBeacon,
+    });
+    mockFetchCsrfToken.mockResolvedValue({
+      csrfToken: 'csrf-telemetry',
+      headerName: 'X-CSRF-TOKEN',
+    });
+
+    reportRecoveryChallengeFailClosed(
+      'unknown-version',
+      {},
+      {
+        transport: sendPasswordRecoveryChallengeFailClosedTelemetry,
+      },
+    );
+
+    await vi.waitFor(() => {
+      expect(sendBeacon).toHaveBeenCalledTimes(1);
+    });
+
+    sendBeacon.mockClear();
+    mockFetchCsrfToken.mockClear();
+
+    reportRecoveryChallengeFailClosed('clock-skew');
+
+    await vi.waitFor(() => {
+      expect(consoleWarn).toHaveBeenCalledWith(
+        'password recovery challenge fail-closed',
+        {
+          reason: 'clock-skew',
+          surface: 'forgot-password-web',
+        },
+      );
+    });
+    expect(sendBeacon).not.toHaveBeenCalled();
+    expect(mockFetchCsrfToken).not.toHaveBeenCalled();
+    consoleWarn.mockRestore();
   });
 
   it('returns the v2 proof-of-work recovery challenge contract as-is', async () => {

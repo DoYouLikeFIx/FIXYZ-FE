@@ -45,6 +45,7 @@ export type ParsedRecoveryChallengeBootstrap =
       kind: 'fail-closed';
       reason: RecoveryChallengeFailClosedReason;
       message: string;
+      challengeIssuedAtEpochMs?: number;
     };
 
 export type RecoveryChallengeSelection =
@@ -59,6 +60,7 @@ export type RecoveryChallengeSelection =
       kind: 'fail-closed';
       reason: RecoveryChallengeFailClosedReason;
       message: string;
+      challengeIssuedAtEpochMs?: number;
     };
 
 const LEGACY_KEYS = ['challengeToken', 'challengeType', 'challengeTtlSeconds'] as const;
@@ -233,17 +235,26 @@ export const recoveryChallengeFailClosedMessage = (
 
 export const RECOVERY_CHALLENGE_FAIL_CLOSED_EVENT = 'password-recovery-challenge-fail-closed';
 
-type RecoveryChallengeFailClosedTelemetryEvent = {
+export interface RecoveryChallengeFailClosedContext {
+  challengeIssuedAtEpochMs?: number;
+}
+
+export type RecoveryChallengeFailClosedTelemetryEvent = {
   name: typeof RECOVERY_CHALLENGE_FAIL_CLOSED_EVENT;
   payload: {
     reason: RecoveryChallengeFailClosedReason;
     surface: 'forgot-password-web';
+    challengeIssuedAtEpochMs?: number;
   };
 };
 
-type RecoveryChallengeFailClosedTelemetrySink = (
+export type RecoveryChallengeFailClosedTelemetrySink = (
   event: RecoveryChallengeFailClosedTelemetryEvent,
 ) => void;
+
+export type RecoveryChallengeFailClosedTelemetryTransport = (
+  event: RecoveryChallengeFailClosedTelemetryEvent,
+) => void | Promise<void>;
 
 const defaultRecoveryChallengeFailClosedTelemetrySink: RecoveryChallengeFailClosedTelemetrySink = (
   event,
@@ -255,13 +266,22 @@ const defaultRecoveryChallengeFailClosedTelemetrySink: RecoveryChallengeFailClos
 
 export const reportRecoveryChallengeFailClosed = (
   reason: RecoveryChallengeFailClosedReason,
+  context: RecoveryChallengeFailClosedContext = {},
+  options?: {
+    transport?: RecoveryChallengeFailClosedTelemetryTransport;
+  },
 ) => {
+  const telemetryPayload: RecoveryChallengeFailClosedTelemetryEvent['payload'] = {
+    reason,
+    surface: 'forgot-password-web',
+  };
+  if (typeof context.challengeIssuedAtEpochMs === 'number') {
+    telemetryPayload.challengeIssuedAtEpochMs = context.challengeIssuedAtEpochMs;
+  }
+
   const telemetryEvent: RecoveryChallengeFailClosedTelemetryEvent = {
     name: RECOVERY_CHALLENGE_FAIL_CLOSED_EVENT,
-    payload: {
-      reason,
-      surface: 'forgot-password-web',
-    },
+    payload: telemetryPayload,
   };
 
   if (
@@ -276,17 +296,56 @@ export const reportRecoveryChallengeFailClosed = (
     );
   }
 
+  const globalTelemetrySink = (
+    globalThis as typeof globalThis & {
+      __FIXYZ_AUTH_TELEMETRY__?: RecoveryChallengeFailClosedTelemetrySink;
+    }
+  ).__FIXYZ_AUTH_TELEMETRY__;
+
+  if (globalTelemetrySink) {
+    try {
+      globalTelemetrySink(telemetryEvent);
+    } catch {
+      // Telemetry must never break the recovery flow.
+    }
+    return;
+  }
+
+  if (options?.transport) {
+    void Promise.resolve(
+      options.transport(telemetryEvent),
+    ).catch(() => undefined);
+    return;
+  }
+
   try {
     defaultRecoveryChallengeFailClosedTelemetrySink(telemetryEvent);
   } catch {
     // Telemetry must never break the recovery flow.
   }
+};
 
-  (
-    globalThis as typeof globalThis & {
-      __FIXYZ_AUTH_TELEMETRY__?: RecoveryChallengeFailClosedTelemetrySink;
-    }
-  ).__FIXYZ_AUTH_TELEMETRY__?.(telemetryEvent);
+const resolveChallengeIssuedAtEpochMs = (
+  value: Record<string, unknown>,
+) => isNonNegativeInteger(value.challengeIssuedAtEpochMs)
+  ? value.challengeIssuedAtEpochMs
+  : undefined;
+
+const createFailClosedBootstrap = (
+  reason: RecoveryChallengeFailClosedReason,
+  challengeIssuedAtEpochMs?: number,
+): Extract<ParsedRecoveryChallengeBootstrap, { kind: 'fail-closed' }> => {
+  const bootstrap: Extract<ParsedRecoveryChallengeBootstrap, { kind: 'fail-closed' }> = {
+    kind: 'fail-closed',
+    reason,
+    message: recoveryChallengeFailClosedMessage(reason),
+  };
+
+  if (typeof challengeIssuedAtEpochMs === 'number') {
+    bootstrap.challengeIssuedAtEpochMs = challengeIssuedAtEpochMs;
+  }
+
+  return bootstrap;
 };
 
 export const parseRecoveryChallengeBootstrap = (
@@ -294,11 +353,7 @@ export const parseRecoveryChallengeBootstrap = (
   receivedAtEpochMs = Date.now(),
 ): ParsedRecoveryChallengeBootstrap => {
   if (!isRecord(value)) {
-    return {
-      kind: 'fail-closed',
-      reason: 'malformed-payload',
-      message: recoveryChallengeFailClosedMessage('malformed-payload'),
-    };
+    return createFailClosedBootstrap('malformed-payload');
   }
 
   const legacyChallenge = cloneLegacyChallenge(value);
@@ -313,11 +368,7 @@ export const parseRecoveryChallengeBootstrap = (
     const version = value.challengeContractVersion;
 
     if (version !== 2) {
-      return {
-        kind: 'fail-closed',
-        reason: 'unknown-version',
-        message: recoveryChallengeFailClosedMessage('unknown-version'),
-      };
+      return createFailClosedBootstrap('unknown-version', resolveChallengeIssuedAtEpochMs(value));
     }
 
     const payloadCandidate = isRecord(value.challengePayload) ? value.challengePayload : null;
@@ -327,11 +378,7 @@ export const parseRecoveryChallengeBootstrap = (
       isNonEmptyString(payloadCandidate.kind) &&
       payloadCandidate.kind !== 'proof-of-work'
     ) {
-      return {
-        kind: 'fail-closed',
-        reason: 'kind-mismatch',
-        message: recoveryChallengeFailClosedMessage('kind-mismatch'),
-      };
+      return createFailClosedBootstrap('kind-mismatch', resolveChallengeIssuedAtEpochMs(value));
     }
 
     if (
@@ -339,48 +386,28 @@ export const parseRecoveryChallengeBootstrap = (
       payloadCandidate &&
       payloadCandidate.kind === 'proof-of-work'
     ) {
-      return {
-        kind: 'fail-closed',
-        reason: 'kind-mismatch',
-        message: recoveryChallengeFailClosedMessage('kind-mismatch'),
-      };
+      return createFailClosedBootstrap('kind-mismatch', resolveChallengeIssuedAtEpochMs(value));
     }
 
     if (value.challengeType !== 'proof-of-work') {
-      return {
-        kind: 'fail-closed',
-        reason: 'mixed-shape',
-        message: recoveryChallengeFailClosedMessage('mixed-shape'),
-      };
+      return createFailClosedBootstrap('mixed-shape', resolveChallengeIssuedAtEpochMs(value));
     }
 
     const challenge = cloneProofOfWorkChallenge(value);
 
     if (challenge === null) {
-      return {
-        kind: 'fail-closed',
-        reason: 'malformed-payload',
-        message: recoveryChallengeFailClosedMessage('malformed-payload'),
-      };
+      return createFailClosedBootstrap('malformed-payload', resolveChallengeIssuedAtEpochMs(value));
     }
 
     const skewMs = Math.abs(receivedAtEpochMs - challenge.challengeIssuedAtEpochMs);
     const remainingMs = challenge.challengeExpiresAtEpochMs - receivedAtEpochMs;
 
     if (skewMs > CLOCK_SKEW_THRESHOLD_MS) {
-      return {
-        kind: 'fail-closed',
-        reason: 'clock-skew',
-        message: recoveryChallengeFailClosedMessage('clock-skew'),
-      };
+      return createFailClosedBootstrap('clock-skew', challenge.challengeIssuedAtEpochMs);
     }
 
     if (remainingMs <= EXPIRY_SAFETY_MARGIN_MS) {
-      return {
-        kind: 'fail-closed',
-        reason: 'validity-untrusted',
-        message: recoveryChallengeFailClosedMessage('validity-untrusted'),
-      };
+      return createFailClosedBootstrap('validity-untrusted', challenge.challengeIssuedAtEpochMs);
     }
 
     return {
@@ -395,18 +422,10 @@ export const parseRecoveryChallengeBootstrap = (
     Object.hasOwn(value, 'challengeExpiresAtEpochMs') ||
     Object.hasOwn(value, 'challengePayload')
   ) {
-    return {
-      kind: 'fail-closed',
-      reason: 'mixed-shape',
-      message: recoveryChallengeFailClosedMessage('mixed-shape'),
-    };
+    return createFailClosedBootstrap('mixed-shape', resolveChallengeIssuedAtEpochMs(value));
   }
 
-  return {
-    kind: 'fail-closed',
-    reason: 'malformed-payload',
-    message: recoveryChallengeFailClosedMessage('malformed-payload'),
-  };
+  return createFailClosedBootstrap('malformed-payload');
 };
 
 export const selectRecoveryChallengeSession = (
@@ -451,6 +470,7 @@ export const selectRecoveryChallengeSession = (
     kind: 'fail-closed',
     reason: 'validity-untrusted',
     message: recoveryChallengeFailClosedMessage('validity-untrusted'),
+    challengeIssuedAtEpochMs: next.challengeIssuedAtEpochMs,
   };
 };
 

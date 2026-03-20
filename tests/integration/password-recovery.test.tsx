@@ -14,6 +14,7 @@ const mockBeginTotpEnrollment = vi.fn();
 const mockConfirmTotpEnrollment = vi.fn();
 const mockRequestPasswordResetEmail = vi.fn();
 const mockRequestPasswordRecoveryChallenge = vi.fn();
+const mockSendPasswordRecoveryChallengeFailClosedTelemetry = vi.fn();
 const mockResetPassword = vi.fn();
 const mockBootstrapAuthenticatedTotpRebind = vi.fn();
 const mockBootstrapRecoveryTotpRebind = vi.fn();
@@ -38,6 +39,8 @@ vi.mock('@/api/authApi', () => ({
   requestPasswordResetEmail: (payload: unknown) => mockRequestPasswordResetEmail(payload),
   requestPasswordRecoveryChallenge: (payload: unknown) =>
     mockRequestPasswordRecoveryChallenge(payload),
+  sendPasswordRecoveryChallengeFailClosedTelemetry: (payload: unknown) =>
+    mockSendPasswordRecoveryChallengeFailClosedTelemetry(payload),
   resetPassword: (payload: unknown) => mockResetPassword(payload),
   bootstrapAuthenticatedTotpRebind: (payload: unknown) => mockBootstrapAuthenticatedTotpRebind(payload),
   bootstrapRecoveryTotpRebind: (payload: unknown) => mockBootstrapRecoveryTotpRebind(payload),
@@ -54,6 +57,7 @@ describe('password recovery routes', () => {
     mockConfirmTotpEnrollment.mockReset();
     mockRequestPasswordResetEmail.mockReset();
     mockRequestPasswordRecoveryChallenge.mockReset();
+    mockSendPasswordRecoveryChallengeFailClosedTelemetry.mockReset();
     mockResetPassword.mockReset();
     mockBootstrapAuthenticatedTotpRebind.mockReset();
     mockBootstrapRecoveryTotpRebind.mockReset();
@@ -334,6 +338,75 @@ describe('password recovery routes', () => {
       'If the account is eligible, a reset email will be sent.',
     );
     expect(screen.getByTestId('forgot-password-bootstrap-challenge')).toBeInTheDocument();
+    expect(screen.queryByTestId('forgot-password-challenge-state')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('forgot-password-challenge-answer')).not.toBeInTheDocument();
+  });
+
+  it('fails closed when replacement proof-of-work challenges collide on issued-at time with different ids', async () => {
+    const user = userEvent.setup();
+    const issuedAtEpochMs = Date.now();
+    const firstChallenge = {
+      challengeToken: 'challenge-token-v2-a',
+      challengeType: 'proof-of-work',
+      challengeTtlSeconds: 300,
+      challengeContractVersion: 2,
+      challengeId: 'challenge-id-v2-a',
+      challengeIssuedAtEpochMs: issuedAtEpochMs,
+      challengeExpiresAtEpochMs: issuedAtEpochMs + 300_000,
+      challengePayload: {
+        kind: 'proof-of-work',
+        proofOfWork: {
+          algorithm: 'SHA-256',
+          seed: 'seed-value-a',
+          difficultyBits: 1,
+          answerFormat: 'nonce-decimal',
+          inputTemplate: '{seed}:{nonce}',
+          inputEncoding: 'utf-8',
+          successCondition: {
+            type: 'leading-zero-bits',
+            minimum: 1,
+          },
+        },
+      },
+    };
+    const secondChallenge = {
+      ...firstChallenge,
+      challengeToken: 'challenge-token-v2-b',
+      challengeId: 'challenge-id-v2-b',
+      challengePayload: {
+        kind: 'proof-of-work',
+        proofOfWork: {
+          ...firstChallenge.challengePayload.proofOfWork,
+          seed: 'seed-value-b',
+        },
+      },
+    };
+
+    mockRequestPasswordRecoveryChallenge
+      .mockResolvedValueOnce(firstChallenge)
+      .mockResolvedValueOnce(secondChallenge);
+    mockRequestPasswordResetEmail.mockResolvedValue({
+      accepted: true,
+      message: 'If the account is eligible, a reset email will be sent.',
+      recovery: {
+        challengeEndpoint: '/api/v1/auth/password/forgot/challenge',
+        challengeMayBeRequired: true,
+      },
+    });
+
+    window.history.pushState({}, '', '/forgot-password');
+    render(<App />);
+
+    await user.type(await screen.findByTestId('forgot-password-email'), 'demo@fix.com');
+    await user.click(screen.getByTestId('forgot-password-submit'));
+    await user.click(await screen.findByTestId('forgot-password-bootstrap-challenge'));
+    expect(await screen.findByTestId('forgot-password-challenge-state')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('forgot-password-bootstrap-challenge'));
+
+    expect(await screen.findByTestId('forgot-password-error')).toHaveTextContent(
+      '보안 확인 유효성을 다시 확인할 수 없어 새 보안 확인이 필요합니다.',
+    );
     expect(screen.queryByTestId('forgot-password-challenge-state')).not.toBeInTheDocument();
     expect(screen.queryByTestId('forgot-password-challenge-answer')).not.toBeInTheDocument();
   });

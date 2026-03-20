@@ -125,6 +125,7 @@ describe('recovery challenge parsing', () => {
       kind: 'fail-closed',
       reason: 'kind-mismatch',
       message: recoveryChallengeFailClosedMessage('kind-mismatch'),
+      challengeIssuedAtEpochMs: 1710000000000,
     });
   });
 
@@ -158,7 +159,41 @@ describe('recovery challenge parsing', () => {
       kind: 'fail-closed',
       reason: 'unknown-version',
       message: recoveryChallengeFailClosedMessage('unknown-version'),
+      challengeIssuedAtEpochMs: 1710000000000,
     });
+  });
+
+  it('omits challengeIssuedAtEpochMs when an unsupported contract version has no authoritative timestamp', () => {
+    const parsed = parseRecoveryChallengeBootstrap({
+      challengeToken: 'challenge-token-v2',
+      challengeType: 'proof-of-work',
+      challengeTtlSeconds: 300,
+      challengeContractVersion: 3,
+      challengeId: 'challenge-id-v2',
+      challengeExpiresAtEpochMs: 1710000300000,
+      challengePayload: {
+        kind: 'proof-of-work',
+        proofOfWork: {
+          algorithm: 'SHA-256',
+          seed: 'seed-value',
+          difficultyBits: 1,
+          answerFormat: 'nonce-decimal',
+          inputTemplate: '{seed}:{nonce}',
+          inputEncoding: 'utf-8',
+          successCondition: {
+            type: 'leading-zero-bits',
+            minimum: 1,
+          },
+        },
+      },
+    });
+
+    expect(parsed).toEqual({
+      kind: 'fail-closed',
+      reason: 'unknown-version',
+      message: recoveryChallengeFailClosedMessage('unknown-version'),
+    });
+    expect(Object.hasOwn(parsed, 'challengeIssuedAtEpochMs')).toBe(false);
   });
 
   it('fails closed when the receipt time differs from the authoritative issue time by more than 30 seconds', () => {
@@ -194,6 +229,7 @@ describe('recovery challenge parsing', () => {
       kind: 'fail-closed',
       reason: 'clock-skew',
       message: recoveryChallengeFailClosedMessage('clock-skew'),
+      challengeIssuedAtEpochMs: 1710000000000,
     });
   });
 
@@ -230,6 +266,7 @@ describe('recovery challenge parsing', () => {
       kind: 'fail-closed',
       reason: 'validity-untrusted',
       message: recoveryChallengeFailClosedMessage('validity-untrusted'),
+      challengeIssuedAtEpochMs: 1710000000000,
     });
   });
 
@@ -296,6 +333,7 @@ describe('recovery challenge parsing', () => {
       kind: 'fail-closed',
       reason: 'validity-untrusted',
       message: recoveryChallengeFailClosedMessage('validity-untrusted'),
+      challengeIssuedAtEpochMs: 1710000000000,
     });
   });
 
