@@ -2,6 +2,7 @@ export interface ApiErrorPayload {
   code: string;
   message: string;
   detail: string;
+  details?: Record<string, unknown> | null;
   operatorCode?: string | null;
   retryAfterSeconds?: number | null;
   remainingAttempts?: number | null;

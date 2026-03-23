@@ -1416,6 +1416,62 @@ button:disabled {
   line-height: 1.55;
 }
 
+.market-order-ticker {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(240, 132, 0, 0.28);
+  background:
+    linear-gradient(180deg, rgba(255, 247, 237, 0.94) 0%, rgba(255, 241, 224, 0.9) 100%);
+}
+
+.market-order-ticker__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.market-order-ticker__title,
+.market-order-ticker__status,
+.market-order-ticker__label {
+  margin: 0;
+}
+
+.market-order-ticker__title {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #8f4b00;
+}
+
+.market-order-ticker__status {
+  margin-top: 0.25rem;
+  font-size: 0.88rem;
+  color: #6f5d4a;
+}
+
+.market-order-ticker__grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+}
+
+.market-order-ticker__cell {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.market-order-ticker__label {
+  font-size: 0.82rem;
+  color: #7d6852;
+}
+
+.market-order-ticker__cell strong {
+  font-size: 1rem;
+  color: #202734;
+}
+
 .external-order-recovery__empty {
   padding: 1rem;
   border: 1px dashed rgba(16, 26, 45, 0.12);
@@ -2151,6 +2207,291 @@ p {
   gap: 0.9rem;
 }
 
+.fix-dashboard-quote-ticker {
+  --ticker-accent: #f08400;
+  --ticker-accent-soft: rgba(240, 132, 0, 0.14);
+  --ticker-board-bg: #160b04;
+  --ticker-board-border: rgba(240, 132, 0, 0.22);
+  position: relative;
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.82rem;
+  overflow: hidden;
+  padding: 1rem 1.05rem;
+  border-radius: 1.2rem;
+  border: 1px solid rgba(240, 132, 0, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 28%),
+    linear-gradient(180deg, #2a1408 0%, #1b1008 100%);
+}
+
+.fix-dashboard-quote-ticker--delayed {
+  --ticker-accent: #cc8a00;
+  --ticker-accent-soft: rgba(204, 138, 0, 0.16);
+  --ticker-board-bg: #140f04;
+  --ticker-board-border: rgba(204, 138, 0, 0.22);
+  border-color: rgba(204, 138, 0, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 28%),
+    linear-gradient(180deg, #2d2209 0%, #171205 100%);
+}
+
+.fix-dashboard-quote-ticker--replay {
+  --ticker-accent: #456ec8;
+  --ticker-accent-soft: rgba(69, 110, 200, 0.14);
+  --ticker-board-bg: #09111d;
+  --ticker-board-border: rgba(69, 110, 200, 0.22);
+  border-color: rgba(69, 110, 200, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 28%),
+    linear-gradient(180deg, #121c31 0%, #0c1320 100%);
+}
+
+.fix-dashboard-quote-ticker--neutral {
+  --ticker-accent: #9aa6bd;
+  --ticker-accent-soft: rgba(154, 166, 189, 0.14);
+  --ticker-board-bg: #0e131b;
+  --ticker-board-border: rgba(154, 166, 189, 0.22);
+  border-color: rgba(154, 166, 189, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 28%),
+    linear-gradient(180deg, #18202d 0%, #0f151e 100%);
+}
+
+.fix-dashboard-quote-ticker__topline,
+.fix-dashboard-quote-ticker__board,
+.fix-dashboard-quote-ticker__symbol-row,
+.fix-dashboard-quote-ticker__price-row,
+.fix-dashboard-quote-ticker__status-panel,
+.fix-dashboard-quote-ticker__chart-axis,
+.fix-dashboard-quote-ticker__chart-scale {
+  display: flex;
+  gap: 0.8rem;
+}
+
+.fix-dashboard-quote-ticker__topline,
+.fix-dashboard-quote-ticker__board,
+.fix-dashboard-quote-ticker__chart-axis,
+.fix-dashboard-quote-ticker__chart-scale {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fix-dashboard-quote-ticker__board-id,
+.fix-dashboard-quote-ticker__status-note,
+.fix-dashboard-quote-ticker__chart-axis span {
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fix-dashboard-quote-ticker__board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.9rem;
+  padding: 0.9rem;
+  border-radius: 1rem;
+  border: 1px solid var(--ticker-board-border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0) 100%),
+    var(--ticker-board-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.fix-dashboard-quote-ticker__price-panel {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.fix-dashboard-quote-ticker__eyebrow,
+.fix-dashboard-quote-ticker__meta-label {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fix-dashboard-quote-ticker__symbol-row {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.fix-dashboard-quote-ticker__market-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.fix-dashboard-quote-ticker__preview-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: var(--ticker-accent-soft);
+  color: var(--ticker-accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fix-dashboard-quote-ticker__price-row {
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.fix-dashboard-quote-ticker__symbol,
+.fix-dashboard-quote-ticker__price,
+.fix-dashboard-quote-ticker__meta-item strong {
+  color: #ffffff;
+}
+
+.fix-dashboard-quote-ticker__symbol {
+  font-size: 1.02rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.fix-dashboard-quote-ticker__price-label {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fix-dashboard-quote-ticker__price {
+  font-size: clamp(1.7rem, 3vw, 2.2rem);
+  font-weight: 800;
+  color: var(--ticker-accent);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.fix-dashboard-quote-ticker__status-panel {
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.5rem;
+  text-align: right;
+}
+
+.fix-dashboard-quote-ticker__badge,
+.fix-dashboard-quote-ticker__state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+}
+
+.fix-dashboard-quote-ticker__badge {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--ticker-board-border);
+  color: var(--ticker-accent);
+  font-weight: 800;
+}
+
+.fix-dashboard-quote-ticker__state {
+  background: var(--ticker-accent-soft);
+  color: var(--ticker-accent);
+  font-weight: 700;
+}
+
+.fix-dashboard-quote-ticker__chart {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.fix-dashboard-quote-ticker__freshness-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.fix-dashboard-quote-ticker__freshness-item {
+  display: grid;
+  gap: 0.38rem;
+  min-height: 5.5rem;
+  padding: 0.82rem 0.85rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.01) 100%),
+    rgba(255, 255, 255, 0.02);
+}
+
+.fix-dashboard-quote-ticker__freshness-item strong {
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 800;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.fix-dashboard-quote-ticker__freshness-helper,
+.fix-dashboard-quote-ticker__chart-footnote {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.fix-dashboard-quote-ticker__chart-footnote {
+  margin: 0;
+  padding: 0 0.15rem;
+}
+
+.fix-dashboard-quote-ticker__meta-table {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.fix-dashboard-quote-ticker__meta-item {
+  display: grid;
+  gap: 0.32rem;
+  min-height: 4.25rem;
+  padding: 0.72rem 0.75rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.fix-dashboard-quote-ticker__meta-item strong {
+  font-size: 0.9rem;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+@keyframes dashboardTickerPulse {
+  0%,
+  100% {
+    opacity: 0.82;
+    transform: scaleY(0.96);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
 .account-summary-cell {
   display: grid;
   gap: 0.35rem;
@@ -2219,6 +2560,17 @@ p {
   .account-summary-grid,
   .account-history-row {
     grid-template-columns: 1fr;
+  }
+
+  .fix-dashboard-quote-ticker__board,
+  .fix-dashboard-quote-ticker__meta-table,
+  .fix-dashboard-quote-ticker__freshness-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .fix-dashboard-quote-ticker__status-panel {
+    align-items: flex-start;
+    text-align: left;
   }
 
   .account-dashboard-hero {

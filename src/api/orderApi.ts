@@ -12,7 +12,7 @@ const createOrderSessionBody = (payload: ExternalOrderRequest) => ({
   accountId: payload.accountId,
   symbol: payload.symbol,
   side: payload.side,
-  orderType: 'LIMIT',
+  orderType: payload.orderType,
   qty: payload.quantity,
   price: payload.price,
 });

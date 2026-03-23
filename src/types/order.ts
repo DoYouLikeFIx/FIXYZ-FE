@@ -25,11 +25,14 @@ export type KnownOrderFailureReason =
   | 'OTP_EXCEEDED'
   | 'MARKET_CLOSED'
   | 'ESCALATED_MANUAL_REVIEW';
+export type KnownQuoteSourceMode = 'LIVE' | 'DELAYED' | 'REPLAY';
 
 export type OrderSessionStatus = KnownOrderSessionStatus | (string & {});
 export type OrderAuthorizationReason = KnownOrderAuthorizationReason | (string & {});
 export type OrderExecutionResult = KnownOrderExecutionResult | (string & {});
 export type OrderFailureReason = KnownOrderFailureReason | (string & {});
+export type OrderType = 'LIMIT' | 'MARKET' | (string & {});
+export type QuoteSourceMode = KnownQuoteSourceMode | (string & {});
 export type OrderFlowStep = 'A' | 'B' | 'C' | 'COMPLETE';
 
 export interface OrderSessionResponse {
@@ -41,14 +44,20 @@ export interface OrderSessionResponse {
   accountId: number;
   symbol: string;
   side: string;
-  orderType: string;
+  orderType: OrderType;
   qty: number;
   price: number | null;
+  quoteSnapshotId?: string | null;
+  quoteAsOf?: string | null;
+  quoteSourceMode?: QuoteSourceMode | null;
+  preTradePrice?: number | null;
   executionResult?: OrderExecutionResult | null;
   executedQty?: number | null;
   leavesQty?: number | null;
   executedPrice?: number | null;
   externalOrderId?: string | null;
+  externalSyncStatus?: string | null;
+  idempotent?: boolean | null;
   failureReason?: OrderFailureReason | null;
   executedAt?: string | null;
   canceledAt?: string | null;

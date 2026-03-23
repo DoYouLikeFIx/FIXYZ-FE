@@ -74,6 +74,17 @@ const createFormBody = (
 const RECOVERY_CHALLENGE_FAIL_CLOSED_PATH =
   '/api/v1/auth/password/forgot/challenge/fail-closed';
 const CSRF_PARAMETER_NAME = '_csrf';
+const MFA_BOOTSTRAP_TIMEOUT_MS = 30_000;
+
+const resolveApiUrl = (path: string) => {
+  const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+
+  if (!configuredBaseUrl) {
+    return path;
+  }
+
+  return new URL(path, configuredBaseUrl).toString();
+};
 
 const createCompatMember = (payload: AuthMutationResponse): Member => ({
   memberUuid: payload.memberUuid ?? String(payload.memberId ?? ''),
@@ -99,23 +110,10 @@ export const sendPasswordRecoveryChallengeFailClosedTelemetry = async (
   const body = createFormBody(payload);
 
   if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-    const sent = navigator.sendBeacon(RECOVERY_CHALLENGE_FAIL_CLOSED_PATH, body);
+    const sent = navigator.sendBeacon(resolveApiUrl(RECOVERY_CHALLENGE_FAIL_CLOSED_PATH), body);
     if (sent) {
       return;
     }
-  }
-
-  if (typeof globalThis.fetch === 'function') {
-    await globalThis.fetch(RECOVERY_CHALLENGE_FAIL_CLOSED_PATH, {
-      method: 'POST',
-      credentials: 'include',
-      keepalive: true,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-      },
-      body: body.toString(),
-    });
-    return;
   }
 
   await api.post(
@@ -204,6 +202,7 @@ export const beginTotpEnrollment = async (
     '/api/v1/members/me/totp/enroll',
     payload,
     {
+      timeout: MFA_BOOTSTRAP_TIMEOUT_MS,
       _skipAuthHandling: true,
     },
   );
@@ -282,6 +281,7 @@ export const bootstrapAuthenticatedTotpRebind = async (
     '/api/v1/members/me/totp/rebind',
     payload,
     {
+      timeout: MFA_BOOTSTRAP_TIMEOUT_MS,
       _skipAuthHandling: true,
     },
   );
@@ -296,6 +296,7 @@ export const bootstrapRecoveryTotpRebind = async (
     '/api/v1/auth/mfa-recovery/rebind',
     payload,
     {
+      timeout: MFA_BOOTSTRAP_TIMEOUT_MS,
       _skipAuthHandling: true,
     },
   );

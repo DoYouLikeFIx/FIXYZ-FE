@@ -71,6 +71,18 @@
       "title": "거래소가 주문을 거절했습니다",
       "message": "주문이 체결 완료로 처리되지 않았습니다. 주문 조건을 확인한 뒤 다시 시도해 주세요.",
       "nextStep": "수량, 가격, 장 상태를 확인한 뒤 다시 주문해 주세요."
+    },
+    {
+      "codes": ["VALIDATION-003", "VALIDATION_003"],
+      "operatorCode": "STALE_QUOTE",
+      "userMessageKey": "error.quote.stale",
+      "reasonCategory": "validation",
+      "semantic": "stale-quote",
+      "recoveryAction": "refresh-valuation",
+      "severity": "warning",
+      "title": "호가 기준 시각을 다시 확인해 주세요",
+      "message": "시장가 주문 사전검증에 사용한 시세가 최신이 아닙니다. 아직 다음 단계로 진행하지 말고 시세 기준 시각과 source mode를 확인해 주세요.",
+      "nextStep": "대시보드의 quoteAsOf와 source badge를 확인한 뒤 같은 주문을 다시 시작해 주세요."
     }
   ],
   "unknownFallback": {

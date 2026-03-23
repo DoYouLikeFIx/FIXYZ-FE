@@ -1,10 +1,10 @@
 import { ExternalOrderRecoverySection } from '@/components/order/ExternalOrderRecoverySection';
+import { useAuth } from '@/hooks/auth/useAuth';
 import { useOrderRecoveryController } from '@/hooks/order/useOrderRecoveryController';
 import { hasExternalOrderAccountId } from '@/order/external-order-recovery';
-import { useAuthStore } from '@/store/useAuthStore';
 
 export function OrderPage() {
-  const member = useAuthStore((state) => state.member);
+  const member = useAuth((state) => state.member);
   const hasOrderAccount = hasExternalOrderAccountId(member?.accountId);
   const orderRecovery = useOrderRecoveryController({
     accountId: member?.accountId,
@@ -33,6 +33,7 @@ export function OrderPage() {
         <ExternalOrderRecoverySection
           step={orderRecovery.step}
           feedbackMessage={orderRecovery.feedbackMessage}
+          staleQuoteGuidance={orderRecovery.staleQuoteGuidance}
           inlineError={orderRecovery.inlineError}
           errorReasonCategoryLabel={orderRecovery.errorReasonCategoryLabel}
           symbolValue={orderRecovery.symbolValue}
@@ -40,6 +41,7 @@ export function OrderPage() {
           symbolError={orderRecovery.symbolError}
           quantityError={orderRecovery.quantityError}
           draftSummary={orderRecovery.draftSummary}
+          marketTicker={orderRecovery.marketTicker}
           canSubmit={orderRecovery.canSubmit}
           isInteractionLocked={orderRecovery.isInteractionLocked}
           isSubmitting={orderRecovery.isSubmitting}

@@ -2,7 +2,9 @@ export type ExternalOrderPresetId =
   | 'krx-buy-1'
   | 'krx-buy-2'
   | 'krx-buy-5'
-  | 'krx-buy-10';
+  | 'krx-buy-10'
+  | 'krx-market-buy-3';
+export type ExternalOrderType = 'LIMIT' | 'MARKET';
 
 export interface ExternalOrderPresetOption {
   id: ExternalOrderPresetId;
@@ -15,8 +17,9 @@ export interface ExternalOrderRequest {
   clOrdId: string;
   symbol: string;
   side: 'BUY' | 'SELL';
+  orderType: ExternalOrderType;
   quantity: number;
-  price: number;
+  price: number | null;
 }
 
 export interface ExternalOrderDraft {
@@ -32,8 +35,9 @@ export interface ExternalOrderFieldErrors {
 interface ExternalOrderPresetDefinition extends ExternalOrderPresetOption {
   symbol: string;
   side: 'BUY' | 'SELL';
+  orderType: ExternalOrderType;
   quantity: number;
-  price: number;
+  price: number | null;
 }
 
 const presetDefinitions: readonly ExternalOrderPresetDefinition[] = [
@@ -43,6 +47,7 @@ const presetDefinitions: readonly ExternalOrderPresetDefinition[] = [
     summary: '005930 · 1주 · 70,100원',
     symbol: '005930',
     side: 'BUY',
+    orderType: 'LIMIT',
     quantity: 1,
     price: 70_100,
   },
@@ -52,6 +57,7 @@ const presetDefinitions: readonly ExternalOrderPresetDefinition[] = [
     summary: '005930 · 2주 · 70,100원',
     symbol: '005930',
     side: 'BUY',
+    orderType: 'LIMIT',
     quantity: 2,
     price: 70_100,
   },
@@ -61,6 +67,7 @@ const presetDefinitions: readonly ExternalOrderPresetDefinition[] = [
     summary: '005930 · 5주 · 70,300원',
     symbol: '005930',
     side: 'BUY',
+    orderType: 'LIMIT',
     quantity: 5,
     price: 70_300,
   },
@@ -70,8 +77,19 @@ const presetDefinitions: readonly ExternalOrderPresetDefinition[] = [
     summary: '005930 · 10주 · 70,500원',
     symbol: '005930',
     side: 'BUY',
+    orderType: 'LIMIT',
     quantity: 10,
     price: 70_500,
+  },
+  {
+    id: 'krx-market-buy-3',
+    label: '시장가',
+    summary: '005930 · 3주 · 시장가',
+    symbol: '005930',
+    side: 'BUY',
+    orderType: 'MARKET',
+    quantity: 3,
+    price: null,
   },
 ] as const;
 
@@ -107,6 +125,18 @@ const getPresetDefinition = (
 ): ExternalOrderPresetDefinition =>
   presetDefinitions.find((preset) => preset.id === presetId)
   ?? presetDefinitions[0];
+
+const findMatchingPresetDefinition = (
+  symbol: string,
+  quantity: number | null,
+  orderType: ExternalOrderType,
+) =>
+  presetDefinitions.find(
+    (candidate) =>
+      candidate.symbol === symbol
+      && candidate.quantity === quantity
+      && candidate.orderType === orderType,
+  );
 
 export const normalizeExternalOrderSymbol = (symbol: string) =>
   symbol.replace(/\s+/g, '').trim();
@@ -187,47 +217,81 @@ export const draftFromPreset = (
   };
 };
 
+export const resolveExternalOrderTypeFromPresetId = (
+  presetId?: ExternalOrderPresetId | null,
+): ExternalOrderType =>
+  presetId ? getPresetDefinition(presetId).orderType : defaultPreset.orderType;
+
 export const matchPresetIdFromDraft = (
   draft: ExternalOrderDraft,
+  options?: { orderType?: ExternalOrderType | null },
 ): ExternalOrderPresetId | null => {
   const normalizedSymbol = normalizeExternalOrderSymbol(draft.symbol);
   const parsedQuantity = parseExternalOrderQuantity(draft.quantity);
-  const preset = presetDefinitions.find(
-    (candidate) =>
-      candidate.symbol === normalizedSymbol
-      && candidate.quantity === parsedQuantity,
+  const orderType = options?.orderType ?? 'LIMIT';
+
+  return findMatchingPresetDefinition(normalizedSymbol, parsedQuantity, orderType)?.id ?? null;
+};
+
+export const resolveExternalOrderDraftSelection = (
+  draft: ExternalOrderDraft,
+  currentOrderType: ExternalOrderType,
+): {
+  presetId: ExternalOrderPresetId | null;
+  orderType: ExternalOrderType;
+} => {
+  const normalizedSymbol = normalizeExternalOrderSymbol(draft.symbol);
+  const parsedQuantity = parseExternalOrderQuantity(draft.quantity);
+  const exactPreset = findMatchingPresetDefinition(
+    normalizedSymbol,
+    parsedQuantity,
+    currentOrderType,
   );
 
-  return preset?.id ?? null;
+  if (exactPreset) {
+    return {
+      presetId: exactPreset.id,
+      orderType: exactPreset.orderType,
+    };
+  }
+
+  return {
+    presetId: findMatchingPresetDefinition(normalizedSymbol, parsedQuantity, 'LIMIT')?.id ?? null,
+    orderType: 'LIMIT',
+  };
 };
 
 export const buildExternalOrderDraftSummary = (
   draft: ExternalOrderDraft,
+  options?: { orderType?: ExternalOrderType | null },
 ): string => {
   const normalizedSymbol = normalizeExternalOrderSymbol(draft.symbol);
   const parsedQuantity = parseExternalOrderQuantity(draft.quantity);
+  const orderType = options?.orderType ?? 'LIMIT';
   const symbolLabel =
     externalOrderSupportedSymbols[normalizedSymbol as keyof typeof externalOrderSupportedSymbols]?.name;
+  const summarySuffix = orderType === 'MARKET' ? ' · 시장가' : '';
 
   if (!normalizedSymbol && parsedQuantity === null) {
-    return '종목코드와 수량을 입력해 주세요.';
+    return `종목코드와 수량을 입력해 주세요.${orderType === 'MARKET' ? ' 시장가 주문으로 준비 중입니다.' : ''}`;
   }
 
   if (!normalizedSymbol) {
-    return `${parsedQuantity ?? '-'}주`;
+    return `${parsedQuantity ?? '-'}주${summarySuffix}`;
   }
 
   if (parsedQuantity === null) {
-    return `${normalizedSymbol}${symbolLabel ? ` · ${symbolLabel}` : ''}`;
+    return `${normalizedSymbol}${symbolLabel ? ` · ${symbolLabel}` : ''}${summarySuffix}`;
   }
 
-  return `${normalizedSymbol}${symbolLabel ? ` · ${symbolLabel}` : ''} · ${parsedQuantity}주`;
+  return `${normalizedSymbol}${symbolLabel ? ` · ${symbolLabel}` : ''} · ${parsedQuantity}주${summarySuffix}`;
 };
 
 export const buildExternalOrderRequest = (input: {
   accountId?: string;
   symbol: string;
   quantity: string;
+  orderType: ExternalOrderType;
 }): ExternalOrderRequest | null => {
   const resolvedAccountId = resolveExternalOrderAccountId(input.accountId);
   if (resolvedAccountId === null) {
@@ -242,12 +306,20 @@ export const buildExternalOrderRequest = (input: {
     return null;
   }
 
+  const orderType = input.orderType;
+  const matchedPreset = findMatchingPresetDefinition(normalizedSymbol, parsedQuantity, orderType);
+
+  if (orderType === 'MARKET' && matchedPreset?.orderType !== 'MARKET') {
+    return null;
+  }
+
   return {
     accountId: resolvedAccountId,
     clOrdId: createClOrdId(),
     symbol: normalizedSymbol,
-    side: symbolDefinition.side,
+    side: matchedPreset?.side ?? symbolDefinition.side,
+    orderType,
     quantity: parsedQuantity,
-    price: symbolDefinition.price,
+    price: orderType === 'MARKET' ? null : matchedPreset?.price ?? symbolDefinition.price,
   };
 };

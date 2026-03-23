@@ -15,9 +15,9 @@ import {
   NotificationContext,
   type NotificationContextValue,
 } from '@/context/notification-context';
+import { useAuth } from '@/hooks/auth/useAuth';
 import type { SessionExpiryEventPayload } from '@/types/auth';
 import type { NotificationItem } from '@/types/notification';
-import { useAuthStore } from '@/store/useAuthStore';
 
 const RECONNECT_DELAYS_MS = [3_000, 6_000, 12_000] as const;
 const NOTIFICATION_POLL_INTERVAL_MS = 15_000;
@@ -202,7 +202,7 @@ const resolveNotificationStreamUrl = () => {
 };
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
-  const authStatus = useAuthStore((state) => state.status);
+  const authStatus = useAuth((state) => state.status);
   const [state, dispatch] = useReducer(notificationReducer, initialNotificationState);
   const hydrationRequestIdRef = useRef(0);
 

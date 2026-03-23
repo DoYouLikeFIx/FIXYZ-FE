@@ -1,3 +1,5 @@
+export type QuoteSourceMode = 'LIVE' | 'DELAYED' | 'REPLAY' | (string & {});
+
 export interface AccountPosition {
   accountId: number;
   memberId: number;
@@ -9,6 +11,10 @@ export interface AccountPosition {
   availableBalance: number;
   currency: string;
   asOf: string;
+  marketPrice?: number | null;
+  quoteSnapshotId?: string | null;
+  quoteAsOf?: string | null;
+  quoteSourceMode?: QuoteSourceMode | null;
 }
 
 export interface AccountOrderHistoryItem {

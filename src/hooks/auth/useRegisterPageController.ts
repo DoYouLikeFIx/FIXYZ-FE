@@ -2,6 +2,7 @@ import { useState, type FormEventHandler } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { registerMember, startLoginFlow } from '@/api/authApi';
+import { useAuth } from '@/hooks/auth/useAuth';
 import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
 import { useRegisterFormState } from '@/hooks/auth/useRegisterFormState';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
@@ -11,11 +12,9 @@ import {
   buildTotpEnrollmentRedirect,
   resolveRedirectTarget,
 } from '@/router/navigation';
-import { useAuthStore } from '@/store/useAuthStore';
-
 export const useRegisterPageController = () => {
-  const clearReauthMessage = useAuthStore((state) => state.clearReauthMessage);
-  const startMfaChallenge = useAuthStore((state) => state.startMfaChallenge);
+  const clearReauthMessage = useAuth((state) => state.clearReauthMessage);
+  const startMfaChallenge = useAuth((state) => state.startMfaChallenge);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);

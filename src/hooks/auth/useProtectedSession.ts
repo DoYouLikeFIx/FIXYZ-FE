@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { fetchSession } from '@/api/authApi';
 import { useNotification } from '@/hooks/useNotification';
+import { useAuth } from '@/hooks/auth/useAuth';
 import {
   getAuthErrorMessage,
   getReauthMessage,
@@ -12,12 +13,10 @@ import {
   buildLoginRedirect,
   buildRedirectPath,
 } from '@/router/navigation';
-import { useAuthStore } from '@/store/useAuthStore';
-
 export const useProtectedSession = () => {
-  const member = useAuthStore((state) => state.member);
-  const login = useAuthStore((state) => state.login);
-  const requireReauth = useAuthStore((state) => state.requireReauth);
+  const member = useAuth((state) => state.member);
+  const login = useAuth((state) => state.login);
+  const requireReauth = useAuth((state) => state.requireReauth);
   const {
     sessionExpiryRemainingSeconds: remainingSeconds,
     sessionExpiryMonitoringUnavailable,

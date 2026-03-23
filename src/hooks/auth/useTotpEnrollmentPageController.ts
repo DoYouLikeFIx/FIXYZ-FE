@@ -5,6 +5,7 @@ import {
   beginTotpEnrollment,
   confirmTotpEnrollment,
 } from '@/api/authApi';
+import { useAuth } from '@/hooks/auth/useAuth';
 import {
   isCompleteOtpCode,
   sanitizeOtpCodeInput,
@@ -17,14 +18,13 @@ import {
   resolveRedirectTarget,
   TOTP_ENROLL_ROUTE,
 } from '@/router/navigation';
-import { useAuthStore } from '@/store/useAuthStore';
 import type { TotpEnrollmentBootstrap } from '@/types/auth';
 
 export const useTotpEnrollmentPageController = () => {
-  const login = useAuthStore((state) => state.login);
-  const pendingMfa = useAuthStore((state) => state.pendingMfa);
-  const requireReauth = useAuthStore((state) => state.requireReauth);
-  const clearPendingMfa = useAuthStore((state) => state.clearPendingMfa);
+  const login = useAuth((state) => state.login);
+  const pendingMfa = useAuth((state) => state.pendingMfa);
+  const requireReauth = useAuth((state) => state.requireReauth);
+  const clearPendingMfa = useAuth((state) => state.clearPendingMfa);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [bootstrap, setBootstrap] = useState<TotpEnrollmentBootstrap | null>(null);
@@ -45,41 +45,45 @@ export const useTotpEnrollmentPageController = () => {
     let active = true;
     setIsLoadingBootstrap(true);
     setErrorMessage(null);
-
-    void beginTotpEnrollment({
-      loginToken: pendingMfa.loginToken,
-    })
-      .then((nextBootstrap) => {
-        if (!active) {
-          return;
-        }
-
-        setBootstrap(nextBootstrap);
+    // Defer the bootstrap until the next task so React StrictMode's
+    // mount/unmount replay does not leave duplicate enroll requests aborted.
+    const bootstrapTimer = window.setTimeout(() => {
+      void beginTotpEnrollment({
+        loginToken: pendingMfa.loginToken,
       })
-      .catch((error) => {
-        if (!active) {
-          return;
-        }
+        .then((nextBootstrap) => {
+          if (!active) {
+            return;
+          }
 
-        const presentation = resolveMfaErrorPresentation(error);
+          setBootstrap(nextBootstrap);
+        })
+        .catch((error) => {
+          if (!active) {
+            return;
+          }
 
-        if (presentation.restartLogin) {
-          requireReauth(presentation.message);
-          clearPendingMfa();
-          navigate(buildLoginRedirect(redirectPath), { replace: true });
-          return;
-        }
+          const presentation = resolveMfaErrorPresentation(error);
 
-        setErrorMessage(presentation.message);
-      })
-      .finally(() => {
-        if (active) {
-          setIsLoadingBootstrap(false);
-        }
-      });
+          if (presentation.restartLogin) {
+            requireReauth(presentation.message);
+            clearPendingMfa();
+            navigate(buildLoginRedirect(redirectPath), { replace: true });
+            return;
+          }
+
+          setErrorMessage(presentation.message);
+        })
+        .finally(() => {
+          if (active) {
+            setIsLoadingBootstrap(false);
+          }
+        });
+    }, 0);
 
     return () => {
       active = false;
+      window.clearTimeout(bootstrapTimer);
     };
   }, [bootstrap, clearPendingMfa, navigate, pendingMfa, redirectPath, requireReauth]);
 

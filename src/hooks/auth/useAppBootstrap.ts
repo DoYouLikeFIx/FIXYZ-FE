@@ -1,20 +1,25 @@
 import { useEffect } from 'react';
 
 import { fetchSession } from '@/api/authApi';
+import { useAuth } from '@/hooks/auth/useAuth';
 import { fetchCsrfToken } from '@/lib/axios';
-import { useAuthStore } from '@/store/useAuthStore';
 
 export const useAppBootstrap = () => {
-  const initialize = useAuthStore((state) => state.initialize);
+  const status = useAuth((state) => state.status);
+  const initialize = useAuth((state) => state.initialize);
 
   useEffect(() => {
+    if (status !== 'checking') {
+      return undefined;
+    }
+
     let active = true;
 
     // Pre-warm CSRF token at app start per architecture contract.
     void fetchCsrfToken().catch(() => undefined);
 
     const applyBootstrapResult = (member: Parameters<typeof initialize>[0]) => {
-      if (!active || useAuthStore.getState().status !== 'checking') {
+      if (!active || status !== 'checking') {
         return;
       }
 
@@ -32,5 +37,5 @@ export const useAppBootstrap = () => {
     return () => {
       active = false;
     };
-  }, [initialize]);
+  }, [initialize, status]);
 };

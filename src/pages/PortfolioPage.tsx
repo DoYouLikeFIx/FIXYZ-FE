@@ -4,6 +4,7 @@ import {
   HISTORY_PAGE_SIZE_OPTIONS,
   useAccountDashboard,
 } from '@/hooks/portfolio/useAccountDashboard';
+import { DashboardQuoteTicker } from '@/components/portfolio/DashboardQuoteTicker';
 import { formatKRW, formatQuantity } from '@/utils/formatters';
 
 const dateFormatter = new Intl.DateTimeFormat('ko-KR', {
@@ -217,6 +218,7 @@ export function PortfolioPage() {
 
             {hasLinkedAccount && !positionLoading && !positionError && position ? (
               <div className="account-summary-grid">
+                <DashboardQuoteTicker position={position} />
                 <div className="account-summary-cell">
                   <span className="account-summary-cell__label">예수금</span>
                   <strong
@@ -240,6 +242,31 @@ export function PortfolioPage() {
                   <span className="account-summary-cell__label">조회 기준</span>
                   <strong>{dateFormatter.format(new Date(position.asOf))}</strong>
                 </div>
+                {position.marketPrice !== null
+                && position.marketPrice !== undefined
+                && position.quoteAsOf
+                && position.quoteSourceMode ? (
+                  <>
+                    <div className="account-summary-cell">
+                      <span className="account-summary-cell__label">평가 단가</span>
+                      <strong data-testid="portfolio-market-price">
+                        {formatKRW(position.marketPrice)}
+                      </strong>
+                    </div>
+                    <div className="account-summary-cell">
+                      <span className="account-summary-cell__label">호가 기준 시각</span>
+                      <strong data-testid="portfolio-quote-as-of">
+                        {dateFormatter.format(new Date(position.quoteAsOf))}
+                      </strong>
+                    </div>
+                    <div className="account-summary-cell">
+                      <span className="account-summary-cell__label">호가 source</span>
+                      <strong data-testid="portfolio-quote-source-mode">
+                        {position.quoteSourceMode}
+                      </strong>
+                    </div>
+                  </>
+                ) : null}
               </div>
             ) : null}
 

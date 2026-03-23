@@ -58,6 +58,42 @@ describe('axios helpers', () => {
     expect(normalized.retryAfterSeconds).toBe(10);
   });
 
+  it('preserves backend details needed for stale-quote UX', () => {
+    const err = new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
+      config: {} as never,
+      data: {
+        success: false,
+        data: null,
+        error: {
+          code: 'VALIDATION-003',
+          message: 'stale quote',
+          detail: 'market quote snapshot is stale',
+          details: {
+            symbol: '005930',
+            quoteSnapshotId: 'qsnap-replay-001',
+            snapshotAgeMs: 65000,
+            quoteSourceMode: 'REPLAY',
+          },
+          operatorCode: 'STALE_QUOTE',
+          userMessageKey: 'error.quote.stale',
+          timestamp: '2026-03-23T00:00:00Z',
+        },
+      },
+      headers: {},
+      status: 400,
+      statusText: 'Bad Request',
+    });
+
+    const normalized = normalizeApiError(err);
+
+    expect(normalized.details).toEqual({
+      symbol: '005930',
+      quoteSnapshotId: 'qsnap-replay-001',
+      snapshotAgeMs: 65000,
+      quoteSourceMode: 'REPLAY',
+    });
+  });
+
   it('falls back to the response correlation header when an envelope omits traceId', () => {
     const err = new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
       config: {} as never,

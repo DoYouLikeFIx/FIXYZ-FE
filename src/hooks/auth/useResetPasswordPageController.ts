@@ -6,6 +6,7 @@ import { useController, useForm } from 'react-hook-form';
 import { resetPassword } from '@/api/authApi';
 import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
+import { useAuth } from '@/hooks/auth/useAuth';
 import { resolveAuthErrorPresentation } from '@/lib/auth-errors';
 import {
   getResetPasswordState,
@@ -19,8 +20,6 @@ import {
   buildResetPasswordPath,
   resolveRedirectTarget,
 } from '@/router/navigation';
-import { useAuthStore } from '@/store/useAuthStore';
-
 interface ResetPasswordLocationState {
   resetToken?: string;
 }
@@ -57,8 +56,8 @@ export const useResetPasswordPageController = () => {
     control: form.control,
     name: 'newPassword',
   });
-  const requireReauth = useAuthStore((state) => state.requireReauth);
-  const storeMfaRecoveryProof = useAuthStore((state) => state.storeMfaRecoveryProof);
+  const requireReauth = useAuth((state) => state.requireReauth);
+  const storeMfaRecoveryProof = useAuth((state) => state.storeMfaRecoveryProof);
   const resetToken = (queryToken || stateToken).trim();
   const { displayMode, handleTabNavigation } = useAuthTabsNavigation('login');
   const { isPasswordValid, passwordPolicyMessage } = getResetPasswordState(newPasswordField.value);
