@@ -33,6 +33,7 @@ export function OrderPage() {
         <ExternalOrderRecoverySection
           step={orderRecovery.step}
           feedbackMessage={orderRecovery.feedbackMessage}
+          staleQuoteGuidance={orderRecovery.staleQuoteGuidance}
           inlineError={orderRecovery.inlineError}
           errorReasonCategoryLabel={orderRecovery.errorReasonCategoryLabel}
           symbolValue={orderRecovery.symbolValue}
@@ -40,6 +41,7 @@ export function OrderPage() {
           symbolError={orderRecovery.symbolError}
           quantityError={orderRecovery.quantityError}
           draftSummary={orderRecovery.draftSummary}
+          marketTicker={orderRecovery.marketTicker}
           canSubmit={orderRecovery.canSubmit}
           isInteractionLocked={orderRecovery.isInteractionLocked}
           isSubmitting={orderRecovery.isSubmitting}
