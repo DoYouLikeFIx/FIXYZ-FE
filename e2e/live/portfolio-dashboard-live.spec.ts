@@ -37,7 +37,7 @@ const goToLogin = async (page: Page) => {
 };
 
 const decodeBase32 = (value: string): Buffer => {
-  const normalized = value.trim().replace(/=/g, '').toUpperCase();
+  const normalized = value.trim().replace(/[\s=-]/g, '').toUpperCase();
   let buffer = 0;
   let bitsLeft = 0;
   const output: number[] = [];

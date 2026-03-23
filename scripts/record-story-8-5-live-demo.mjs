@@ -63,7 +63,7 @@ const createLiveIdentity = () => {
 };
 
 const decodeBase32 = (value) => {
-  const normalized = value.trim().replace(/=/g, '').toUpperCase();
+  const normalized = value.trim().replace(/[\s=-]/g, '').toUpperCase();
   let buffer = 0;
   let bitsLeft = 0;
   const output = [];

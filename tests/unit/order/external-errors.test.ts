@@ -3,18 +3,26 @@ import {
   NETWORK_ERROR_MESSAGE,
   TIMEOUT_ERROR_MESSAGE,
 } from '@/lib/api-error-messages';
+import { createNormalizedApiError } from '@/lib/axios';
 import {
   isVisibleExternalOrderError,
   resolveExternalOrderErrorPresentation,
 } from '@/order/external-errors';
 import { externalOrderErrorContract } from '../../fixtures/external-order-error-contract';
 
+const externalContractCases = externalOrderErrorContract.cases.filter(
+  (contractCase) => contractCase.reasonCategory === 'external',
+);
+
+const nonExternalContractCases = externalOrderErrorContract.cases.filter(
+  (contractCase) => contractCase.reasonCategory !== 'external',
+);
+
 describe('external order errors', () => {
-  it.each(externalOrderErrorContract.cases)(
+  it.each(externalContractCases)(
     'maps contract case $codes/$operatorCode with parity',
     (contractCase) => {
-      const error = Object.assign(new Error(contractCase.message), {
-        name: 'ApiClientError',
+      const error = createNormalizedApiError(contractCase.message, {
         code: contractCase.codes?.[0],
         operatorCode: contractCase.operatorCode,
         retryAfterSeconds: contractCase.retryAfterSeconds,
@@ -37,10 +45,23 @@ describe('external order errors', () => {
     },
   );
 
+  it.each(nonExternalContractCases)(
+    'does not treat non-external contract case $codes/$operatorCode as external guidance',
+    (contractCase) => {
+      const error = createNormalizedApiError(contractCase.message, {
+        code: contractCase.codes?.[0],
+        operatorCode: contractCase.operatorCode,
+        retryAfterSeconds: contractCase.retryAfterSeconds,
+        traceId: 'trace-contract-001',
+      });
+
+      expect(isVisibleExternalOrderError(error)).toBe(false);
+    },
+  );
+
   it('falls back to unknown guidance without claiming completion', () => {
     const presentation = resolveExternalOrderErrorPresentation(
-      Object.assign(new Error('Unknown external state'), {
-        name: 'ApiClientError',
+      createNormalizedApiError('Unknown external state', {
         code: 'FEP-999',
         operatorCode: 'UNKNOWN_EXTERNAL_STATE',
         traceId: 'trace-unknown-001',
@@ -64,20 +85,13 @@ describe('external order errors', () => {
     NETWORK_ERROR_MESSAGE,
     TIMEOUT_ERROR_MESSAGE,
   ])('treats transport failures as visible retry guidance: %s', (message) => {
-    expect(
-      isVisibleExternalOrderError(
-        Object.assign(new Error(message), {
-          name: 'ApiClientError',
-        }),
-      ),
-    ).toBe(true);
+    expect(isVisibleExternalOrderError(createNormalizedApiError(message))).toBe(true);
   });
 
   it('keeps non-external application errors out of the visible contract', () => {
     expect(
       isVisibleExternalOrderError(
-        Object.assign(new Error('Invalid order payload'), {
-          name: 'ApiClientError',
+        createNormalizedApiError('Invalid order payload', {
           code: 'ORD-006',
         }),
       ),
