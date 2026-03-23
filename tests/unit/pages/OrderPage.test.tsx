@@ -1322,6 +1322,8 @@ describe('OrderPage', () => {
         ?? '체결 결과를 재조회하는 중입니다. 완료로 간주하지 말고 상태가 바뀔 때까지 기다려 주세요.',
     );
     expect(screen.getByTestId('order-result-clordid')).toHaveTextContent('cl-processing');
+    expect(screen.getByTestId('order-session-reset')).toHaveTextContent('새 주문 시작');
+    expect(screen.queryByTestId('order-session-execute')).not.toBeInTheDocument();
     expect(screen.queryByTestId('external-order-feedback')).not.toBeInTheDocument();
     setIntervalSpy.mockRestore();
   });
@@ -1460,8 +1462,8 @@ describe('OrderPage', () => {
       orderType: 'LIMIT',
       qty: 2,
       price: 70100,
-        failureReason: 'ESCALATED_MANUAL_REVIEW',
-        expiresAt: null,
+      failureReason: 'ESCALATED_MANUAL_REVIEW',
+      expiresAt: null,
     });
     vi.mocked(getOrderSession).mockResolvedValue({
       orderSessionId: 'sess-escalated',
@@ -1489,7 +1491,129 @@ describe('OrderPage', () => {
     expect(manualReview).toHaveTextContent('처리 중 문제가 발생해 수동 확인이 필요합니다.');
     expect(manualReview).toHaveTextContent('주문 번호를 확인한 뒤 고객센터에 문의해 주세요.');
     expect(screen.getByTestId('order-result-clordid')).toHaveTextContent('cl-escalated');
+    expect(screen.getByTestId('order-session-reset')).toHaveTextContent('새 주문 시작');
+    expect(screen.queryByTestId('order-session-execute')).not.toBeInTheDocument();
   });
+
+  it.each([
+    {
+      name: 'REQUERYING',
+      restoredSession: {
+        orderSessionId: 'sess-restore-requery-reset',
+        clOrdId: 'cl-restore-requery-reset',
+        status: 'REQUERYING' as const,
+        challengeRequired: false,
+        authorizationReason: 'TRUSTED_AUTH_SESSION' as const,
+        accountId: 1,
+        symbol: '005930',
+        side: 'BUY' as const,
+        orderType: 'LIMIT' as const,
+        qty: 2,
+        price: 70100,
+        expiresAt: null,
+      },
+      stalePollResult: {
+        orderSessionId: 'sess-restore-requery-reset',
+        clOrdId: 'cl-restore-requery-reset',
+        status: 'COMPLETED' as const,
+        challengeRequired: false,
+        authorizationReason: 'TRUSTED_AUTH_SESSION' as const,
+        accountId: 1,
+        symbol: '005930',
+        side: 'BUY' as const,
+        orderType: 'LIMIT' as const,
+        qty: 2,
+        price: 70100,
+        executionResult: 'FILLED' as const,
+        executedPrice: 70100,
+        expiresAt: null,
+      },
+      visibleStateTestId: 'order-session-processing',
+    },
+    {
+      name: 'ESCALATED',
+      restoredSession: {
+        orderSessionId: 'sess-restore-escalated-reset',
+        clOrdId: 'cl-restore-escalated-reset',
+        status: 'ESCALATED' as const,
+        challengeRequired: false,
+        authorizationReason: 'TRUSTED_AUTH_SESSION' as const,
+        accountId: 1,
+        symbol: '005930',
+        side: 'BUY' as const,
+        orderType: 'LIMIT' as const,
+        qty: 2,
+        price: 70100,
+        failureReason: 'ESCALATED_MANUAL_REVIEW' as const,
+        expiresAt: null,
+      },
+      stalePollResult: {
+        orderSessionId: 'sess-restore-escalated-reset',
+        clOrdId: 'cl-restore-escalated-reset',
+        status: 'COMPLETED' as const,
+        challengeRequired: false,
+        authorizationReason: 'TRUSTED_AUTH_SESSION' as const,
+        accountId: 1,
+        symbol: '005930',
+        side: 'BUY' as const,
+        orderType: 'LIMIT' as const,
+        qty: 2,
+        price: 70100,
+        executionResult: 'FILLED' as const,
+        executedPrice: 70100,
+        expiresAt: null,
+      },
+      visibleStateTestId: 'order-session-manual-review',
+    },
+  ])(
+    'ignores a stale %s poll result after the user starts a fresh order from a restored session',
+    async ({ restoredSession, stalePollResult, visibleStateTestId }) => {
+      window.sessionStorage.setItem(
+        'fixyz.order-session-id:1',
+        restoredSession.orderSessionId,
+      );
+      const stalePollDeferred = createDeferred<Awaited<ReturnType<typeof getOrderSession>>>();
+      vi.mocked(getOrderSession)
+        .mockResolvedValueOnce(restoredSession)
+        .mockImplementationOnce(() => stalePollDeferred.promise);
+      const user = userEvent.setup();
+
+      render(<OrderPage />);
+
+      expect(await screen.findByTestId(visibleStateTestId)).toBeInTheDocument();
+      expect(getOrderSession).toHaveBeenCalledWith(restoredSession.orderSessionId);
+
+      await user.click(screen.getByTestId('order-session-reset'));
+
+      expect(screen.getByTestId('order-session-create')).toBeInTheDocument();
+      expect(window.sessionStorage.getItem('fixyz.order-session-id:1')).toBeNull();
+      expect(screen.getByTestId('order-input-symbol')).toHaveValue(restoredSession.symbol);
+      expect(screen.getByTestId('order-input-qty')).toHaveValue(String(restoredSession.qty));
+      expect(screen.getByTestId('order-session-selected-summary')).toHaveTextContent(
+        restoredSession.symbol,
+      );
+      expect(screen.getByTestId('order-session-selected-summary')).toHaveTextContent(
+        `${restoredSession.qty}주`,
+      );
+      expect(screen.queryByTestId(visibleStateTestId)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('order-session-summary')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('external-order-feedback')).not.toBeInTheDocument();
+
+      await act(async () => {
+        stalePollDeferred.resolve(stalePollResult);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(screen.getByTestId('order-session-create')).toBeInTheDocument();
+      expect(screen.getByTestId('order-input-symbol')).toHaveValue(restoredSession.symbol);
+      expect(screen.getByTestId('order-input-qty')).toHaveValue(String(restoredSession.qty));
+      expect(screen.queryByTestId(visibleStateTestId)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('order-session-result')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('order-session-summary')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('external-order-feedback')).not.toBeInTheDocument();
+    },
+  );
 
   it.each(sharedFinalResultCases)('renders final result details for $name', async ({
     executionResult,
