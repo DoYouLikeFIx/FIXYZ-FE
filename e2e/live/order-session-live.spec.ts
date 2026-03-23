@@ -260,6 +260,17 @@ const fetchLiveJson = async <T>(
 
 const millisUntilNextTotpWindow = (now = Date.now()) => 30_000 - (now % 30_000);
 
+const generateStableTotp = async (
+  manualEntryKey: string,
+  minRemainingMs = 8_000,
+) => {
+  if (millisUntilNextTotpWindow() < minRemainingMs) {
+    await delay(millisUntilNextTotpWindow() + 1_500);
+  }
+
+  return generateTotp(manualEntryKey);
+};
+
 const waitForNextTotp = async (
   manualEntryKey: string,
   previousCode: string,
@@ -444,7 +455,7 @@ const bootstrapFreshLiveOrderSession = async (
   expect(manualEntryKey).toBeTruthy();
   expect(enrollmentToken).toBeTruthy();
 
-  const enrollmentCode = generateTotp(manualEntryKey);
+  const enrollmentCode = await generateStableTotp(manualEntryKey);
   csrf = await fetchLiveCsrf(cookieJar);
   await fetchLiveJson(
     cookieJar,
@@ -494,7 +505,7 @@ const registerEnrollAndLoginToOrders = async (page: Page) => {
   const manualEntryKey = await waitForNonEmptyText(page, 'totp-enroll-manual-key');
   expect(manualEntryKey).toBeTruthy();
 
-  const enrollmentCode = generateTotp(manualEntryKey!);
+  const enrollmentCode = await generateStableTotp(manualEntryKey!);
   await page.getByTestId('totp-enroll-code').fill(enrollmentCode);
   await page.getByTestId('totp-enroll-submit').click();
 

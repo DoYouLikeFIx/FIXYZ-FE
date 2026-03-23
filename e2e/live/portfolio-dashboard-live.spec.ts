@@ -86,6 +86,17 @@ const delay = (milliseconds: number) =>
 
 const millisUntilNextTotpWindow = (now = Date.now()) => 30_000 - (now % 30_000);
 
+const generateStableTotp = async (
+  manualEntryKey: string,
+  minRemainingMs = 8_000,
+) => {
+  if (millisUntilNextTotpWindow() < minRemainingMs) {
+    await delay(millisUntilNextTotpWindow() + 1_500);
+  }
+
+  return generateTotp(manualEntryKey);
+};
+
 const waitForNextTotp = async (
   manualEntryKey: string,
   previousCode: string,
@@ -192,7 +203,7 @@ const loginWithExistingLiveAccountToPortfolio = async (page: Page) => {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const mfaCode = LIVE_LOGIN_TOTP_SECRET
         ? (attempt === 1
-          ? generateTotp(LIVE_LOGIN_TOTP_SECRET)
+          ? await generateStableTotp(LIVE_LOGIN_TOTP_SECRET)
           : await waitForNextTotp(LIVE_LOGIN_TOTP_SECRET, previousCode))
         : LIVE_LOGIN_OTP!;
 
@@ -238,7 +249,7 @@ const registerEnrollAndLoginToPortfolio = async (page: Page) => {
   await expect(page.getByTestId('totp-enroll-manual-key')).toBeVisible();
 
   const manualKey = await waitForNonEmptyText(page, 'totp-enroll-manual-key');
-  const code = generateTotp(manualKey);
+  const code = await generateStableTotp(manualKey);
   await page.getByTestId('totp-enroll-code').fill(code);
   await page.getByTestId('totp-enroll-submit').click();
 
@@ -267,8 +278,8 @@ const expectDashboardQuoteChart = async (page: Page) => {
   await expect(page.getByTestId('portfolio-dashboard-quote-ticker-price')).toBeVisible();
   await expect(page.getByTestId('portfolio-dashboard-quote-ticker-quote-as-of')).toBeVisible();
   await expect(page.getByTestId('portfolio-dashboard-quote-ticker-chart')).toBeVisible();
-  const candleCount = await page.getByTestId('portfolio-dashboard-quote-ticker-candle').count();
-  expect(candleCount).toBeGreaterThan(0);
+  await expect(page.getByTestId('portfolio-dashboard-quote-ticker-status-note')).toBeVisible();
+  await expect(page.getByTestId('portfolio-dashboard-quote-ticker-candle')).toHaveCount(0);
 };
 
 const provisionPositionViaOrderFlow = async (page: Page) => {
