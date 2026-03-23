@@ -15,6 +15,7 @@ import type { OrderFlowStep, OrderSessionResponse } from '@/types/order';
 interface ExternalOrderRecoverySectionProps {
   step: OrderFlowStep;
   feedbackMessage: string | null;
+  staleQuoteGuidance: string | null;
   inlineError: string | null;
   errorReasonCategoryLabel?: string | null;
   symbolValue: string;
@@ -22,6 +23,14 @@ interface ExternalOrderRecoverySectionProps {
   symbolError: string | null;
   quantityError: string | null;
   draftSummary: string;
+  marketTicker: {
+    symbol: string;
+    marketPrice: number | null;
+    quoteAsOf: string | null;
+    quoteSourceMode: string | null;
+    isLoading: boolean;
+    error: string | null;
+  } | null;
   canSubmit: boolean;
   isInteractionLocked: boolean;
   isSubmitting: boolean;
@@ -52,6 +61,12 @@ interface ExternalOrderRecoverySectionProps {
 }
 
 const EMPTY_EXPIRY = '1970-01-01T00:00:00Z';
+const quoteDateFormatter = new Intl.DateTimeFormat('ko-KR', {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+});
 
 const stepLabel = (step: OrderFlowStep) => {
   if (step === 'COMPLETE') {
@@ -73,6 +88,7 @@ const isFinalResultStatus = (status?: OrderSessionResponse['status']) =>
 export function ExternalOrderRecoverySection({
   step,
   feedbackMessage,
+  staleQuoteGuidance,
   inlineError,
   errorReasonCategoryLabel = null,
   symbolValue,
@@ -80,6 +96,7 @@ export function ExternalOrderRecoverySection({
   symbolError,
   quantityError,
   draftSummary,
+  marketTicker,
   canSubmit,
   isInteractionLocked,
   isSubmitting,
@@ -127,6 +144,24 @@ export function ExternalOrderRecoverySection({
   const hasCompleteStateCard = showProcessingState || showManualReviewState || showResultState;
   const effectiveFeedbackMessage =
     step === 'COMPLETE' && hasCompleteStateCard ? null : feedbackMessage;
+  const showDedicatedStaleQuoteGuidance =
+    step !== 'COMPLETE' && staleQuoteGuidance !== null;
+  const hasMarketTickerQuote =
+    marketTicker?.marketPrice !== null
+    && marketTicker?.marketPrice !== undefined
+    && Boolean(marketTicker?.quoteAsOf)
+    && Boolean(marketTicker?.quoteSourceMode);
+  const marketTickerStatus = marketTicker === null
+    ? null
+    : marketTicker.error
+      ? hasMarketTickerQuote
+        ? '마지막 시세를 유지 중입니다. 새 ticker를 다시 연결하고 있어요.'
+        : '실시간 ticker를 불러오지 못했습니다.'
+      : marketTicker.isLoading && !hasMarketTickerQuote
+        ? '실시간 ticker 연결 중...'
+        : hasMarketTickerQuote
+          ? '5초마다 자동 갱신'
+          : '실시간 ticker 데이터가 아직 준비되지 않았습니다.';
   const expiredModalMessage = hasExpiry && countdown.isExpired
     ? `${countdown.expiresAtLabel}에 세션이 종료되었습니다. 입력한 주문을 확인한 뒤 다시 시작해 주세요.`
     : '주문 세션이 더 이상 유효하지 않습니다. 입력한 주문을 확인한 뒤 다시 시작해 주세요.';
@@ -212,6 +247,22 @@ export function ExternalOrderRecoverySection({
         </div>
       ) : null}
 
+      {showDedicatedStaleQuoteGuidance ? (
+        <div>
+          {!effectiveFeedbackMessage && errorReasonCategoryLabel ? (
+            <p className="portfolio-guidance-note" data-testid="order-session-error-category">
+              {errorReasonCategoryLabel}
+            </p>
+          ) : null}
+          <p
+            className="external-order-recovery__feedback"
+            data-testid="order-session-stale-quote-guidance"
+          >
+            {staleQuoteGuidance}
+          </p>
+        </div>
+      ) : null}
+
       {inlineError ? (
         <div>
           {!effectiveFeedbackMessage && errorReasonCategoryLabel ? (
@@ -231,6 +282,54 @@ export function ExternalOrderRecoverySection({
 
       {step === 'A' ? (
         <>
+          {marketTicker ? (
+            <div className="market-order-ticker" data-testid="market-order-live-ticker">
+              <div className="market-order-ticker__header">
+                <div>
+                  <p className="market-order-ticker__title">시장가 실시간 ticker</p>
+                  <p
+                    className="market-order-ticker__status"
+                    data-testid="market-order-live-ticker-status"
+                  >
+                    {marketTickerStatus}
+                  </p>
+                </div>
+                <span className="portfolio-card__meta">{marketTicker.symbol}</span>
+              </div>
+
+              {hasMarketTickerQuote ? (
+                <div className="market-order-ticker__grid">
+                  <div className="market-order-ticker__cell">
+                    <span className="market-order-ticker__label">현재 시세</span>
+                    <strong data-testid="market-order-live-ticker-price">
+                      {formatKRW(marketTicker.marketPrice ?? 0)}
+                    </strong>
+                  </div>
+                  <div className="market-order-ticker__cell">
+                    <span className="market-order-ticker__label">호가 기준 시각</span>
+                    <strong data-testid="market-order-live-ticker-quote-as-of">
+                      {quoteDateFormatter.format(new Date(marketTicker.quoteAsOf ?? ''))}
+                    </strong>
+                  </div>
+                  <div className="market-order-ticker__cell">
+                    <span className="market-order-ticker__label">호가 source</span>
+                    <strong data-testid="market-order-live-ticker-source-mode">
+                      {marketTicker.quoteSourceMode}
+                    </strong>
+                  </div>
+                </div>
+              ) : null}
+
+              {marketTicker.error && !hasMarketTickerQuote ? (
+                <p
+                  className="external-order-recovery__feedback"
+                  data-testid="market-order-live-ticker-error"
+                >
+                  {marketTicker.error}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="external-order-recovery__field-group">
             <label className="portfolio-guidance-note" htmlFor="order-input-symbol">
               종목코드
@@ -293,7 +392,12 @@ export function ExternalOrderRecoverySection({
               data-testid="external-order-recovery-clear"
               disabled={
                 showExpiredModal
-                || (effectiveFeedbackMessage === null && inlineError === null && presentation === null)
+                || (
+                  effectiveFeedbackMessage === null
+                  && staleQuoteGuidance === null
+                  && inlineError === null
+                  && presentation === null
+                )
               }
               onClick={onClear}
             >
