@@ -52,10 +52,13 @@ export interface ApiErrorDiagnosticLog extends ApiErrorDiagnosticContext {
   stackFrames?: string[];
 }
 
+type ApiErrorDetails = Record<string, unknown>;
+
 type NormalizedApiErrorOptions = {
   code?: string;
   status?: number;
   detail?: string;
+  details?: ApiErrorDetails;
   traceId?: string;
   traceparent?: string;
   operatorCode?: string;
@@ -70,6 +73,7 @@ export interface NormalizedApiError extends Error {
   code?: string;
   status?: number;
   detail?: string;
+  details?: ApiErrorDetails;
   traceId?: string;
   traceparent?: string;
   operatorCode?: string;
@@ -86,6 +90,7 @@ interface DirectApiErrorPayload {
   message?: string;
   path?: string;
   correlationId?: string;
+  details?: ApiErrorDetails;
   operatorCode?: string;
   retryAfterSeconds?: unknown;
   remainingAttempts?: unknown;
@@ -134,6 +139,7 @@ export const createNormalizedApiError = (
   normalized.code = options?.code;
   normalized.status = options?.status;
   normalized.detail = options?.detail;
+  normalized.details = sanitizeApiErrorDetails(options?.details);
   normalized.traceId = options?.traceId;
   normalized.traceparent = options?.traceparent;
   normalized.operatorCode = options?.operatorCode;
@@ -145,6 +151,14 @@ export const createNormalizedApiError = (
   normalized.diagnosticContext = sanitizeApiErrorDiagnosticContext(options);
 
   return normalized;
+};
+
+const sanitizeApiErrorDetails = (value: unknown): ApiErrorDetails | undefined => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as ApiErrorDetails;
 };
 
 const hasDiagnosticContextValues = (
@@ -346,6 +360,7 @@ export const unwrapApiResponseEnvelope = <T>(response: AxiosResponse<T>): AxiosR
       {
         code: payload.error?.code,
         detail: payload.error?.detail ?? undefined,
+        details: sanitizeApiErrorDetails(payload.error?.details),
         status: response.status,
         traceId: resolveTraceId({
           traceId: payload.traceId,
@@ -398,6 +413,7 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
       {
         code: responseData.error.code,
         detail: responseData.error.detail ?? undefined,
+        details: sanitizeApiErrorDetails(responseData.error.details),
         status,
         traceId: resolveTraceId({
           traceId: responseData.traceId,
@@ -435,6 +451,7 @@ export const normalizeApiError = (error: unknown): NormalizedApiError => {
       {
         code: responseData.code,
         detail: responseData.path,
+        details: sanitizeApiErrorDetails(responseData.details),
         status,
         traceId: resolveTraceId({
           correlationId: responseData.correlationId,
