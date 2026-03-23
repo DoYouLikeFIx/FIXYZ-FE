@@ -45,41 +45,45 @@ export const useTotpEnrollmentPageController = () => {
     let active = true;
     setIsLoadingBootstrap(true);
     setErrorMessage(null);
-
-    void beginTotpEnrollment({
-      loginToken: pendingMfa.loginToken,
-    })
-      .then((nextBootstrap) => {
-        if (!active) {
-          return;
-        }
-
-        setBootstrap(nextBootstrap);
+    // Defer the bootstrap until the next task so React StrictMode's
+    // mount/unmount replay does not leave duplicate enroll requests aborted.
+    const bootstrapTimer = window.setTimeout(() => {
+      void beginTotpEnrollment({
+        loginToken: pendingMfa.loginToken,
       })
-      .catch((error) => {
-        if (!active) {
-          return;
-        }
+        .then((nextBootstrap) => {
+          if (!active) {
+            return;
+          }
 
-        const presentation = resolveMfaErrorPresentation(error);
+          setBootstrap(nextBootstrap);
+        })
+        .catch((error) => {
+          if (!active) {
+            return;
+          }
 
-        if (presentation.restartLogin) {
-          requireReauth(presentation.message);
-          clearPendingMfa();
-          navigate(buildLoginRedirect(redirectPath), { replace: true });
-          return;
-        }
+          const presentation = resolveMfaErrorPresentation(error);
 
-        setErrorMessage(presentation.message);
-      })
-      .finally(() => {
-        if (active) {
-          setIsLoadingBootstrap(false);
-        }
-      });
+          if (presentation.restartLogin) {
+            requireReauth(presentation.message);
+            clearPendingMfa();
+            navigate(buildLoginRedirect(redirectPath), { replace: true });
+            return;
+          }
+
+          setErrorMessage(presentation.message);
+        })
+        .finally(() => {
+          if (active) {
+            setIsLoadingBootstrap(false);
+          }
+        });
+    }, 0);
 
     return () => {
       active = false;
+      window.clearTimeout(bootstrapTimer);
     };
   }, [bootstrap, clearPendingMfa, navigate, pendingMfa, redirectPath, requireReauth]);
 
