@@ -7,6 +7,7 @@ import type { OrderReasonCategory } from '@/order/order-error-category';
 export interface OrderFlowState {
   step: OrderFlowStep;
   feedbackMessage: string | null;
+  staleQuoteGuidance: string | null;
   inlineError: string | null;
   errorReasonCategory: OrderReasonCategory | null;
   serverFieldErrors: ExternalOrderFieldErrors;
@@ -78,6 +79,7 @@ type OrderFlowAction =
 export const initialOrderFlowState: OrderFlowState = {
   step: 'A',
   feedbackMessage: null,
+  staleQuoteGuidance: null,
   inlineError: null,
   errorReasonCategory: null,
   serverFieldErrors: {},
@@ -118,6 +120,7 @@ export const orderFlowReducer = (
       return {
         ...state,
         feedbackMessage: null,
+        staleQuoteGuidance: null,
         inlineError: null,
         ...(action.preservePresentation
           ? null
@@ -158,6 +161,7 @@ export const orderFlowReducer = (
         errorReasonCategory: null,
         inlineError: null,
         feedbackMessage: null,
+        staleQuoteGuidance: null,
         isExtending: false,
       };
     case 'goBackToDraft':
@@ -168,6 +172,7 @@ export const orderFlowReducer = (
         otpValue: '',
         isVerifyingOtp: false,
         feedbackMessage: action.feedbackMessage,
+        staleQuoteGuidance: null,
         inlineError: null,
         presentation: null,
         errorReasonCategory: null,
@@ -181,6 +186,7 @@ export const orderFlowReducer = (
         updatedPositionMessage: null,
         errorReasonCategory: null,
         feedbackMessage: null,
+        staleQuoteGuidance: null,
         inlineError: null,
         orderSession: action.session,
         hasDetectedSessionExpiry: true,
@@ -199,6 +205,7 @@ export const orderFlowReducer = (
         serverFieldErrors: {},
         step: action.step,
         feedbackMessage: action.feedbackMessage,
+        staleQuoteGuidance: null,
         inlineError: null,
         ...(action.preservePresentation
           ? null
