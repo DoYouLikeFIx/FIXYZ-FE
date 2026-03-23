@@ -72,6 +72,7 @@ const quoteFreshnessScenarios = [
     quoteAsOf: '2026-03-11T09:09:00Z',
     quoteSourceMode: 'LIVE',
     stateLabel: '직결 시세',
+    statusNote: '실시간 기준',
   },
   {
     marketPrice: 70_200,
@@ -79,6 +80,7 @@ const quoteFreshnessScenarios = [
     quoteAsOf: '2026-03-12T08:15:00Z',
     quoteSourceMode: 'DELAYED',
     stateLabel: '지연 호가',
+    statusNote: '지연 도착 데이터',
   },
   {
     marketPrice: 70_300,
@@ -86,6 +88,7 @@ const quoteFreshnessScenarios = [
     quoteAsOf: '2026-03-12T07:45:00Z',
     quoteSourceMode: 'REPLAY',
     stateLabel: '리플레이 기준',
+    statusNote: '재생 스냅샷',
   },
 ] as const;
 
@@ -210,18 +213,49 @@ describe('PortfolioPage', () => {
       expect(screen.getByTestId('portfolio-dashboard-quote-ticker-state')).toHaveTextContent(
         scenario.stateLabel,
       );
+      expect(screen.getByTestId('portfolio-dashboard-quote-ticker-status-note')).toHaveTextContent(
+        scenario.statusNote,
+      );
       expect(screen.getByTestId('portfolio-dashboard-quote-ticker-quote-as-of')).toHaveTextContent(
         quoteDateFormatter.format(new Date(scenario.quoteAsOf)),
       );
       expect(screen.getByTestId('portfolio-dashboard-quote-ticker-snapshot')).toHaveTextContent(
         scenario.quoteSnapshotId,
       );
-      expect(
-        screen.getAllByTestId('portfolio-dashboard-quote-ticker-candle'),
-      ).toHaveLength(18);
       expect(screen.getByTestId('portfolio-dashboard-quote-ticker-chart')).toBeInTheDocument();
+      expect(
+        screen.queryAllByTestId('portfolio-dashboard-quote-ticker-candle'),
+      ).toHaveLength(0);
     });
   }
+
+  it('renders an unknown quote source mode with neutral guidance instead of aliasing it to live', async () => {
+    vi.mocked(fetchAccountPositions).mockResolvedValue([
+      {
+        ...positionsFixture[0],
+        marketPrice: 70_400,
+        quoteSnapshotId: 'quote-vendor-001',
+        quoteAsOf: '2026-03-12T08:40:00Z',
+        quoteSourceMode: 'VENDOR_STREAM',
+      },
+    ]);
+
+    render(
+      <MemoryRouter>
+        <PortfolioPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('portfolio-dashboard-quote-ticker-mode')).toHaveTextContent(
+      'VENDOR_STREAM',
+    );
+    expect(screen.getByTestId('portfolio-dashboard-quote-ticker-state')).toHaveTextContent(
+      '미확인 시세',
+    );
+    expect(screen.getByTestId('portfolio-dashboard-quote-ticker-status-note')).toHaveTextContent(
+      '새 source mode',
+    );
+  });
 
   it('switches the selected owned position and re-queries history when the page size or page changes', async () => {
     const user = userEvent.setup();
