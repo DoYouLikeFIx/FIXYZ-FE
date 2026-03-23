@@ -74,6 +74,7 @@ const createFormBody = (
 const RECOVERY_CHALLENGE_FAIL_CLOSED_PATH =
   '/api/v1/auth/password/forgot/challenge/fail-closed';
 const CSRF_PARAMETER_NAME = '_csrf';
+const MFA_BOOTSTRAP_TIMEOUT_MS = 30_000;
 
 const createCompatMember = (payload: AuthMutationResponse): Member => ({
   memberUuid: payload.memberUuid ?? String(payload.memberId ?? ''),
@@ -204,6 +205,7 @@ export const beginTotpEnrollment = async (
     '/api/v1/members/me/totp/enroll',
     payload,
     {
+      timeout: MFA_BOOTSTRAP_TIMEOUT_MS,
       _skipAuthHandling: true,
     },
   );
@@ -282,6 +284,7 @@ export const bootstrapAuthenticatedTotpRebind = async (
     '/api/v1/members/me/totp/rebind',
     payload,
     {
+      timeout: MFA_BOOTSTRAP_TIMEOUT_MS,
       _skipAuthHandling: true,
     },
   );
@@ -296,6 +299,7 @@ export const bootstrapRecoveryTotpRebind = async (
     '/api/v1/auth/mfa-recovery/rebind',
     payload,
     {
+      timeout: MFA_BOOTSTRAP_TIMEOUT_MS,
       _skipAuthHandling: true,
     },
   );
