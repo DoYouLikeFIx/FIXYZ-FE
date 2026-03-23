@@ -6,6 +6,7 @@ import { useController, useForm } from 'react-hook-form';
 import { confirmMfaRecoveryRebind } from '@/api/authApi';
 import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
+import { useAuth } from '@/hooks/auth/useAuth';
 import {
   sanitizeOtpCodeInput,
   useExpiryCountdown,
@@ -20,13 +21,11 @@ import {
   buildMfaRecoverySuccessLoginPath,
   resolveRedirectTarget,
 } from '@/router/navigation';
-import { useAuthStore } from '@/store/useAuthStore';
-
 export const useMfaRecoveryRebindPageController = () => {
-  const mfaRecovery = useAuthStore((state) => state.mfaRecovery);
-  const clearPendingMfa = useAuthStore((state) => state.clearPendingMfa);
-  const clearMfaRecovery = useAuthStore((state) => state.clearMfaRecovery);
-  const logout = useAuthStore((state) => state.logout);
+  const mfaRecovery = useAuth((state) => state.mfaRecovery);
+  const clearPendingMfa = useAuth((state) => state.clearPendingMfa);
+  const clearMfaRecovery = useAuth((state) => state.clearMfaRecovery);
+  const logout = useAuth((state) => state.logout);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const bootstrap = mfaRecovery?.bootstrap;

@@ -10,6 +10,7 @@ import {
 } from '@/hooks/auth/useTotpHelpers';
 import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
+import { useAuth } from '@/hooks/auth/useAuth';
 import {
   getAuthErrorMessage,
   resolveMfaErrorPresentation,
@@ -32,17 +33,17 @@ import {
   resolveTotpEnrollmentRoute,
   resolveRedirectTarget,
 } from '@/router/navigation';
-import { useAuthStore } from '@/store/useAuthStore';
 
 export const useLoginPageController = () => {
-  const login = useAuthStore((state) => state.login);
-  const pendingMfa = useAuthStore((state) => state.pendingMfa);
-  const reauthMessage = useAuthStore((state) => state.reauthMessage);
-  const clearReauthMessage = useAuthStore((state) => state.clearReauthMessage);
-  const startMfaChallenge = useAuthStore((state) => state.startMfaChallenge);
-  const updatePendingMfa = useAuthStore((state) => state.updatePendingMfa);
-  const clearPendingMfa = useAuthStore((state) => state.clearPendingMfa);
-  const openMfaRecovery = useAuthStore((state) => state.openMfaRecovery);
+  const login = useAuth((state) => state.login);
+  const pendingMfa = useAuth((state) => state.pendingMfa);
+  const reauthMessage = useAuth((state) => state.reauthMessage);
+  const clearReauthMessage = useAuth((state) => state.clearReauthMessage);
+  const requireReauth = useAuth((state) => state.requireReauth);
+  const startMfaChallenge = useAuth((state) => state.startMfaChallenge);
+  const updatePendingMfa = useAuth((state) => state.updatePendingMfa);
+  const clearPendingMfa = useAuth((state) => state.clearPendingMfa);
+  const openMfaRecovery = useAuth((state) => state.openMfaRecovery);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectPath = resolveRedirectTarget(searchParams.get('redirect'));
@@ -164,7 +165,7 @@ export const useLoginPageController = () => {
           },
         );
       } else if (presentation.restartLogin) {
-        useAuthStore.getState().requireReauth(presentation.message);
+        requireReauth(presentation.message);
         restartPasswordStep();
       } else if (presentation.navigateToRecovery) {
         const recoveryEmail = pendingMfaEmail || emailField.value.trim();

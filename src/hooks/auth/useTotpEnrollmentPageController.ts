@@ -5,6 +5,7 @@ import {
   beginTotpEnrollment,
   confirmTotpEnrollment,
 } from '@/api/authApi';
+import { useAuth } from '@/hooks/auth/useAuth';
 import {
   isCompleteOtpCode,
   sanitizeOtpCodeInput,
@@ -17,14 +18,13 @@ import {
   resolveRedirectTarget,
   TOTP_ENROLL_ROUTE,
 } from '@/router/navigation';
-import { useAuthStore } from '@/store/useAuthStore';
 import type { TotpEnrollmentBootstrap } from '@/types/auth';
 
 export const useTotpEnrollmentPageController = () => {
-  const login = useAuthStore((state) => state.login);
-  const pendingMfa = useAuthStore((state) => state.pendingMfa);
-  const requireReauth = useAuthStore((state) => state.requireReauth);
-  const clearPendingMfa = useAuthStore((state) => state.clearPendingMfa);
+  const login = useAuth((state) => state.login);
+  const pendingMfa = useAuth((state) => state.pendingMfa);
+  const requireReauth = useAuth((state) => state.requireReauth);
+  const clearPendingMfa = useAuth((state) => state.clearPendingMfa);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [bootstrap, setBootstrap] = useState<TotpEnrollmentBootstrap | null>(null);

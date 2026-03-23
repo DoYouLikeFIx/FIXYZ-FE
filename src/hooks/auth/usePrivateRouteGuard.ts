@@ -1,13 +1,13 @@
 import { useLocation } from 'react-router-dom';
 
+import { useAuth } from '@/hooks/auth/useAuth';
 import {
   buildLoginRedirect,
   buildRedirectPath,
 } from '@/router/navigation';
-import { useAuthStore } from '@/store/useAuthStore';
 
 export const usePrivateRouteGuard = () => {
-  const status = useAuthStore((state) => state.status);
+  const status = useAuth((state) => state.status);
   const location = useLocation();
 
   return {

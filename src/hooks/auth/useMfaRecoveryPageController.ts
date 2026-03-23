@@ -9,6 +9,7 @@ import {
 } from '@/api/authApi';
 import { useAuthTabsNavigation } from '@/hooks/auth/useAuthTabsNavigation';
 import type { AuthFrameControllerProps } from '@/hooks/auth/controllerTypes';
+import { useAuth } from '@/hooks/auth/useAuth';
 import { resolveMfaErrorPresentation } from '@/lib/auth-errors';
 import {
   mfaRecoveryEntrySchema,
@@ -21,8 +22,6 @@ import {
   DEFAULT_PROTECTED_ROUTE,
   resolveRedirectTarget,
 } from '@/router/navigation';
-import { useAuthStore } from '@/store/useAuthStore';
-
 interface MfaRecoveryLocationState {
   recoveryErrorMessage?: string;
 }
@@ -39,14 +38,14 @@ const getLocationRecoveryError = (state: unknown) => {
 };
 
 export const useMfaRecoveryPageController = () => {
-  const status = useAuthStore((state) => state.status);
-  const member = useAuthStore((state) => state.member);
-  const mfaRecovery = useAuthStore((state) => state.mfaRecovery);
-  const clearPendingMfa = useAuthStore((state) => state.clearPendingMfa);
-  const clearMfaRecovery = useAuthStore((state) => state.clearMfaRecovery);
-  const openMfaRecovery = useAuthStore((state) => state.openMfaRecovery);
-  const requireReauth = useAuthStore((state) => state.requireReauth);
-  const storeMfaRecoveryBootstrap = useAuthStore((state) => state.storeMfaRecoveryBootstrap);
+  const status = useAuth((state) => state.status);
+  const member = useAuth((state) => state.member);
+  const mfaRecovery = useAuth((state) => state.mfaRecovery);
+  const clearPendingMfa = useAuth((state) => state.clearPendingMfa);
+  const clearMfaRecovery = useAuth((state) => state.clearMfaRecovery);
+  const openMfaRecovery = useAuth((state) => state.openMfaRecovery);
+  const requireReauth = useAuth((state) => state.requireReauth);
+  const storeMfaRecoveryBootstrap = useAuth((state) => state.storeMfaRecoveryBootstrap);
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

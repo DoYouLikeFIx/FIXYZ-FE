@@ -1,16 +1,16 @@
 import { useLocation, useSearchParams } from 'react-router-dom';
 
+import { useAuth } from '@/hooks/auth/useAuth';
 import {
   LOGIN_ROUTE,
   buildLoginRedirect,
   buildTotpEnrollmentRedirect,
   resolveRedirectTarget,
 } from '@/router/navigation';
-import { useAuthStore } from '@/store/useAuthStore';
 
 export const usePublicOnlyRouteGuard = () => {
-  const status = useAuthStore((state) => state.status);
-  const pendingMfa = useAuthStore((state) => state.pendingMfa);
+  const status = useAuth((state) => state.status);
+  const pendingMfa = useAuth((state) => state.pendingMfa);
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const currentRedirectPath = searchParams.get('redirect');
