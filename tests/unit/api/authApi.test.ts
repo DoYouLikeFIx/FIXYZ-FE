@@ -211,6 +211,7 @@ describe('auth api', () => {
       },
       {
         _skipAuthHandling: true,
+        timeout: 30_000,
       },
     );
   });
@@ -363,19 +364,18 @@ describe('auth api', () => {
     consoleWarn.mockRestore();
   });
 
-  it('falls back to keepalive fetch when sendBeacon declines the payload', async () => {
+  it('falls back to the shared axios client when sendBeacon declines the payload', async () => {
     const sendBeacon = createSendBeaconMock(false);
-    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     Object.defineProperty(window.navigator, 'sendBeacon', {
       configurable: true,
       value: sendBeacon,
     });
-    vi.stubGlobal('fetch', fetchMock as typeof fetch);
     mockFetchCsrfToken.mockResolvedValue({
       csrfToken: 'csrf-telemetry',
       headerName: 'X-CSRF-TOKEN',
     });
+    mockPost.mockResolvedValue({ status: 204, data: null });
 
     reportRecoveryChallengeFailClosed(
       'clock-skew',
@@ -386,31 +386,27 @@ describe('auth api', () => {
     );
 
     await vi.waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(mockPost).toHaveBeenCalledTimes(1);
     });
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(mockPost).toHaveBeenCalledWith(
       '/api/v1/auth/password/forgot/challenge/fail-closed',
+      'reason=clock-skew&surface=forgot-password-web&_csrf=csrf-telemetry',
       {
-        method: 'POST',
-        credentials: 'include',
-        keepalive: true,
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
         },
-        body: 'reason=clock-skew&surface=forgot-password-web&_csrf=csrf-telemetry',
+        _skipAuthHandling: true,
       },
     );
-    vi.unstubAllGlobals();
     consoleWarn.mockRestore();
   });
 
-  it('falls back to axios form posting when sendBeacon and fetch are unavailable', async () => {
+  it('falls back to axios form posting when sendBeacon is unavailable', async () => {
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     Object.defineProperty(window.navigator, 'sendBeacon', {
       configurable: true,
       value: undefined,
     });
-    vi.stubGlobal('fetch', undefined);
     mockFetchCsrfToken.mockResolvedValue({
       csrfToken: 'csrf-telemetry',
       headerName: 'X-CSRF-TOKEN',
@@ -440,7 +436,6 @@ describe('auth api', () => {
         _skipAuthHandling: true,
       },
     );
-    vi.unstubAllGlobals();
     consoleWarn.mockRestore();
   });
 
@@ -675,6 +670,7 @@ describe('auth api', () => {
       },
       {
         _skipAuthHandling: true,
+        timeout: 30_000,
       },
     );
   });
@@ -709,6 +705,7 @@ describe('auth api', () => {
       },
       {
         _skipAuthHandling: true,
+        timeout: 30_000,
       },
     );
   });
