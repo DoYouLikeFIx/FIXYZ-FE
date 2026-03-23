@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { fetchAccountPosition } from '@/api/accountApi';
@@ -42,6 +42,13 @@ const memberFixture: Member = {
 const futureIso = (seconds = 3600) =>
   new Date(Date.now() + seconds * 1000).toISOString();
 
+const quoteDateFormatter = new Intl.DateTimeFormat('ko-KR', {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
 const createDeferred = <T,>() => {
   let resolvePromise!: (value: T | PromiseLike<T>) => void;
   let rejectPromise!: (reason?: unknown) => void;
@@ -62,7 +69,9 @@ const createNormalizedOrderApiError = (options: {
   code: string;
   message: string;
   status: number;
+  details?: Record<string, unknown>;
   operatorCode?: string;
+  userMessageKey?: string;
   retryAfterSeconds?: number;
   correlationIdHeader?: string;
 }) =>
@@ -70,7 +79,9 @@ const createNormalizedOrderApiError = (options: {
     code: options.code,
     message: options.message,
     status: options.status,
+    details: options.details,
     operatorCode: options.operatorCode,
+    userMessageKey: options.userMessageKey,
     retryAfterSeconds: options.retryAfterSeconds,
     correlationIdHeader: options.correlationIdHeader,
     path: '/api/v1/orders/sessions/sess-001/execute',
@@ -505,6 +516,210 @@ describe('OrderPage', () => {
     expect(screen.queryByTestId('order-session-error-category')).not.toBeInTheDocument();
     expect(screen.queryByTestId('external-order-feedback')).not.toBeInTheDocument();
     expect(screen.queryByTestId('order-input-qty-error')).not.toBeInTheDocument();
+  });
+
+  it('keeps the user in Step A with stale-quote guidance for market prepare rejects', async () => {
+    vi.mocked(createOrderSession).mockRejectedValue(
+      createNormalizedOrderApiError({
+        code: 'VALIDATION-003',
+        message: '시장가 주문에 사용할 시세가 오래되었습니다.',
+        status: 400,
+        operatorCode: 'STALE_QUOTE',
+        userMessageKey: 'error.quote.stale',
+        details: {
+          symbol: '005930',
+          quoteSnapshotId: 'qsnap-replay-001',
+          quoteSourceMode: 'REPLAY',
+          snapshotAgeMs: 65000,
+        },
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('external-order-preset-krx-market-buy-3'));
+    await user.click(screen.getByTestId('order-session-create'));
+
+    expect(createOrderSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderType: 'MARKET',
+        price: null,
+      }),
+    );
+    expect(await screen.findByTestId('order-session-error-category')).toHaveTextContent('검증');
+    expect(screen.getByTestId('order-session-stale-quote-guidance')).toHaveTextContent(
+      'symbol=005930',
+    );
+    expect(screen.getByTestId('order-session-stale-quote-guidance')).toHaveTextContent(
+      'quoteSnapshotId=qsnap-replay-001',
+    );
+    expect(screen.getByTestId('order-session-stale-quote-guidance')).toHaveTextContent(
+      'quoteSourceMode=REPLAY',
+    );
+    expect(screen.getByTestId('order-session-stale-quote-guidance')).toHaveTextContent(
+      'snapshotAgeMs=65000',
+    );
+    expect(screen.queryByTestId('external-order-feedback')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('order-session-error')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('order-session-otp-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('order-session-execute')).not.toBeInTheDocument();
+    expect(screen.getByTestId('order-session-create')).toBeInTheDocument();
+  });
+
+  it('renders and refreshes the market-order live ticker while the market preset stays selected', async () => {
+    vi.useFakeTimers();
+    let unmount: (() => void) | undefined;
+
+    try {
+      vi.mocked(fetchAccountPosition)
+        .mockResolvedValueOnce({
+          accountId: 1,
+          memberId: 1,
+          symbol: '005930',
+          quantity: 120,
+          availableQuantity: 20,
+          availableQty: 20,
+          balance: 100_000_000,
+          availableBalance: 100_000_000,
+          currency: 'KRW',
+          asOf: '2026-03-18T09:00:00Z',
+          marketPrice: 70_100,
+          quoteSnapshotId: 'quote-live-001',
+          quoteAsOf: '2026-03-18T09:00:00Z',
+          quoteSourceMode: 'LIVE',
+        })
+        .mockResolvedValue({
+          accountId: 1,
+          memberId: 1,
+          symbol: '005930',
+          quantity: 120,
+          availableQuantity: 20,
+          availableQty: 20,
+          balance: 100_000_000,
+          availableBalance: 100_000_000,
+          currency: 'KRW',
+          asOf: '2026-03-18T09:00:00Z',
+          marketPrice: 70_300,
+          quoteSnapshotId: 'quote-replay-001',
+          quoteAsOf: '2026-03-18T09:05:00Z',
+          quoteSourceMode: 'REPLAY',
+        });
+      ({ unmount } = render(<OrderPage />));
+
+      fireEvent.click(screen.getByTestId('external-order-preset-krx-market-buy-3'));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(fetchAccountPosition).toHaveBeenCalledWith({
+        accountId: '1',
+        symbol: '005930',
+      });
+      expect(screen.getByTestId('market-order-live-ticker-price')).toHaveTextContent('₩70,100');
+      expect(screen.getByTestId('market-order-live-ticker-quote-as-of')).toHaveTextContent(
+        quoteDateFormatter.format(new Date('2026-03-18T09:00:00Z')),
+      );
+      expect(screen.getByTestId('market-order-live-ticker-source-mode')).toHaveTextContent('LIVE');
+      expect(screen.getByTestId('market-order-live-ticker-status')).toHaveTextContent(
+        '5초마다 자동 갱신',
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      expect(fetchAccountPosition).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('market-order-live-ticker-price')).toHaveTextContent('₩70,300');
+      expect(screen.getByTestId('market-order-live-ticker-quote-as-of')).toHaveTextContent(
+        quoteDateFormatter.format(new Date('2026-03-18T09:05:00Z')),
+      );
+      expect(screen.getByTestId('market-order-live-ticker-source-mode')).toHaveTextContent(
+        'REPLAY',
+      );
+    } finally {
+      unmount?.();
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps manually entered 3-share drafts on the limit path', async () => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-limit-3',
+      clOrdId: 'cl-limit-3',
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 3,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.clear(screen.getByTestId('order-input-qty'));
+    await user.type(screen.getByTestId('order-input-qty'), '3');
+
+    expect(screen.getByTestId('order-session-selected-summary')).toHaveTextContent(
+      '005930 · 삼성전자 · 3주',
+    );
+    expect(screen.getByTestId('order-session-selected-summary')).not.toHaveTextContent('시장가');
+
+    await user.click(screen.getByTestId('order-session-create'));
+
+    expect(createOrderSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderType: 'LIMIT',
+        quantity: 3,
+        price: 70100,
+      }),
+    );
+  });
+
+  it('drops back to the limit path after editing away from the market preset value', async () => {
+    vi.mocked(createOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-limit-4',
+      clOrdId: 'cl-limit-4',
+      status: 'AUTHED',
+      challengeRequired: false,
+      authorizationReason: 'TRUSTED_AUTH_SESSION',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 4,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('external-order-preset-krx-market-buy-3'));
+    await user.clear(screen.getByTestId('order-input-qty'));
+    await user.type(screen.getByTestId('order-input-qty'), '4');
+
+    expect(screen.getByTestId('order-session-selected-summary')).toHaveTextContent(
+      '005930 · 삼성전자 · 4주',
+    );
+    expect(screen.getByTestId('order-session-selected-summary')).not.toHaveTextContent('시장가');
+
+    await user.click(screen.getByTestId('order-session-create'));
+
+    expect(createOrderSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderType: 'LIMIT',
+        quantity: 4,
+        price: 70100,
+      }),
+    );
   });
 
   it('shows client-side validation messages for invalid symbol and quantity input', async () => {
@@ -1484,6 +1699,32 @@ describe('OrderPage', () => {
     expect(screen.getByTestId('order-session-selected-summary')).toHaveTextContent(
       '005930 · 삼성전자 · 5주',
     );
+  });
+
+  it('restores a 3-share limit session without relabeling it as market', async () => {
+    window.sessionStorage.setItem('fixyz.order-session-id:1', 'sess-restore-limit-3');
+    vi.mocked(getOrderSession).mockResolvedValue({
+      orderSessionId: 'sess-restore-limit-3',
+      clOrdId: 'cl-restore-limit-3',
+      status: 'PENDING_NEW',
+      challengeRequired: true,
+      authorizationReason: 'ELEVATED_ORDER_RISK',
+      accountId: 1,
+      symbol: '005930',
+      side: 'BUY',
+      orderType: 'LIMIT',
+      qty: 3,
+      price: 70100,
+      expiresAt: futureIso(),
+    });
+
+    render(<OrderPage />);
+
+    expect(await screen.findByTestId('order-session-otp-input')).toBeInTheDocument();
+    expect(screen.getByTestId('order-session-selected-summary')).toHaveTextContent(
+      '005930 · 삼성전자 · 3주',
+    );
+    expect(screen.getByTestId('order-session-selected-summary')).not.toHaveTextContent('시장가');
   });
 
   it('does not restore a session saved for a different account scope', () => {

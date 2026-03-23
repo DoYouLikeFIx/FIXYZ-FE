@@ -18,6 +18,13 @@ vi.mock('@/api/accountApi', () => ({
   fetchAccountSummary: vi.fn(),
 }));
 
+const quoteDateFormatter = new Intl.DateTimeFormat('ko-KR', {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
 const memberFixture: Member = {
   memberUuid: 'member-001',
   email: 'demo@fix.com',
@@ -39,6 +46,10 @@ const positionsFixture: AccountPosition[] = [
     availableBalance: 100_000_000,
     currency: 'KRW',
     asOf: '2026-03-11T09:10:00Z',
+    marketPrice: 70_100,
+    quoteSnapshotId: 'quote-live-001',
+    quoteAsOf: '2026-03-11T09:09:00Z',
+    quoteSourceMode: 'LIVE',
   },
   {
     accountId: 1,
@@ -53,6 +64,30 @@ const positionsFixture: AccountPosition[] = [
     asOf: '2026-03-11T09:20:00Z',
   },
 ];
+
+const quoteFreshnessScenarios = [
+  {
+    marketPrice: 70_100,
+    quoteSnapshotId: 'quote-live-001',
+    quoteAsOf: '2026-03-11T09:09:00Z',
+    quoteSourceMode: 'LIVE',
+    stateLabel: '직결 시세',
+  },
+  {
+    marketPrice: 70_200,
+    quoteSnapshotId: 'quote-delayed-001',
+    quoteAsOf: '2026-03-12T08:15:00Z',
+    quoteSourceMode: 'DELAYED',
+    stateLabel: '지연 호가',
+  },
+  {
+    marketPrice: 70_300,
+    quoteSnapshotId: 'quote-replay-001',
+    quoteAsOf: '2026-03-12T07:45:00Z',
+    quoteSourceMode: 'REPLAY',
+    stateLabel: '리플레이 기준',
+  },
+] as const;
 
 const createHistoryPage = (
   overrides?: Partial<AccountOrderHistoryPage>,
@@ -134,6 +169,59 @@ describe('PortfolioPage', () => {
     expect(screen.getByTestId('portfolio-symbol-000660')).toBeInTheDocument();
     expect(screen.queryByTestId('order-session-create')).not.toBeInTheDocument();
   });
+
+  for (const scenario of quoteFreshnessScenarios) {
+    it(`renders ${scenario.quoteSourceMode} quote freshness metadata in the dashboard summary`, async () => {
+      vi.mocked(fetchAccountPositions).mockResolvedValue([
+        {
+          ...positionsFixture[0],
+          marketPrice: scenario.marketPrice,
+          quoteSnapshotId: scenario.quoteSnapshotId,
+          quoteAsOf: scenario.quoteAsOf,
+          quoteSourceMode: scenario.quoteSourceMode,
+        },
+      ]);
+
+      render(
+        <MemoryRouter>
+          <PortfolioPage />
+        </MemoryRouter>,
+      );
+
+      expect(await screen.findByTestId('portfolio-market-price')).toHaveTextContent(
+        `₩${scenario.marketPrice.toLocaleString('en-US')}`,
+      );
+      expect(screen.getByTestId('portfolio-quote-as-of')).toHaveTextContent(
+        quoteDateFormatter.format(new Date(scenario.quoteAsOf)),
+      );
+      expect(screen.getByTestId('portfolio-quote-source-mode')).toHaveTextContent(
+        scenario.quoteSourceMode,
+      );
+      expect(screen.getByTestId('portfolio-dashboard-quote-ticker')).toBeInTheDocument();
+      expect(screen.getByTestId('portfolio-dashboard-quote-ticker-symbol')).toHaveTextContent(
+        '005930',
+      );
+      expect(screen.getByTestId('portfolio-dashboard-quote-ticker-price')).toHaveTextContent(
+        `₩${scenario.marketPrice.toLocaleString('en-US')}`,
+      );
+      expect(screen.getByTestId('portfolio-dashboard-quote-ticker-mode')).toHaveTextContent(
+        scenario.quoteSourceMode,
+      );
+      expect(screen.getByTestId('portfolio-dashboard-quote-ticker-state')).toHaveTextContent(
+        scenario.stateLabel,
+      );
+      expect(screen.getByTestId('portfolio-dashboard-quote-ticker-quote-as-of')).toHaveTextContent(
+        quoteDateFormatter.format(new Date(scenario.quoteAsOf)),
+      );
+      expect(screen.getByTestId('portfolio-dashboard-quote-ticker-snapshot')).toHaveTextContent(
+        scenario.quoteSnapshotId,
+      );
+      expect(
+        screen.getAllByTestId('portfolio-dashboard-quote-ticker-candle'),
+      ).toHaveLength(18);
+      expect(screen.getByTestId('portfolio-dashboard-quote-ticker-chart')).toBeInTheDocument();
+    });
+  }
 
   it('switches the selected owned position and re-queries history when the page size or page changes', async () => {
     const user = userEvent.setup();

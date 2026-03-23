@@ -7,6 +7,7 @@ type CreateNormalizedApiErrorFromResponseOptions = {
   message: string;
   status: number;
   detail?: string;
+  details?: Record<string, unknown>;
   path?: string;
   traceId?: string;
   correlationId?: string;
@@ -36,6 +37,7 @@ export const createNormalizedApiErrorFromResponse = (
                 code: options.code,
                 message: options.message,
                 detail: options.detail,
+                details: options.details,
                 operatorCode: options.operatorCode,
                 retryAfterSeconds: options.retryAfterSeconds,
                 remainingAttempts: options.remainingAttempts,
@@ -51,6 +53,7 @@ export const createNormalizedApiErrorFromResponse = (
               message: options.message,
               path: options.path ?? '/api/v1/auth/login',
               correlationId: options.correlationId,
+              details: options.details,
               operatorCode: options.operatorCode,
               retryAfterSeconds: options.retryAfterSeconds,
               remainingAttempts: options.remainingAttempts,

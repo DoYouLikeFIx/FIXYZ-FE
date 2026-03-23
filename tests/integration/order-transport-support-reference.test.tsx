@@ -8,6 +8,8 @@ import {
   successEnvelope,
 } from '../fixtures/mockAxiosModule';
 
+const futureIso = (seconds = 3600) => new Date(Date.now() + seconds * 1000).toISOString();
+
 describe.sequential('OrderPage transport coverage', () => {
   afterEach(() => {
     cleanup();
@@ -36,7 +38,7 @@ describe.sequential('OrderPage transport coverage', () => {
           orderType: 'LIMIT',
           qty: 2,
           price: 71000,
-          expiresAt: '2026-03-20T10:00:00Z',
+          expiresAt: futureIso(),
         });
       }
 
@@ -78,7 +80,7 @@ describe.sequential('OrderPage transport coverage', () => {
           orderType: 'LIMIT',
           qty: 2,
           price: 71000,
-          expiresAt: '2026-03-20T10:00:00Z',
+          expiresAt: futureIso(),
         });
       }
 
@@ -126,5 +128,99 @@ describe.sequential('OrderPage transport coverage', () => {
     );
 
     expect(executeCall?.headers['X-CSRF-TOKEN']).toBe('csrf-order-transport-001');
+  });
+
+  it('keeps stale-quote guidance in Step A through the real order create transport path', async () => {
+    const transport = await installMockAxiosModule((request) => {
+      if (request.method === 'GET' && getPathname(request.url) === '/api/v1/auth/csrf') {
+        return successEnvelope({
+          token: 'csrf-order-transport-002',
+        });
+      }
+
+      if (request.method === 'POST' && getPathname(request.url) === '/api/v1/orders/sessions') {
+        return failureEnvelope(
+          {
+            code: 'VALIDATION-003',
+            message: '시장가 주문에 사용할 시세가 오래되었습니다.',
+            detail: '시장가 주문에 사용한 quote snapshot이 허용 범위를 초과했습니다.',
+            operatorCode: 'STALE_QUOTE',
+            userMessageKey: 'error.quote.stale',
+            details: {
+              symbol: '005930',
+              quoteSnapshotId: 'qsnap-replay-001',
+              quoteSourceMode: 'REPLAY',
+              snapshotAgeMs: 65_000,
+            },
+            timestamp: '2026-03-23T00:00:00Z',
+          },
+          {
+            status: 400,
+            headers: {
+              'x-correlation-id': 'corr-order-transport-002',
+            },
+          },
+        );
+      }
+
+      throw new Error(`Unhandled request: ${request.method} ${request.url}`);
+    });
+    const authStore = await import('@/store/useAuthStore');
+    const { OrderPage } = await import('@/pages/OrderPage');
+
+    authStore.resetAuthStore();
+    authStore.useAuthStore.setState({
+      member: {
+        memberUuid: 'member-001',
+        email: 'demo@fix.com',
+        name: 'Demo User',
+        role: 'ROLE_USER',
+        totpEnrolled: true,
+        accountId: '1',
+      },
+      status: 'authenticated',
+    });
+    window.sessionStorage.clear();
+
+    const user = userEvent.setup();
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('external-order-preset-krx-market-buy-3'));
+    await user.click(screen.getByTestId('order-session-create'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-session-error-category')).toHaveTextContent('검증');
+    });
+    expect(screen.getByTestId('order-session-stale-quote-guidance')).toHaveTextContent(
+      'symbol=005930',
+    );
+    expect(screen.getByTestId('order-session-stale-quote-guidance')).toHaveTextContent(
+      'quoteSnapshotId=qsnap-replay-001',
+    );
+    expect(screen.getByTestId('order-session-stale-quote-guidance')).toHaveTextContent(
+      'quoteSourceMode=REPLAY',
+    );
+    expect(screen.getByTestId('order-session-stale-quote-guidance')).toHaveTextContent(
+      'snapshotAgeMs=65000',
+    );
+    expect(screen.queryByTestId('external-order-feedback')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('order-session-error')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('order-session-otp-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('order-session-execute')).not.toBeInTheDocument();
+    expect(screen.getByTestId('order-session-create')).toBeInTheDocument();
+
+    const createCall = transport.calls.find(
+      (call) =>
+        call.method === 'POST' && getPathname(call.url) === '/api/v1/orders/sessions',
+    );
+
+    expect(JSON.parse(createCall?.body ?? '{}')).toMatchObject({
+      accountId: 1,
+      symbol: '005930',
+      orderType: 'MARKET',
+      qty: 3,
+      price: null,
+    });
+    expect(createCall?.headers['X-CSRF-TOKEN']).toBe('csrf-order-transport-002');
   });
 });
