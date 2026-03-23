@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 
 import { RouteStatusShell } from '@/components/layout/RouteStatusShell';
+import { useAuth } from '@/hooks/auth/useAuth';
 import {
   DEFAULT_PROTECTED_ROUTE,
   LOGIN_ROUTE,
@@ -9,7 +10,6 @@ import {
   resolveRedirectTarget,
 } from '@/router/navigation';
 import type { MfaNextAction } from '@/types/auth';
-import { useAuthStore } from '@/store/useAuthStore';
 
 interface PendingMfaRouteProps {
   requiredAction: MfaNextAction;
@@ -20,8 +20,8 @@ export function PendingMfaRoute({
   requiredAction,
   children,
 }: PendingMfaRouteProps) {
-  const status = useAuthStore((state) => state.status);
-  const pendingMfa = useAuthStore((state) => state.pendingMfa);
+  const status = useAuth((state) => state.status);
+  const pendingMfa = useAuth((state) => state.pendingMfa);
   const [searchParams] = useSearchParams();
 
   if (status === 'checking') {
