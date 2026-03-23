@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { useAuthStore } from '@/store/useAuthStore';
+import { useAuth } from '@/hooks/auth/useAuth';
 
 type RangeKey = '1D' | '1W' | '1M' | '1Y';
 type ProfileKey = '안정형' | '균형형' | '공격형';
@@ -242,7 +242,7 @@ const buildChartPolyline = (points: number[]) => {
 };
 
 export const usePortfolioExperience = () => {
-  const member = useAuthStore((state) => state.member);
+  const member = useAuth((state) => state.member);
 
   const [selectedRange, setSelectedRange] = useState<RangeKey>('1M');
   const [selectedProfile, setSelectedProfile] = useState<ProfileKey>('균형형');

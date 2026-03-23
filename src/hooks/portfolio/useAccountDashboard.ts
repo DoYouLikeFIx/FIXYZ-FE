@@ -9,8 +9,8 @@ import {
   getAccountDashboardErrorPresentation,
   type AccountDashboardErrorPresentation,
 } from '@/lib/account-dashboard-errors';
+import { useAuth } from '@/hooks/auth/useAuth';
 import { maskAccountNumber } from '@/lib/account-masking';
-import { useAuthStore } from '@/store/useAuthStore';
 import type {
   AccountOrderHistoryPage,
   AccountPosition,
@@ -46,7 +46,7 @@ const hasNumericAccountId = (value?: string) =>
   typeof value === 'string' && /^\d+$/.test(value);
 
 export const useAccountDashboard = () => {
-  const member = useAuthStore((state) => state.member);
+  const member = useAuth((state) => state.member);
   const accountId = member?.accountId;
   const hasLinkedAccount = hasNumericAccountId(accountId);
   const currentScopeKey = hasLinkedAccount && accountId ? accountId : null;
