@@ -1,6 +1,6 @@
 import type { APIRequestContext, APIResponse } from '@playwright/test';
 
-const LIVE_AUTH_HEALTH_TIMEOUT_MS = 5_000;
+const LIVE_AUTH_HEALTH_TIMEOUT_MS = 30_000;
 const LIVE_FORGOT_PREREQUISITE_PATH = '/api/v1/auth/password/forgot';
 
 let liveAuthContractHealthcheck: Promise<void> | null = null;

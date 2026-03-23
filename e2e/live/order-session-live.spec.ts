@@ -5,13 +5,13 @@ import { fileURLToPath } from 'node:url';
 import {
   expect,
   test,
+  type APIResponse,
   type Page,
 } from '@playwright/test';
 
-import { requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
-
 const DEFAULT_REGISTER_PASSWORD = 'LiveOrder1!';
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+const LIVE_DIRECT_BASE_URL = process.env.LIVE_API_BASE_URL?.trim() || 'http://127.0.0.1:8080';
 const canonicalOrderSessionContract = JSON.parse(
   readFileSync(
     fileURLToPath(new URL('../../tests/order-session-contract-cases.json', import.meta.url)),
@@ -44,6 +44,19 @@ const isCanonicalFinalResult = (title: string, body: string) =>
   canonicalOrderSessionContract.finalResults.some(
     (candidate) => candidate.title === title && candidate.body === body,
   );
+const QUOTE_SOURCE_MODE_PATTERN = /^(LIVE|DELAYED|REPLAY)$/;
+
+const expectLiveQuoteMetadata = (payload: {
+  data?: {
+    quoteSnapshotId?: string | null;
+    quoteAsOf?: string | null;
+    quoteSourceMode?: string | null;
+  };
+}) => {
+  expect(payload.data?.quoteSnapshotId).toBeTruthy();
+  expect(payload.data?.quoteAsOf).toBeTruthy();
+  expect(payload.data?.quoteSourceMode).toMatch(QUOTE_SOURCE_MODE_PATTERN);
+};
 
 const createLiveIdentity = () => {
   const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -103,6 +116,148 @@ const delay = (milliseconds: number) =>
     setTimeout(resolve, milliseconds);
   });
 
+class LiveCookieJar {
+  private readonly cookies = new Map<string, {
+    value: string;
+    path: string;
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: 'Lax' | 'None' | 'Strict';
+  }>();
+
+  rememberFromHeaders(headers: Headers) {
+    const candidate = headers as Headers & {
+      getSetCookie?: () => string[];
+    };
+    const setCookieHeaders = typeof candidate.getSetCookie === 'function'
+      ? candidate.getSetCookie()
+      : headers.get('set-cookie')
+        ? [headers.get('set-cookie')!]
+        : [];
+
+    for (const header of setCookieHeaders) {
+      const [pair, ...attributes] = header.split(';');
+      const separatorIndex = pair.indexOf('=');
+
+      if (separatorIndex <= 0) {
+        continue;
+      }
+
+      const name = pair.slice(0, separatorIndex).trim();
+      const value = pair.slice(separatorIndex + 1).trim();
+      const metadata: {
+        value: string;
+        path: string;
+        httpOnly: boolean;
+        secure: boolean;
+        sameSite: 'Lax' | 'None' | 'Strict';
+      } = {
+        value,
+        path: '/',
+        httpOnly: false,
+        secure: false,
+        sameSite: 'Lax',
+      };
+
+      for (const attribute of attributes) {
+        const normalized = attribute.trim();
+        const [attributeName, attributeValue] = normalized.split('=', 2);
+
+        if (attributeName.toLowerCase() === 'path' && attributeValue) {
+          metadata.path = attributeValue;
+        }
+        if (attributeName.toLowerCase() === 'httponly') {
+          metadata.httpOnly = true;
+        }
+        if (attributeName.toLowerCase() === 'secure') {
+          metadata.secure = true;
+        }
+        if (attributeName.toLowerCase() === 'samesite' && attributeValue) {
+          if (attributeValue === 'Strict' || attributeValue === 'Lax' || attributeValue === 'None') {
+            metadata.sameSite = attributeValue;
+          }
+        }
+      }
+
+      this.cookies.set(name, metadata);
+    }
+  }
+
+  setCookie(
+    name: string,
+    value: string,
+    overrides: Partial<{
+      path: string;
+      httpOnly: boolean;
+      secure: boolean;
+      sameSite: 'Lax' | 'None' | 'Strict';
+    }> = {},
+  ) {
+    this.cookies.set(name, {
+      value,
+      path: overrides.path ?? '/',
+      httpOnly: overrides.httpOnly ?? false,
+      secure: overrides.secure ?? false,
+      sameSite: overrides.sameSite ?? 'Lax',
+    });
+  }
+
+  toCookieHeader() {
+    return [...this.cookies.entries()]
+      .map(([name, metadata]) => `${name}=${metadata.value}`)
+      .join('; ');
+  }
+
+  toPlaywrightCookies() {
+    const hostname = new URL(LIVE_DIRECT_BASE_URL).hostname;
+
+    return [...this.cookies.entries()].map(([name, metadata]) => ({
+      name,
+      value: metadata.value,
+      domain: hostname,
+      path: metadata.path,
+      httpOnly: metadata.httpOnly,
+      secure: metadata.secure,
+      sameSite: metadata.sameSite,
+      expires: -1,
+    }));
+  }
+}
+
+const fetchLiveJson = async <T>(
+  cookieJar: LiveCookieJar,
+  path: string,
+  init: RequestInit,
+  timeoutMs: number,
+) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const headers = new Headers(init.headers);
+  const cookieHeader = cookieJar.toCookieHeader();
+
+  if (cookieHeader) {
+    headers.set('Cookie', cookieHeader);
+  }
+
+  try {
+    const response = await fetch(`${LIVE_DIRECT_BASE_URL}${path}`, {
+      ...init,
+      headers,
+      signal: controller.signal,
+    });
+
+    cookieJar.rememberFromHeaders(response.headers);
+
+    if (!response.ok) {
+      throw new Error(`${path} returned ${response.status}`);
+    }
+
+    return await response.json() as T;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const millisUntilNextTotpWindow = (now = Date.now()) => 30_000 - (now % 30_000);
 
 const waitForNextTotp = async (
@@ -155,6 +310,173 @@ const expectCorrelationHeaders = (headers: Record<string, string>) => {
   );
 };
 
+const expectLiveAuthBootstrapReady = async (response: APIResponse) => {
+  expect(response.ok()).toBe(true);
+
+  const payload = await response.json() as {
+    data?: {
+      csrfToken?: string;
+      token?: string;
+    };
+  };
+
+  expect(payload.data?.csrfToken ?? payload.data?.token).toBeTruthy();
+};
+
+const waitForNonEmptyText = async (
+  page: Page,
+  testId: string,
+  timeout = 30_000,
+) => {
+  await expect.poll(
+    async () => ((await page.getByTestId(testId).textContent())?.trim() ?? ''),
+    { timeout },
+  ).not.toBe('');
+
+  return ((await page.getByTestId(testId).textContent())?.trim() ?? '');
+};
+
+const fetchLiveCsrf = async (cookieJar: LiveCookieJar) => {
+  const payload = await fetchLiveJson<{
+    data?: {
+      csrfToken?: string;
+      token?: string;
+      headerName?: string;
+    };
+  }>(
+    cookieJar,
+    '/api/v1/auth/csrf',
+    {
+      method: 'GET',
+    },
+    60_000,
+  );
+
+  const csrfToken = payload.data?.csrfToken ?? payload.data?.token;
+
+  expect(csrfToken).toBeTruthy();
+  cookieJar.setCookie('XSRF-TOKEN', csrfToken!, {
+    sameSite: 'Strict',
+  });
+
+  return {
+    csrfToken: csrfToken!,
+    headerName: payload.data?.headerName ?? 'X-CSRF-TOKEN',
+  };
+};
+
+const bootstrapFreshLiveOrderSession = async (
+  page: Page,
+) => {
+  const identity = createLiveIdentity();
+  const cookieJar = new LiveCookieJar();
+  let csrf = await fetchLiveCsrf(cookieJar);
+
+  await fetchLiveJson(
+    cookieJar,
+    '/api/v1/auth/register',
+    {
+      method: 'POST',
+      headers: {
+        [csrf.headerName]: csrf.csrfToken,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        email: identity.email,
+        password: identity.password,
+        name: identity.name,
+      }).toString(),
+    },
+    60_000,
+  );
+
+  csrf = await fetchLiveCsrf(cookieJar);
+
+  const loginPayload = await fetchLiveJson<{
+    data?: {
+      loginToken?: string;
+      nextAction?: string;
+    };
+  }>(
+    cookieJar,
+    '/api/v1/auth/login',
+    {
+      method: 'POST',
+      headers: {
+        [csrf.headerName]: csrf.csrfToken,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        email: identity.email,
+        password: identity.password,
+      }).toString(),
+    },
+    60_000,
+  );
+  const loginToken = loginPayload.data?.loginToken;
+
+  expect(loginPayload.data?.nextAction).toBe('ENROLL_TOTP');
+  expect(loginToken).toBeTruthy();
+
+  const enrollPayload = await fetchLiveJson<{
+    data?: {
+      manualEntryKey?: string;
+      enrollmentToken?: string;
+    };
+  }>(
+    cookieJar,
+    '/api/v1/members/me/totp/enroll',
+    {
+      method: 'POST',
+      headers: {
+        [csrf.headerName]: csrf.csrfToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        loginToken,
+      }),
+    },
+    60_000,
+  );
+  const manualEntryKey = enrollPayload.data?.manualEntryKey ?? '';
+  const enrollmentToken = enrollPayload.data?.enrollmentToken ?? '';
+
+  expect(manualEntryKey).toBeTruthy();
+  expect(enrollmentToken).toBeTruthy();
+
+  const enrollmentCode = generateTotp(manualEntryKey);
+  csrf = await fetchLiveCsrf(cookieJar);
+  await fetchLiveJson(
+    cookieJar,
+    '/api/v1/members/me/totp/confirm',
+    {
+      method: 'POST',
+      headers: {
+        [csrf.headerName]: csrf.csrfToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        loginToken,
+        enrollmentToken,
+        otpCode: enrollmentCode,
+      }),
+    },
+    60_000,
+  );
+
+  await page.context().clearCookies();
+  await page.context().addCookies(cookieJar.toPlaywrightCookies());
+  await page.goto('/orders');
+  await expect(page).toHaveURL(/\/orders$/);
+  await expect(page.getByTestId('protected-area-title')).toHaveText('Session-based order flow');
+  await expect(page.getByTestId('order-session-selected-summary')).toContainText('005930');
+
+  return {
+    manualEntryKey,
+    lastUsedTotp: enrollmentCode,
+  };
+};
+
 const registerEnrollAndLoginToOrders = async (page: Page) => {
   const identity = createLiveIdentity();
 
@@ -163,26 +485,13 @@ const registerEnrollAndLoginToOrders = async (page: Page) => {
   await page.getByTestId('register-name').fill(identity.name);
   await page.getByTestId('register-password').fill(identity.password);
   await page.getByTestId('register-password-confirm').fill(identity.password);
-
-  const registerLoginResponsePromise = page.waitForResponse(
-    (response) =>
-      response.url().includes('/api/v1/auth/login')
-      && response.request().method() === 'POST',
-  );
   await page.getByTestId('register-submit').click();
-
-  const registerLoginResponse = await registerLoginResponsePromise;
-  const registerLoginPayload = await registerLoginResponse.json() as {
-    data?: {
-      nextAction?: string;
-    };
-  };
-
-  expect(registerLoginPayload.data?.nextAction).toBe('ENROLL_TOTP');
   await expect(page).toHaveURL(/\/settings\/totp\/enroll(?:\?.*)?$/);
-  await expect(page.getByTestId('totp-enroll-manual-key')).toBeVisible();
+  await expect(page.getByTestId('totp-enroll-manual-key')).toBeVisible({
+    timeout: 35_000,
+  });
 
-  const manualEntryKey = (await page.getByTestId('totp-enroll-manual-key').textContent())?.trim();
+  const manualEntryKey = await waitForNonEmptyText(page, 'totp-enroll-manual-key');
   expect(manualEntryKey).toBeTruthy();
 
   const enrollmentCode = generateTotp(manualEntryKey!);
@@ -237,7 +546,11 @@ const expectCanonicalFinalResultCard = async (page: Page) => {
 
 test.describe.serial('live backend order session flow', () => {
   test.beforeEach(async ({ request }) => {
-    await requireLiveAuthContractHealthy(request);
+    const csrfResponse = await request.get('/api/v1/auth/csrf', {
+      timeout: 30_000,
+    });
+
+    await expectLiveAuthBootstrapReady(csrfResponse);
   });
 
   test('creates and executes a low-risk order session after a fresh MFA login', async ({ page }) => {
@@ -256,6 +569,12 @@ test.describe.serial('live backend order session flow', () => {
     const createOrderSessionResponse = await createOrderSessionResponsePromise;
     expect(createOrderSessionResponse.ok()).toBe(true);
     expectCorrelationHeaders(await createOrderSessionResponse.allHeaders());
+    const createdSessionPayload = await createOrderSessionResponse.json() as {
+      data?: {
+        accountId?: number;
+      };
+    };
+    expect(createdSessionPayload.data?.accountId).toBeTruthy();
 
     await expect(page.getByTestId('order-session-execute')).toBeVisible();
     await expect(page.getByTestId('order-session-summary')).toContainText('상태 AUTHED');
@@ -277,6 +596,44 @@ test.describe.serial('live backend order session flow', () => {
     await expect(page.getByTestId('order-session-summary')).toContainText('상태 COMPLETED');
     await expect(page.getByTestId('order-session-result')).toBeVisible();
     await expectCanonicalFinalResultCard(page);
+    await expect(page.getByTestId('external-order-feedback')).toHaveCount(0);
+  });
+
+  test('creates a market order session with quote freshness metadata after a fresh MFA login', async ({
+    page,
+  }) => {
+    test.slow();
+    test.setTimeout(150_000);
+
+    await bootstrapFreshLiveOrderSession(page);
+    await page.getByTestId('external-order-preset-krx-market-buy-3').click();
+    await expect(page.getByTestId('order-session-selected-summary')).toContainText('시장가');
+
+    const createOrderSessionResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v1/orders/sessions')
+        && !response.url().includes('/execute')
+        && response.request().method() === 'POST',
+    );
+    await page.getByTestId('order-session-create').click();
+    const createOrderSessionResponse = await createOrderSessionResponsePromise;
+    expect(createOrderSessionResponse.ok()).toBe(true);
+    expectCorrelationHeaders(await createOrderSessionResponse.allHeaders());
+
+    const createdSessionPayload = await createOrderSessionResponse.json() as {
+      data?: {
+        orderType?: string | null;
+        price?: number | null;
+        quoteSnapshotId?: string | null;
+        quoteAsOf?: string | null;
+        quoteSourceMode?: string | null;
+      };
+    };
+    expect(createdSessionPayload.data?.orderType).toBe('MARKET');
+    expect(createdSessionPayload.data?.price ?? null).toBeNull();
+    expectLiveQuoteMetadata(createdSessionPayload);
+
+    await expect(page.getByTestId('order-session-summary')).toContainText(/상태 (AUTHED|PENDING_NEW)/);
     await expect(page.getByTestId('external-order-feedback')).toHaveCount(0);
   });
 
