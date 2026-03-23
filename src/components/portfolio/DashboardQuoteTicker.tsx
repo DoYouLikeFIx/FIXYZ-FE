@@ -8,114 +8,72 @@ const quoteDateFormatter = new Intl.DateTimeFormat('ko-KR', {
   minute: '2-digit',
 });
 
-const PREVIEW_CANDLE_COUNT = 18;
-
-interface PreviewCandle {
-  open: number;
-  close: number;
-  high: number;
-  low: number;
-}
-
-const normalizePrice = (value: number) => Math.max(10, Math.round(value / 10) * 10);
-
-const hashKey = (input: string) =>
-  input.split('').reduce((accumulator, character) => (
-    (accumulator * 31 + character.charCodeAt(0)) % 2_147_483_647
-  ), 7);
-
-const createSeededRandom = (seed: number) => {
-  let value = seed % 2_147_483_647;
-
-  if (value <= 0) {
-    value += 2_147_483_646;
-  }
-
-  return () => {
-    value = (value * 16_807) % 2_147_483_647;
-    return (value - 1) / 2_147_483_646;
-  };
+type QuoteTone = {
+  modeTone: 'live' | 'delayed' | 'replay' | 'neutral';
+  stateLabel: string;
+  statusNote: string;
 };
 
-const getChartTone = (quoteSourceMode: QuoteSourceMode | null | undefined) => {
+const getQuoteTone = (quoteSourceMode: QuoteSourceMode | null | undefined): QuoteTone => {
   switch (quoteSourceMode) {
-    case 'DELAYED':
-      return {
-        bullishCandles: 8,
-        modeTone: 'delayed',
-        stateLabel: '지연 호가',
-        volatilityRatio: 0.0036,
-      } as const;
-    case 'REPLAY':
-      return {
-        bullishCandles: 6,
-        modeTone: 'replay',
-        stateLabel: '리플레이 기준',
-        volatilityRatio: 0.0028,
-      } as const;
     case 'LIVE':
-    default:
       return {
-        bullishCandles: 11,
         modeTone: 'live',
         stateLabel: '직결 시세',
-        volatilityRatio: 0.0048,
-      } as const;
+        statusNote: '실시간 기준',
+      };
+    case 'DELAYED':
+      return {
+        modeTone: 'delayed',
+        stateLabel: '지연 호가',
+        statusNote: '지연 도착 데이터',
+      };
+    case 'REPLAY':
+      return {
+        modeTone: 'replay',
+        stateLabel: '리플레이 기준',
+        statusNote: '재생 스냅샷',
+      };
+    default:
+      return {
+        modeTone: 'neutral',
+        stateLabel: '미확인 시세',
+        statusNote: '새 source mode',
+      };
   }
 };
 
-const buildPreviewCandles = (
-  marketPrice: number,
-  symbol: string,
-  quoteSourceMode: QuoteSourceMode | null | undefined,
-) => {
-  const chartTone = getChartTone(quoteSourceMode);
-  const random = createSeededRandom(hashKey(`${symbol}:${quoteSourceMode ?? 'UNKNOWN'}`));
-  const closes = Array.from({ length: PREVIEW_CANDLE_COUNT }, (_, index) => {
-    const progress = index / Math.max(PREVIEW_CANDLE_COUNT - 1, 1);
-    const wave = Math.sin(progress * Math.PI * 1.7 + random() * 0.6);
-    const drift = (progress - 0.5) * marketPrice * chartTone.volatilityRatio * 1.6;
-    const jitter = (random() - 0.5) * marketPrice * chartTone.volatilityRatio * 0.75;
-
-    return marketPrice + wave * marketPrice * chartTone.volatilityRatio + drift + jitter;
-  });
-  const shift = marketPrice - closes[closes.length - 1];
-
-  return closes.map((closeValue, index) => {
-    const previousClose = index === 0
-      ? closeValue + shift - marketPrice * chartTone.volatilityRatio * 0.65
-      : closes[index - 1] + shift;
-    const driftBias = index < chartTone.bullishCandles ? 1 : -1;
-    const bodyOffset =
-      driftBias * marketPrice * chartTone.volatilityRatio * (0.16 + random() * 0.18);
-    const close = normalizePrice(closeValue + shift);
-    const open = normalizePrice(previousClose - bodyOffset);
-    const high = normalizePrice(
-      Math.max(open, close) + marketPrice * chartTone.volatilityRatio * (0.14 + random() * 0.2),
-    );
-    const low = normalizePrice(
-      Math.min(open, close) - marketPrice * chartTone.volatilityRatio * (0.14 + random() * 0.2),
-    );
-
-    return {
-      close,
-      high,
-      low,
-      open,
-    };
-  });
+const formatModeLabel = (quoteSourceMode: QuoteSourceMode | null | undefined) => {
+  const normalized = typeof quoteSourceMode === 'string' ? quoteSourceMode.trim() : '';
+  return normalized || 'UNKNOWN';
 };
 
-const buildChartMetrics = (candles: PreviewCandle[]) => {
-  const max = Math.max(...candles.map((candle) => candle.high));
-  const min = Math.min(...candles.map((candle) => candle.low));
-  const safeRange = max - min || 1;
+const formatFreshnessAge = (quoteAsOf: string, asOf: string) => {
+  const quoteTime = new Date(quoteAsOf).getTime();
+  const asOfTime = new Date(asOf).getTime();
 
-  return {
-    max,
-    min,
-    toPercent: (value: number) => ((value - min) / safeRange) * 100,
-  };
+  if (!Number.isFinite(quoteTime) || !Number.isFinite(asOfTime)) {
+    return '시각 확인 필요';
+  }
+
+  const deltaMs = Math.abs(asOfTime - quoteTime);
+
+  if (deltaMs < 60_000) {
+    return '동일 시각';
+  }
+
+  const deltaMinutes = Math.round(deltaMs / 60_000);
+
+  if (deltaMinutes < 60) {
+    return `${deltaMinutes}분 차이`;
+  }
+
+  const hours = Math.floor(deltaMinutes / 60);
+  const minutes = deltaMinutes % 60;
+
+  return minutes > 0
+    ? `${hours}시간 ${minutes}분 차이`
+    : `${hours}시간 차이`;
 };
 
 interface DashboardQuoteTickerProps {
@@ -132,23 +90,19 @@ export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
     return null;
   }
 
-  const chartTone = getChartTone(position.quoteSourceMode);
-  const candles = buildPreviewCandles(
-    position.marketPrice,
-    position.symbol,
-    position.quoteSourceMode,
-  );
-  const chartMetrics = buildChartMetrics(candles);
+  const quoteTone = getQuoteTone(position.quoteSourceMode);
+  const modeLabel = formatModeLabel(position.quoteSourceMode);
+  const freshnessAge = formatFreshnessAge(position.quoteAsOf, position.asOf);
 
   return (
     <section
-      className={`fix-dashboard-quote-ticker fix-dashboard-quote-ticker--${chartTone.modeTone}`}
+      className={`fix-dashboard-quote-ticker fix-dashboard-quote-ticker--${quoteTone.modeTone}`}
       data-testid="portfolio-dashboard-quote-ticker"
-      aria-label="대시보드 시세 chart"
+      aria-label="대시보드 시세 freshness"
     >
       <div className="fix-dashboard-quote-ticker__topline">
         <p className="fix-dashboard-quote-ticker__eyebrow">FIXYZ Quote Window</p>
-        <span className="fix-dashboard-quote-ticker__board-id">1D preview</span>
+        <span className="fix-dashboard-quote-ticker__board-id">Freshness panel</span>
       </div>
 
       <div className="fix-dashboard-quote-ticker__board">
@@ -161,7 +115,7 @@ export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
               {position.symbol}
             </strong>
             <span className="fix-dashboard-quote-ticker__market-chip">KRX</span>
-            <span className="fix-dashboard-quote-ticker__preview-chip">candles</span>
+            <span className="fix-dashboard-quote-ticker__preview-chip">snapshot</span>
           </div>
 
           <div className="fix-dashboard-quote-ticker__price-row">
@@ -180,16 +134,19 @@ export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
             className="fix-dashboard-quote-ticker__badge"
             data-testid="portfolio-dashboard-quote-ticker-mode"
           >
-            {position.quoteSourceMode}
+            {modeLabel}
           </span>
           <span
             className="fix-dashboard-quote-ticker__state"
             data-testid="portfolio-dashboard-quote-ticker-state"
           >
-            {chartTone.stateLabel}
+            {quoteTone.stateLabel}
           </span>
-          <span className="fix-dashboard-quote-ticker__status-note">
-            snapshot-seeded preview
+          <span
+            className="fix-dashboard-quote-ticker__status-note"
+            data-testid="portfolio-dashboard-quote-ticker-status-note"
+          >
+            {quoteTone.statusNote}
           </span>
         </div>
       </div>
@@ -198,67 +155,34 @@ export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
         className="fix-dashboard-quote-ticker__chart"
         data-testid="portfolio-dashboard-quote-ticker-chart"
       >
-        <div className="fix-dashboard-quote-ticker__chart-board">
-          <div className="fix-dashboard-quote-ticker__chart-grid" aria-hidden="true">
-            {Array.from({ length: 4 }, (_, index) => (
-              <span
-                key={`grid-line-${index + 1}`}
-                className="fix-dashboard-quote-ticker__grid-line"
-              />
-            ))}
+        <div className="fix-dashboard-quote-ticker__freshness-panel">
+          <div className="fix-dashboard-quote-ticker__freshness-item">
+            <span className="fix-dashboard-quote-ticker__meta-label">시각 차이</span>
+            <strong data-testid="portfolio-dashboard-quote-ticker-freshness-age">
+              {freshnessAge}
+            </strong>
+            <span className="fix-dashboard-quote-ticker__freshness-helper">
+              quoteAsOf 대비 조회 기준 차이
+            </span>
           </div>
-
-          <div className="fix-dashboard-quote-ticker__candle-strip" aria-hidden="true">
-            {candles.map((candle, index) => {
-              const openPercent = chartMetrics.toPercent(candle.open);
-              const closePercent = chartMetrics.toPercent(candle.close);
-              const highPercent = chartMetrics.toPercent(candle.high);
-              const lowPercent = chartMetrics.toPercent(candle.low);
-              const upperBodyPercent = Math.max(openPercent, closePercent);
-              const lowerBodyPercent = Math.min(openPercent, closePercent);
-              const isBullish = candle.close >= candle.open;
-
-              return (
-                <div
-                  key={`candle-${index + 1}`}
-                  className={`fix-dashboard-quote-ticker__candle ${
-                    isBullish
-                      ? 'fix-dashboard-quote-ticker__candle--bullish'
-                      : 'fix-dashboard-quote-ticker__candle--bearish'
-                  }`}
-                  data-testid="portfolio-dashboard-quote-ticker-candle"
-                >
-                  <span
-                    className="fix-dashboard-quote-ticker__wick"
-                    style={{
-                      bottom: `${lowPercent}%`,
-                      top: `${100 - highPercent}%`,
-                    }}
-                  />
-                  <span
-                    className="fix-dashboard-quote-ticker__body"
-                    style={{
-                      bottom: `${lowerBodyPercent}%`,
-                      top: `${100 - upperBodyPercent}%`,
-                    }}
-                  />
-                </div>
-              );
-            })}
+          <div className="fix-dashboard-quote-ticker__freshness-item">
+            <span className="fix-dashboard-quote-ticker__meta-label">Source 해석</span>
+            <strong>{quoteTone.statusNote}</strong>
+            <span className="fix-dashboard-quote-ticker__freshness-helper">
+              backend source mode를 그대로 보여줍니다.
+            </span>
           </div>
-
-          <div className="fix-dashboard-quote-ticker__chart-scale">
-            <span>{formatKRW(chartMetrics.max)}</span>
-            <span>{formatKRW(position.marketPrice)}</span>
-            <span>{formatKRW(chartMetrics.min)}</span>
+          <div className="fix-dashboard-quote-ticker__freshness-item">
+            <span className="fix-dashboard-quote-ticker__meta-label">표시 원칙</span>
+            <strong>히스토리 차트 미사용</strong>
+            <span className="fix-dashboard-quote-ticker__freshness-helper">
+              실제 가격 흐름을 합성하지 않습니다.
+            </span>
           </div>
         </div>
-
-        <div className="fix-dashboard-quote-ticker__chart-axis">
-          <span>open</span>
-          <span>mid</span>
-          <span>now</span>
-        </div>
+        <p className="fix-dashboard-quote-ticker__chart-footnote">
+          서버가 내려준 quote freshness 메타데이터만 요약합니다.
+        </p>
       </div>
 
       <div className="fix-dashboard-quote-ticker__meta-table">
@@ -280,7 +204,7 @@ export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
         </div>
         <div className="fix-dashboard-quote-ticker__meta-item">
           <span className="fix-dashboard-quote-ticker__meta-label">시세 상태</span>
-          <strong>{chartTone.stateLabel}</strong>
+          <strong>{quoteTone.stateLabel}</strong>
         </div>
       </div>
     </section>
