@@ -142,32 +142,32 @@ export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
 
   return (
     <section
-      className={`dashboard-quote-ticker dashboard-quote-ticker--${chartTone.modeTone}`}
+      className={`fix-dashboard-quote-ticker fix-dashboard-quote-ticker--${chartTone.modeTone}`}
       data-testid="portfolio-dashboard-quote-ticker"
       aria-label="대시보드 시세 chart"
     >
-      <div className="dashboard-quote-ticker__topline">
-        <p className="dashboard-quote-ticker__eyebrow">FIXYZ Quote Window</p>
-        <span className="dashboard-quote-ticker__board-id">1D preview</span>
+      <div className="fix-dashboard-quote-ticker__topline">
+        <p className="fix-dashboard-quote-ticker__eyebrow">FIXYZ Quote Window</p>
+        <span className="fix-dashboard-quote-ticker__board-id">1D preview</span>
       </div>
 
-      <div className="dashboard-quote-ticker__board">
-        <div className="dashboard-quote-ticker__price-panel">
-          <div className="dashboard-quote-ticker__symbol-row">
+      <div className="fix-dashboard-quote-ticker__board">
+        <div className="fix-dashboard-quote-ticker__price-panel">
+          <div className="fix-dashboard-quote-ticker__symbol-row">
             <strong
-              className="dashboard-quote-ticker__symbol"
+              className="fix-dashboard-quote-ticker__symbol"
               data-testid="portfolio-dashboard-quote-ticker-symbol"
             >
               {position.symbol}
             </strong>
-            <span className="dashboard-quote-ticker__market-chip">KRX</span>
-            <span className="dashboard-quote-ticker__preview-chip">candles</span>
+            <span className="fix-dashboard-quote-ticker__market-chip">KRX</span>
+            <span className="fix-dashboard-quote-ticker__preview-chip">candles</span>
           </div>
 
-          <div className="dashboard-quote-ticker__price-row">
-            <span className="dashboard-quote-ticker__price-label">현재가</span>
+          <div className="fix-dashboard-quote-ticker__price-row">
+            <span className="fix-dashboard-quote-ticker__price-label">현재가</span>
             <strong
-              className="dashboard-quote-ticker__price"
+              className="fix-dashboard-quote-ticker__price"
               data-testid="portfolio-dashboard-quote-ticker-price"
             >
               {formatKRW(position.marketPrice)}
@@ -175,40 +175,40 @@ export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
           </div>
         </div>
 
-        <div className="dashboard-quote-ticker__status-panel">
+        <div className="fix-dashboard-quote-ticker__status-panel">
           <span
-            className="dashboard-quote-ticker__badge"
+            className="fix-dashboard-quote-ticker__badge"
             data-testid="portfolio-dashboard-quote-ticker-mode"
           >
             {position.quoteSourceMode}
           </span>
           <span
-            className="dashboard-quote-ticker__state"
+            className="fix-dashboard-quote-ticker__state"
             data-testid="portfolio-dashboard-quote-ticker-state"
           >
             {chartTone.stateLabel}
           </span>
-          <span className="dashboard-quote-ticker__status-note">
+          <span className="fix-dashboard-quote-ticker__status-note">
             snapshot-seeded preview
           </span>
         </div>
       </div>
 
       <div
-        className="dashboard-quote-ticker__chart"
+        className="fix-dashboard-quote-ticker__chart"
         data-testid="portfolio-dashboard-quote-ticker-chart"
       >
-        <div className="dashboard-quote-ticker__chart-board">
-          <div className="dashboard-quote-ticker__chart-grid" aria-hidden="true">
+        <div className="fix-dashboard-quote-ticker__chart-board">
+          <div className="fix-dashboard-quote-ticker__chart-grid" aria-hidden="true">
             {Array.from({ length: 4 }, (_, index) => (
               <span
                 key={`grid-line-${index + 1}`}
-                className="dashboard-quote-ticker__grid-line"
+                className="fix-dashboard-quote-ticker__grid-line"
               />
             ))}
           </div>
 
-          <div className="dashboard-quote-ticker__candle-strip" aria-hidden="true">
+          <div className="fix-dashboard-quote-ticker__candle-strip" aria-hidden="true">
             {candles.map((candle, index) => {
               const openPercent = chartMetrics.toPercent(candle.open);
               const closePercent = chartMetrics.toPercent(candle.close);
@@ -221,22 +221,22 @@ export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
               return (
                 <div
                   key={`candle-${index + 1}`}
-                  className={`dashboard-quote-ticker__candle ${
+                  className={`fix-dashboard-quote-ticker__candle ${
                     isBullish
-                      ? 'dashboard-quote-ticker__candle--bullish'
-                      : 'dashboard-quote-ticker__candle--bearish'
+                      ? 'fix-dashboard-quote-ticker__candle--bullish'
+                      : 'fix-dashboard-quote-ticker__candle--bearish'
                   }`}
                   data-testid="portfolio-dashboard-quote-ticker-candle"
                 >
                   <span
-                    className="dashboard-quote-ticker__wick"
+                    className="fix-dashboard-quote-ticker__wick"
                     style={{
                       bottom: `${lowPercent}%`,
                       top: `${100 - highPercent}%`,
                     }}
                   />
                   <span
-                    className="dashboard-quote-ticker__body"
+                    className="fix-dashboard-quote-ticker__body"
                     style={{
                       bottom: `${lowerBodyPercent}%`,
                       top: `${100 - upperBodyPercent}%`,
@@ -247,39 +247,39 @@ export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
             })}
           </div>
 
-          <div className="dashboard-quote-ticker__chart-scale">
+          <div className="fix-dashboard-quote-ticker__chart-scale">
             <span>{formatKRW(chartMetrics.max)}</span>
             <span>{formatKRW(position.marketPrice)}</span>
             <span>{formatKRW(chartMetrics.min)}</span>
           </div>
         </div>
 
-        <div className="dashboard-quote-ticker__chart-axis">
+        <div className="fix-dashboard-quote-ticker__chart-axis">
           <span>open</span>
           <span>mid</span>
           <span>now</span>
         </div>
       </div>
 
-      <div className="dashboard-quote-ticker__meta-table">
-        <div className="dashboard-quote-ticker__meta-item">
-          <span className="dashboard-quote-ticker__meta-label">호가 기준 시각</span>
+      <div className="fix-dashboard-quote-ticker__meta-table">
+        <div className="fix-dashboard-quote-ticker__meta-item">
+          <span className="fix-dashboard-quote-ticker__meta-label">호가 기준 시각</span>
           <strong data-testid="portfolio-dashboard-quote-ticker-quote-as-of">
             {quoteDateFormatter.format(new Date(position.quoteAsOf))}
           </strong>
         </div>
-        <div className="dashboard-quote-ticker__meta-item">
-          <span className="dashboard-quote-ticker__meta-label">조회 기준</span>
+        <div className="fix-dashboard-quote-ticker__meta-item">
+          <span className="fix-dashboard-quote-ticker__meta-label">조회 기준</span>
           <strong>{quoteDateFormatter.format(new Date(position.asOf))}</strong>
         </div>
-        <div className="dashboard-quote-ticker__meta-item">
-          <span className="dashboard-quote-ticker__meta-label">Snapshot</span>
+        <div className="fix-dashboard-quote-ticker__meta-item">
+          <span className="fix-dashboard-quote-ticker__meta-label">Snapshot</span>
           <strong data-testid="portfolio-dashboard-quote-ticker-snapshot">
             {position.quoteSnapshotId ?? 'pending'}
           </strong>
         </div>
-        <div className="dashboard-quote-ticker__meta-item">
-          <span className="dashboard-quote-ticker__meta-label">시세 상태</span>
+        <div className="fix-dashboard-quote-ticker__meta-item">
+          <span className="fix-dashboard-quote-ticker__meta-label">시세 상태</span>
           <strong>{chartTone.stateLabel}</strong>
         </div>
       </div>
