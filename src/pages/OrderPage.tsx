@@ -1,10 +1,10 @@
 import { ExternalOrderRecoverySection } from '@/components/order/ExternalOrderRecoverySection';
+import { useAuth } from '@/hooks/auth/useAuth';
 import { useOrderRecoveryController } from '@/hooks/order/useOrderRecoveryController';
 import { hasExternalOrderAccountId } from '@/order/external-order-recovery';
-import { useAuthStore } from '@/store/useAuthStore';
 
 export function OrderPage() {
-  const member = useAuthStore((state) => state.member);
+  const member = useAuth((state) => state.member);
   const hasOrderAccount = hasExternalOrderAccountId(member?.accountId);
   const orderRecovery = useOrderRecoveryController({
     accountId: member?.accountId,
