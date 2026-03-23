@@ -367,12 +367,32 @@ const recordDemo = async (videoTempDir) => {
     await page.getByTestId('external-order-preset-krx-market-buy-3').waitFor();
     await wait(700);
 
+    const replayTickerResponsePromise = page.waitForResponse(async (response) => {
+      if (
+        !response.url().includes('/api/v1/accounts/14/positions')
+        || response.request().method() !== 'GET'
+      ) {
+        return false;
+      }
+
+      try {
+        const payload = await response.json();
+        return payload?.data?.quoteSourceMode === 'REPLAY';
+      } catch {
+        return false;
+      }
+    });
     await page.getByTestId('external-order-preset-krx-market-buy-3').click();
     await page.getByTestId('market-order-live-ticker').waitFor();
     await wait(1_500);
 
     await page.getByTestId('market-order-live-ticker-source-mode').waitFor();
-    await wait(5_700);
+    await replayTickerResponsePromise;
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="market-order-live-ticker-source-mode"]')
+        ?.textContent
+        ?.trim() === 'REPLAY',
+    );
 
     await page.getByTestId('order-session-create').click();
     await page.getByTestId('order-session-stale-quote-guidance').waitFor();
