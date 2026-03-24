@@ -2,7 +2,11 @@ import { isAxiosError } from 'axios';
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import { fetchAdminAuditLogs, invalidateMemberSessions } from '@/api/adminApi';
+import {
+  fetchAdminAuditLogs,
+  fetchAdminMonitoringFreshness,
+  invalidateMemberSessions,
+} from '@/api/adminApi';
 import { getAuthErrorMessage } from '@/lib/auth-errors';
 import {
   ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY,
@@ -18,6 +22,8 @@ import {
 import {
   ADMIN_MONITORING_PANEL_KEYS,
   type AdminMonitoringPanelDescriptor,
+  type AdminMonitoringPanelFreshness,
+  type AdminMonitoringPanelFreshnessOverride,
   type AdminMonitoringPanelKey,
   parseAdminMonitoringPanelsConfig,
 } from '@/types/adminMonitoring';
@@ -44,7 +50,7 @@ const ADMIN_MONITORING_CARD_COPY: Record<AdminMonitoringPanelKey, {
 
 const ADMIN_MONITORING_AUDIT_SHORTCUTS: Partial<Record<AdminMonitoringPanelKey, AdminAuditEventType>> = {
   executionVolume: 'ORDER_EXECUTE',
-  pendingSessions: 'ORDER_SESSION_CREATE',
+  pendingSessions: 'ORDER_RECOVERY',
 };
 
 type FeedbackTone = 'info' | 'error';
@@ -57,6 +63,10 @@ interface FeedbackState {
   tone: FeedbackTone;
   message: string;
 }
+
+type ResolvedMonitoringFreshness = Omit<AdminMonitoringPanelFreshness, 'lastUpdatedAt'> & {
+  lastUpdatedAt?: string;
+};
 
 interface DateTimeParseResult {
   value: string | undefined;
@@ -149,15 +159,68 @@ const resolveAuditShortcutEventType = (value: string | null) =>
     ? value
     : undefined;
 
-const getMonitoringStatusText = (descriptor: AdminMonitoringPanelDescriptor) =>
-  descriptor.freshness.statusMessage ?? descriptor.freshness.indicatorLabel;
+const getMonitoringStatusTextFromFreshness = (freshness: ResolvedMonitoringFreshness) =>
+  freshness.statusMessage ?? freshness.indicatorLabel;
 
-const getMonitoringLastUpdatedText = (descriptor: AdminMonitoringPanelDescriptor) => {
-  const formatted = formatMonitoringTime(descriptor.freshness.lastUpdatedAt);
+const getMonitoringLastUpdatedText = (freshness: ResolvedMonitoringFreshness) => {
+  const formatted = formatMonitoringTime(freshness.lastUpdatedAt);
 
   return formatted
-    ? `${descriptor.freshness.lastUpdatedLabel}: ${formatted}`
-    : descriptor.freshness.lastUpdatedLabel;
+    ? `${freshness.lastUpdatedLabel}: ${formatted}`
+    : freshness.lastUpdatedLabel;
+};
+
+const getMonitoringFreshnessErrorMessage = (error: unknown) => {
+  const message = getAuthErrorMessage(error);
+  const retryAfterSeconds = normalizeRetryAfter(error);
+
+  if (Number.isFinite(retryAfterSeconds)) {
+    return `${message} (약 ${retryAfterSeconds}초 뒤에 다시 시도해 주세요.)`;
+  }
+
+  return message;
+};
+
+const toMonitoringFreshnessByKey = (
+  items: AdminMonitoringPanelFreshnessOverride[],
+): Partial<Record<AdminMonitoringPanelKey, AdminMonitoringPanelFreshnessOverride>> =>
+  items.reduce<Partial<Record<AdminMonitoringPanelKey, AdminMonitoringPanelFreshnessOverride>>>((acc, item) => {
+    if (!ADMIN_MONITORING_PANEL_KEYS.includes(item.key)) {
+      return acc;
+    }
+
+    acc[item.key] = item;
+    return acc;
+  }, {});
+
+const buildMonitoringFreshnessUnavailableOverrides = (
+  panels: AdminMonitoringPanelDescriptor[],
+  statusMessage: string,
+): Partial<Record<AdminMonitoringPanelKey, AdminMonitoringPanelFreshnessOverride>> =>
+  panels.reduce<Partial<Record<AdminMonitoringPanelKey, AdminMonitoringPanelFreshnessOverride>>>((acc, panel) => {
+    acc[panel.key] = {
+      key: panel.key,
+      status: 'unavailable',
+      statusMessage,
+      lastUpdatedAt: null,
+    };
+    return acc;
+  }, {});
+
+const resolveMonitoringFreshness = (
+  descriptor: AdminMonitoringPanelDescriptor,
+  override: AdminMonitoringPanelFreshnessOverride | undefined,
+): ResolvedMonitoringFreshness => {
+  if (!override) {
+    return descriptor.freshness;
+  }
+
+  return {
+    ...descriptor.freshness,
+    status: override.status,
+    statusMessage: override.statusMessage ?? descriptor.freshness.statusMessage,
+    lastUpdatedAt: override.lastUpdatedAt ?? undefined,
+  };
 };
 
 export function AdminConsolePage() {
@@ -195,6 +258,10 @@ export function AdminConsolePage() {
   const [auditItems, setAuditItems] = useState<AdminAuditLog[]>([]);
   const [auditTotalElements, setAuditTotalElements] = useState(0);
   const [auditTotalPages, setAuditTotalPages] = useState(0);
+  const [monitoringFreshnessFeedback, setMonitoringFreshnessFeedback] = useState<FeedbackState | null>(null);
+  const [monitoringFreshnessByKey, setMonitoringFreshnessByKey] = useState<
+    Partial<Record<AdminMonitoringPanelKey, AdminMonitoringPanelFreshnessOverride>>
+  >({});
   const latestAuditLogRequestIdRef = useRef(0);
   const latestAuditLogAbortControllerRef = useRef<AbortController | null>(null);
 
@@ -261,6 +328,73 @@ export function AdminConsolePage() {
   useEffect(() => () => {
     latestAuditLogAbortControllerRef.current?.abort();
   }, []);
+
+  useEffect(() => {
+    if (monitoringConfig.status !== 'ready') {
+      setMonitoringFreshnessFeedback(null);
+      setMonitoringFreshnessByKey({});
+      return undefined;
+    }
+
+    let disposed = false;
+    let abortController: AbortController | null = null;
+
+    const loadMonitoringFreshness = async () => {
+      abortController?.abort();
+      abortController = new AbortController();
+
+      try {
+        const items = await fetchAdminMonitoringFreshness(abortController.signal);
+        if (disposed) {
+          return;
+        }
+
+        const nextOverrides = toMonitoringFreshnessByKey(items);
+
+        for (const panel of monitoringConfig.panels) {
+          if (!nextOverrides[panel.key]) {
+            nextOverrides[panel.key] = {
+              key: panel.key,
+              status: 'unavailable',
+              statusMessage: '실시간 freshness 응답에 패널 상태가 누락되었습니다.',
+              lastUpdatedAt: null,
+            };
+          }
+        }
+
+        setMonitoringFreshnessFeedback(null);
+        setMonitoringFreshnessByKey(nextOverrides);
+      } catch (error) {
+        if (disposed) {
+          return;
+        }
+
+        if (isAxiosError(error) && error.code === 'ERR_CANCELED') {
+          return;
+        }
+
+        const message = getMonitoringFreshnessErrorMessage(error);
+        setMonitoringFreshnessFeedback({
+          tone: 'error',
+          message: `실시간 freshness 조회에 실패했습니다. ${message}`,
+        });
+        setMonitoringFreshnessByKey(
+          buildMonitoringFreshnessUnavailableOverrides(monitoringConfig.panels, `실시간 freshness 조회 실패: ${message}`),
+        );
+      }
+    };
+
+    void loadMonitoringFreshness();
+    const intervalId = window.setInterval(() => {
+      void loadMonitoringFreshness();
+    }, 30_000);
+
+    return () => {
+      disposed = true;
+      abortController?.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [monitoringConfig]);
 
   useEffect(() => {
     setAuditError(null);
@@ -650,6 +784,15 @@ export function AdminConsolePage() {
               {monitoringConfigMessage}
             </p>
           ) : null}
+
+          {monitoringFreshnessFeedback ? (
+            <p
+              className={`feedback feedback--${monitoringFreshnessFeedback.tone} admin-monitoring-shell__feedback`}
+              data-testid="admin-monitoring-freshness-feedback"
+            >
+              {monitoringFreshnessFeedback.message}
+            </p>
+          ) : null}
         </header>
 
         <div className="admin-monitoring-grid">
@@ -682,6 +825,11 @@ export function AdminConsolePage() {
               );
             }
 
+            const freshness = resolveMonitoringFreshness(
+              configuredPanel,
+              monitoringFreshnessByKey[configuredPanel.key],
+            );
+
             return (
               <article
                 key={configuredPanel.key}
@@ -697,19 +845,19 @@ export function AdminConsolePage() {
                 <div className="admin-monitoring-card__meta">
                   <span
                     className={`admin-monitoring-status ${
-                      configuredPanel.freshness.status
-                        ? `admin-monitoring-status--${configuredPanel.freshness.status}`
+                      freshness.status
+                        ? `admin-monitoring-status--${freshness.status}`
                         : ''
                     }`}
                     data-testid={`admin-monitoring-status-${configuredPanel.key}`}
                   >
-                    {getMonitoringStatusText(configuredPanel)}
+                    {getMonitoringStatusTextFromFreshness(freshness)}
                   </span>
                   <span
                     className="admin-monitoring-card__last-updated"
                     data-testid={`admin-monitoring-last-updated-${configuredPanel.key}`}
                   >
-                    {getMonitoringLastUpdatedText(configuredPanel)}
+                    {getMonitoringLastUpdatedText(freshness)}
                   </span>
                   <span
                     className="admin-monitoring-card__metric-hint"
@@ -757,11 +905,11 @@ export function AdminConsolePage() {
                     패널 상세
                   </a>
 
-                  {configuredPanel.freshness.companionPanelUrl ? (
+                  {freshness.companionPanelUrl ? (
                     <a
                       className="admin-console-action admin-console-action--muted"
                       data-testid={`admin-monitoring-freshness-${configuredPanel.key}`}
-                      href={configuredPanel.freshness.companionPanelUrl}
+                      href={freshness.companionPanelUrl}
                       rel="noreferrer"
                       target="_blank"
                     >
