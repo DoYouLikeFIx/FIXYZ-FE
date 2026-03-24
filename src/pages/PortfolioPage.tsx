@@ -5,7 +5,15 @@ import {
   useAccountDashboard,
 } from '@/hooks/portfolio/useAccountDashboard';
 import { DashboardQuoteTicker } from '@/components/portfolio/DashboardQuoteTicker';
-import { formatKRW, formatQuantity } from '@/utils/formatters';
+import {
+  isFreshValuationStatus,
+  resolveValuationGuidance,
+  resolveValuationStatus,
+  resolveValuationStatusLabel,
+  VALUATION_UNAVAILABLE_LABEL,
+} from '@/lib/account-valuation';
+import { formatKRW, formatQuantity, formatSignedKRW } from '@/utils/formatters';
+import type { AccountPosition } from '@/types/account';
 
 const dateFormatter = new Intl.DateTimeFormat('ko-KR', {
   month: '2-digit',
@@ -14,9 +22,92 @@ const dateFormatter = new Intl.DateTimeFormat('ko-KR', {
   minute: '2-digit',
 });
 
+const NO_HOLDING_LABEL = '보유 없음';
+
+const formatQuoteTimestamp = (value: string | null | undefined) => {
+  if (!value) {
+    return null;
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  return dateFormatter.format(new Date(timestamp));
+};
+
+const formatDashboardTimestamp = (value: string | null | undefined) => {
+  if (!value) {
+    return VALUATION_UNAVAILABLE_LABEL;
+  }
+
+  return formatQuoteTimestamp(value) ?? '시각 확인 필요';
+};
+
+const formatOptionalQuoteSource = (value: string | null | undefined) =>
+  typeof value === 'string' && value.trim() ? value : VALUATION_UNAVAILABLE_LABEL;
+
+const formatMarketDerivedKRW = (
+  value: number | null | undefined,
+  valuationStatus: AccountPosition['valuationStatus'],
+) => {
+  if (
+    !isFreshValuationStatus(valuationStatus)
+    || value === null
+    || value === undefined
+  ) {
+    return VALUATION_UNAVAILABLE_LABEL;
+  }
+
+  return formatKRW(value);
+};
+
+const formatPnlValue = (
+  value: number | null | undefined,
+  valuationStatus: AccountPosition['valuationStatus'],
+) => {
+  if (
+    !isFreshValuationStatus(valuationStatus)
+    || value === null
+    || value === undefined
+  ) {
+    return VALUATION_UNAVAILABLE_LABEL;
+  }
+
+  return formatSignedKRW(value);
+};
+
+const getPnlToneClassName = (
+  value: number | null | undefined,
+  valuationStatus: AccountPosition['valuationStatus'],
+) => {
+  if (
+    !isFreshValuationStatus(valuationStatus)
+    || value === null
+    || value === undefined
+    || value === 0
+  ) {
+    return 'account-summary-cell__value--neutral';
+  }
+
+  return value > 0
+    ? 'account-summary-cell__value--positive'
+    : 'account-summary-cell__value--negative';
+};
+
+const formatAveragePriceValue = (position: AccountPosition) => {
+  if (position.avgPrice === null || position.avgPrice === undefined) {
+    return position.quantity === 0 ? NO_HOLDING_LABEL : VALUATION_UNAVAILABLE_LABEL;
+  }
+
+  return formatKRW(position.avgPrice);
+};
+
 export function PortfolioPage() {
   const {
     activeTab,
+    holdingPosition,
     hasLinkedAccount,
     historyError,
     historyItems,
@@ -27,9 +118,7 @@ export function PortfolioPage() {
     historyTotalPages,
     maskedAccountNumber,
     member,
-    position,
-    positionError,
-    positionLoading,
+    positionsLoading,
     retryHistory,
     retryPosition,
     selectedSymbol,
@@ -37,9 +126,18 @@ export function PortfolioPage() {
     setHistoryPage,
     setHistoryPageSize,
     setSelectedSymbol,
+    summary,
+    summaryError,
+    summaryLoading,
     symbolOptions,
     symbolOptionsError,
+    valuationPosition,
   } = useAccountDashboard();
+  const valuationStatus = resolveValuationStatus(valuationPosition);
+  const valuationGuidance = resolveValuationGuidance(
+    valuationStatus,
+    valuationPosition?.valuationUnavailableReason ?? null,
+  );
 
   return (
     <section className="account-dashboard-shell">
@@ -142,7 +240,7 @@ export function PortfolioPage() {
           </div>
         ) : null}
 
-        {hasLinkedAccount && !positionLoading && symbolOptionsError ? (
+        {hasLinkedAccount && !positionsLoading && symbolOptionsError ? (
           <div className="account-state-panel" data-testid="portfolio-symbol-error">
             <strong>보유 종목 리스트를 불러오지 못했습니다</strong>
             <p>{symbolOptionsError.message}</p>
@@ -159,7 +257,7 @@ export function PortfolioPage() {
         ) : null}
 
         {hasLinkedAccount
-        && !positionLoading
+        && !positionsLoading
         && !symbolOptionsError
         && symbolOptions.length === 0 ? (
           <p className="account-symbol-panel__hint" data-testid="portfolio-symbol-empty">
@@ -194,17 +292,17 @@ export function PortfolioPage() {
               </div>
             ) : null}
 
-            {hasLinkedAccount && positionLoading ? (
+            {hasLinkedAccount && summaryLoading ? (
               <p className="account-state-copy" data-testid="portfolio-summary-loading">
                 계좌 요약을 불러오는 중입니다.
               </p>
             ) : null}
 
-            {hasLinkedAccount && !positionLoading && positionError ? (
+            {hasLinkedAccount && !summaryLoading && summaryError ? (
               <div className="account-state-panel" data-testid="portfolio-summary-error">
                 <strong>계좌 요약을 불러오지 못했습니다</strong>
-                <p>{positionError.message}</p>
-                <p>{positionError.nextStep}</p>
+                <p>{summaryError.message}</p>
+                <p>{summaryError.nextStep}</p>
                 <button
                   type="button"
                   className="portfolio-action portfolio-action--secondary"
@@ -216,61 +314,114 @@ export function PortfolioPage() {
               </div>
             ) : null}
 
-            {hasLinkedAccount && !positionLoading && !positionError && position ? (
+            {hasLinkedAccount && !summaryLoading && !summaryError && summary ? (
               <div className="account-summary-grid">
-                <DashboardQuoteTicker position={position} />
+                {valuationPosition ? (
+                  <DashboardQuoteTicker position={valuationPosition} />
+                ) : null}
                 <div className="account-summary-cell">
                   <span className="account-summary-cell__label">예수금</span>
                   <strong
                     className="account-summary-cell__value"
                     data-testid="portfolio-total-balance"
                   >
-                    {formatKRW(position.balance)}
+                    {formatKRW(summary.balance)}
                   </strong>
                 </div>
                 <div className="account-summary-cell">
                   <span className="account-summary-cell__label">가용 수량</span>
                   <strong data-testid="portfolio-available-quantity">
-                    {formatQuantity(position.availableQuantity)}주
+                    {formatQuantity(holdingPosition?.availableQuantity ?? summary.availableQuantity)}주
                   </strong>
                 </div>
                 <div className="account-summary-cell">
                   <span className="account-summary-cell__label">보유 수량</span>
-                  <strong>{formatQuantity(position.quantity)}주</strong>
+                  <strong>{formatQuantity(holdingPosition?.quantity ?? summary.quantity)}주</strong>
                 </div>
                 <div className="account-summary-cell">
                   <span className="account-summary-cell__label">조회 기준</span>
-                  <strong>{dateFormatter.format(new Date(position.asOf))}</strong>
+                  <strong data-testid="portfolio-summary-as-of">
+                    {formatDashboardTimestamp(summary.asOf)}
+                  </strong>
                 </div>
-                {position.marketPrice !== null
-                && position.marketPrice !== undefined
-                && position.quoteAsOf
-                && position.quoteSourceMode ? (
+                {valuationPosition ? (
                   <>
+                    <div className="account-summary-cell">
+                      <span className="account-summary-cell__label">평가 상태</span>
+                      <strong data-testid="portfolio-valuation-status">
+                        {resolveValuationStatusLabel(valuationStatus)}
+                      </strong>
+                    </div>
+                    <div className="account-summary-cell">
+                      <span className="account-summary-cell__label">평균 단가</span>
+                      <strong data-testid="portfolio-avg-price">
+                        {formatAveragePriceValue(valuationPosition)}
+                      </strong>
+                    </div>
                     <div className="account-summary-cell">
                       <span className="account-summary-cell__label">평가 단가</span>
                       <strong data-testid="portfolio-market-price">
-                        {formatKRW(position.marketPrice)}
+                        {formatMarketDerivedKRW(
+                          valuationPosition.marketPrice,
+                          valuationStatus,
+                        )}
+                      </strong>
+                    </div>
+                    <div className="account-summary-cell">
+                      <span className="account-summary-cell__label">미실현 손익</span>
+                      <strong
+                        className={`account-summary-cell__value ${getPnlToneClassName(
+                          valuationPosition.unrealizedPnl,
+                          valuationStatus,
+                        )}`}
+                        data-testid="portfolio-unrealized-pnl"
+                      >
+                        {formatPnlValue(valuationPosition.unrealizedPnl, valuationStatus)}
+                      </strong>
+                    </div>
+                    <div className="account-summary-cell">
+                      <span className="account-summary-cell__label">당일 실현 손익</span>
+                      <strong
+                        className={`account-summary-cell__value ${getPnlToneClassName(
+                          valuationPosition.realizedPnlDaily,
+                          valuationStatus,
+                        )}`}
+                        data-testid="portfolio-realized-pnl-daily"
+                      >
+                        {formatPnlValue(valuationPosition.realizedPnlDaily, valuationStatus)}
                       </strong>
                     </div>
                     <div className="account-summary-cell">
                       <span className="account-summary-cell__label">호가 기준 시각</span>
                       <strong data-testid="portfolio-quote-as-of">
-                        {dateFormatter.format(new Date(position.quoteAsOf))}
+                        {formatDashboardTimestamp(valuationPosition.quoteAsOf)}
                       </strong>
                     </div>
                     <div className="account-summary-cell">
                       <span className="account-summary-cell__label">호가 source</span>
                       <strong data-testid="portfolio-quote-source-mode">
-                        {position.quoteSourceMode}
+                        {formatOptionalQuoteSource(valuationPosition.quoteSourceMode)}
                       </strong>
                     </div>
+                    {valuationGuidance ? (
+                      <div
+                        className="account-state-panel account-summary-grid__guidance"
+                        data-testid="portfolio-valuation-guidance"
+                      >
+                        <strong>{resolveValuationStatusLabel(valuationStatus)}</strong>
+                        <p>{valuationGuidance}</p>
+                        <p>
+                          quoteAsOf {formatDashboardTimestamp(valuationPosition.quoteAsOf)} / source{' '}
+                          {formatOptionalQuoteSource(valuationPosition.quoteSourceMode)}
+                        </p>
+                      </div>
+                    ) : null}
                   </>
                 ) : null}
               </div>
             ) : null}
 
-            {hasLinkedAccount && !positionLoading && !positionError && !position ? (
+            {hasLinkedAccount && !summaryLoading && !summaryError && !summary ? (
               <p className="account-state-copy" data-testid="portfolio-summary-empty">
                 아직 보유 중인 종목이 없어 계좌 요약을 표시할 수 없습니다.
               </p>
