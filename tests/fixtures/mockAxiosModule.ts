@@ -88,8 +88,12 @@ export const installMockAxiosModule = async (
   const calls: RecordedCall[] = [];
 
   const adapter: AxiosAdapter = async (config) => {
-    const request: RecordedCall = {
+    const resolvedUrl = actualAxios.default.getUri({
+      ...config,
       url: config.url ?? '/',
+    });
+    const request: RecordedCall = {
+      url: resolvedUrl,
       method: (config.method ?? 'get').toUpperCase(),
       headers: normalizeHeaders(config.headers),
       body: normalizeBody(config.data),
