@@ -372,6 +372,7 @@ export const useOrderRecoveryController = ({
   const [flowState, dispatch] = useReducer(orderFlowReducer, initialOrderFlowState);
   const operationVersionRef = useRef(0);
   const marketTickerPositionRef = useRef<AccountPosition | null>(null);
+  const marketTickerRequestIdRef = useRef(0);
   const {
     step,
     feedbackMessage,
@@ -661,6 +662,7 @@ export const useOrderRecoveryController = ({
 
   useEffect(() => {
     if (!showMarketTicker || !accountId) {
+      marketTickerRequestIdRef.current = 0;
       marketTickerPositionRef.current = null;
       setMarketTickerPosition(null);
       setMarketTickerError(null);
@@ -669,12 +671,15 @@ export const useOrderRecoveryController = ({
     }
 
     let cancelled = false;
+    marketTickerRequestIdRef.current = 0;
     marketTickerPositionRef.current = null;
     setMarketTickerPosition(null);
     setMarketTickerError(null);
     setIsMarketTickerLoading(true);
 
     const loadMarketTicker = async () => {
+      const requestId = ++marketTickerRequestIdRef.current;
+
       if (!marketTickerPositionRef.current) {
         setIsMarketTickerLoading(true);
       }
@@ -684,19 +689,21 @@ export const useOrderRecoveryController = ({
           accountId,
           symbol: marketTickerSymbol,
         });
-        if (cancelled) {
+        if (cancelled || requestId !== marketTickerRequestIdRef.current) {
           return;
         }
         marketTickerPositionRef.current = position;
         setMarketTickerPosition(position);
         setMarketTickerError(null);
       } catch (error) {
-        if (cancelled) {
+        if (cancelled || requestId !== marketTickerRequestIdRef.current) {
           return;
         }
+        marketTickerPositionRef.current = null;
+        setMarketTickerPosition(null);
         setMarketTickerError(getErrorMessage(error));
       } finally {
-        if (!cancelled) {
+        if (!cancelled && requestId === marketTickerRequestIdRef.current) {
           setIsMarketTickerLoading(false);
         }
       }
@@ -1197,9 +1204,14 @@ export const useOrderRecoveryController = ({
     }),
     marketTicker: showMarketTicker ? {
       symbol: marketTickerSymbol,
+      avgPrice: marketTickerPosition?.avgPrice ?? null,
       marketPrice: marketTickerPosition?.marketPrice ?? null,
       quoteAsOf: marketTickerPosition?.quoteAsOf ?? null,
       quoteSourceMode: marketTickerPosition?.quoteSourceMode ?? null,
+      unrealizedPnl: marketTickerPosition?.unrealizedPnl ?? null,
+      realizedPnlDaily: marketTickerPosition?.realizedPnlDaily ?? null,
+      valuationStatus: marketTickerPosition?.valuationStatus ?? null,
+      valuationUnavailableReason: marketTickerPosition?.valuationUnavailableReason ?? null,
       isLoading: isMarketTickerLoading,
       error: marketTickerError,
     } : null,
