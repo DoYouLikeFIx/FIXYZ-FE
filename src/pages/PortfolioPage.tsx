@@ -107,7 +107,6 @@ const formatAveragePriceValue = (position: AccountPosition) => {
 export function PortfolioPage() {
   const {
     activeTab,
-    holdingPosition,
     hasLinkedAccount,
     historyError,
     historyItems,
@@ -138,6 +137,11 @@ export function PortfolioPage() {
     valuationStatus,
     valuationPosition?.valuationUnavailableReason ?? null,
   );
+  const showSummaryCells = hasLinkedAccount && !summaryLoading && !summaryError && Boolean(summary);
+  const quantitySource = valuationPosition ?? summary;
+  const showQuantityCells = hasLinkedAccount && !positionsLoading && Boolean(quantitySource);
+  const showValuationCells = hasLinkedAccount && !positionsLoading && Boolean(valuationPosition);
+  const showSummaryGrid = showSummaryCells || showQuantityCells || showValuationCells;
 
   return (
     <section className="account-dashboard-shell">
@@ -314,37 +318,45 @@ export function PortfolioPage() {
               </div>
             ) : null}
 
-            {hasLinkedAccount && !summaryLoading && !summaryError && summary ? (
+            {showSummaryGrid ? (
               <div className="account-summary-grid">
-                {valuationPosition ? (
-                  <DashboardQuoteTicker position={valuationPosition} />
+                {showValuationCells ? (
+                  <DashboardQuoteTicker position={valuationPosition!} />
                 ) : null}
-                <div className="account-summary-cell">
-                  <span className="account-summary-cell__label">예수금</span>
-                  <strong
-                    className="account-summary-cell__value"
-                    data-testid="portfolio-total-balance"
-                  >
-                    {formatKRW(summary.balance)}
-                  </strong>
-                </div>
-                <div className="account-summary-cell">
-                  <span className="account-summary-cell__label">가용 수량</span>
-                  <strong data-testid="portfolio-available-quantity">
-                    {formatQuantity(holdingPosition?.availableQuantity ?? summary.availableQuantity)}주
-                  </strong>
-                </div>
-                <div className="account-summary-cell">
-                  <span className="account-summary-cell__label">보유 수량</span>
-                  <strong>{formatQuantity(holdingPosition?.quantity ?? summary.quantity)}주</strong>
-                </div>
-                <div className="account-summary-cell">
-                  <span className="account-summary-cell__label">조회 기준</span>
-                  <strong data-testid="portfolio-summary-as-of">
-                    {formatDashboardTimestamp(summary.asOf)}
-                  </strong>
-                </div>
-                {valuationPosition ? (
+                {showSummaryCells ? (
+                  <>
+                    <div className="account-summary-cell">
+                      <span className="account-summary-cell__label">예수금</span>
+                      <strong
+                        className="account-summary-cell__value"
+                        data-testid="portfolio-total-balance"
+                      >
+                        {formatKRW(summary!.balance)}
+                      </strong>
+                    </div>
+                    <div className="account-summary-cell">
+                      <span className="account-summary-cell__label">조회 기준</span>
+                      <strong data-testid="portfolio-summary-as-of">
+                        {formatDashboardTimestamp(summary!.asOf)}
+                      </strong>
+                    </div>
+                  </>
+                ) : null}
+                {showQuantityCells ? (
+                  <>
+                    <div className="account-summary-cell">
+                      <span className="account-summary-cell__label">가용 수량</span>
+                      <strong data-testid="portfolio-available-quantity">
+                        {formatQuantity(quantitySource?.availableQuantity ?? 0)}주
+                      </strong>
+                    </div>
+                    <div className="account-summary-cell">
+                      <span className="account-summary-cell__label">보유 수량</span>
+                      <strong>{formatQuantity(quantitySource?.quantity ?? 0)}주</strong>
+                    </div>
+                  </>
+                ) : null}
+                {showValuationCells ? (
                   <>
                     <div className="account-summary-cell">
                       <span className="account-summary-cell__label">평가 상태</span>
@@ -355,14 +367,14 @@ export function PortfolioPage() {
                     <div className="account-summary-cell">
                       <span className="account-summary-cell__label">평균 단가</span>
                       <strong data-testid="portfolio-avg-price">
-                        {formatAveragePriceValue(valuationPosition)}
+                        {formatAveragePriceValue(valuationPosition!)}
                       </strong>
                     </div>
                     <div className="account-summary-cell">
                       <span className="account-summary-cell__label">평가 단가</span>
                       <strong data-testid="portfolio-market-price">
                         {formatMarketDerivedKRW(
-                          valuationPosition.marketPrice,
+                          valuationPosition!.marketPrice,
                           valuationStatus,
                         )}
                       </strong>
@@ -371,36 +383,36 @@ export function PortfolioPage() {
                       <span className="account-summary-cell__label">미실현 손익</span>
                       <strong
                         className={`account-summary-cell__value ${getPnlToneClassName(
-                          valuationPosition.unrealizedPnl,
+                          valuationPosition!.unrealizedPnl,
                           valuationStatus,
                         )}`}
                         data-testid="portfolio-unrealized-pnl"
                       >
-                        {formatPnlValue(valuationPosition.unrealizedPnl, valuationStatus)}
+                        {formatPnlValue(valuationPosition!.unrealizedPnl, valuationStatus)}
                       </strong>
                     </div>
                     <div className="account-summary-cell">
                       <span className="account-summary-cell__label">당일 실현 손익</span>
                       <strong
                         className={`account-summary-cell__value ${getPnlToneClassName(
-                          valuationPosition.realizedPnlDaily,
+                          valuationPosition!.realizedPnlDaily,
                           valuationStatus,
                         )}`}
                         data-testid="portfolio-realized-pnl-daily"
                       >
-                        {formatPnlValue(valuationPosition.realizedPnlDaily, valuationStatus)}
+                        {formatPnlValue(valuationPosition!.realizedPnlDaily, valuationStatus)}
                       </strong>
                     </div>
                     <div className="account-summary-cell">
                       <span className="account-summary-cell__label">호가 기준 시각</span>
                       <strong data-testid="portfolio-quote-as-of">
-                        {formatDashboardTimestamp(valuationPosition.quoteAsOf)}
+                        {formatDashboardTimestamp(valuationPosition!.quoteAsOf)}
                       </strong>
                     </div>
                     <div className="account-summary-cell">
                       <span className="account-summary-cell__label">호가 source</span>
                       <strong data-testid="portfolio-quote-source-mode">
-                        {formatOptionalQuoteSource(valuationPosition.quoteSourceMode)}
+                        {formatOptionalQuoteSource(valuationPosition!.quoteSourceMode)}
                       </strong>
                     </div>
                     {valuationGuidance ? (
@@ -411,8 +423,8 @@ export function PortfolioPage() {
                         <strong>{resolveValuationStatusLabel(valuationStatus)}</strong>
                         <p>{valuationGuidance}</p>
                         <p>
-                          quoteAsOf {formatDashboardTimestamp(valuationPosition.quoteAsOf)} / source{' '}
-                          {formatOptionalQuoteSource(valuationPosition.quoteSourceMode)}
+                          quoteAsOf {formatDashboardTimestamp(valuationPosition!.quoteAsOf)} / source{' '}
+                          {formatOptionalQuoteSource(valuationPosition!.quoteSourceMode)}
                         </p>
                       </div>
                     ) : null}
