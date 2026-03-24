@@ -11,6 +11,7 @@ import { chromium } from '@playwright/test';
 
 import {
   createProvisionedStory115DashboardAccount,
+  fetchLiveJson,
 } from '../../scripts/story-11-5-live-dashboard-account.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -32,8 +33,24 @@ const liveApiBaseUrl = process.env.LIVE_API_BASE_URL?.trim() || 'http://127.0.0.
 const host = '127.0.0.1';
 const port = Number(process.env.FE_STORY_2_8_LIVE_PORT ?? '4280');
 const baseURL = `http://${host}:${port}`;
+const mysqlContainer = process.env.FE_STORY_2_8_LIVE_MYSQL_CONTAINER?.trim() || 'mysql';
+const mysqlUser = process.env.MYSQL_USER?.trim() || 'fix';
+const mysqlPassword = process.env.MYSQL_PASSWORD?.trim() || 'fix';
+const seededHoldingSymbol = process.env.FE_STORY_2_8_LIVE_SYMBOL?.trim() || '005930';
+const seededHoldingQuantity = process.env.FE_STORY_2_8_LIVE_QTY?.trim() || '3.0000';
+const seededHoldingAvgPrice = process.env.FE_STORY_2_8_LIVE_AVG_PRICE?.trim() || '70200.0000';
 
 let viteProcess = null;
+
+const unwrapEnvelope = (payload) => (
+  typeof payload === 'object'
+  && payload !== null
+  && 'data' in payload
+  && typeof payload.data === 'object'
+  && payload.data !== null
+)
+  ? payload.data
+  : payload;
 
 const wait = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
@@ -140,6 +157,14 @@ const centerTestId = async (page, testId, pauseMs = 900) => {
   await centerLocator(page.getByTestId(testId), pauseMs);
 };
 
+const centerOptionalTestId = async (page, testId, pauseMs = 900) => {
+  const locator = page.getByTestId(testId);
+
+  if (await locator.isVisible().catch(() => false)) {
+    await centerLocator(locator, pauseMs);
+  }
+};
+
 const findRecordedVideo = async (directoryPath) => {
   const files = await fs.readdir(directoryPath);
   const webmFile = files.find((fileName) => fileName.endsWith('.webm'));
@@ -151,13 +176,88 @@ const findRecordedVideo = async (directoryPath) => {
   return path.join(directoryPath, webmFile);
 };
 
+const fetchAccountPositions = async (cookieJar, accountId) => {
+  const payload = await fetchLiveJson(
+    cookieJar,
+    liveApiBaseUrl,
+    `/api/v1/accounts/${accountId}/positions/list`,
+    {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+    },
+  );
+
+  const positions = unwrapEnvelope(payload);
+  return Array.isArray(positions) ? positions : [];
+};
+
+const waitForHolding = async (cookieJar, accountId, timeoutMs = 20_000) => {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const positions = await fetchAccountPositions(cookieJar, accountId);
+
+    if (positions.length > 0) {
+      return positions;
+    }
+
+    await wait(1_000);
+  }
+
+  return [];
+};
+
+const seedHolding = async (accountId) => {
+  const normalizedAccountId = String(accountId).trim();
+
+  if (!/^\d+$/.test(normalizedAccountId)) {
+    throw new Error(`Cannot seed holding for non-numeric account id: ${accountId}`);
+  }
+
+  const sql = [
+    'INSERT INTO positions (account_id, symbol, qty, avg_price, created_at, updated_at, version)',
+    `VALUES (${normalizedAccountId}, '${seededHoldingSymbol}', ${seededHoldingQuantity}, ${seededHoldingAvgPrice}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)`,
+    'ON DUPLICATE KEY UPDATE',
+    `symbol = VALUES(symbol), qty = VALUES(qty), avg_price = VALUES(avg_price), updated_at = CURRENT_TIMESTAMP, version = COALESCE(version, 0) + 1`,
+  ].join(' ');
+
+  await runCommand('docker', [
+    'exec',
+    mysqlContainer,
+    'mysql',
+    `-u${mysqlUser}`,
+    `-p${mysqlPassword}`,
+    'core_db',
+    '-e',
+    sql,
+  ]);
+};
+
 const recordDemo = async (videoTempDir) => {
   const provisioned = await createProvisionedStory115DashboardAccount({
     baseUrl: liveApiBaseUrl,
     password: process.env.LIVE_REGISTER_PASSWORD ?? 'LiveVideo28!',
     emailPrefix: 'story2_8_fe_video',
     namePrefix: 'Story 2.8 FE',
+    dashboardReadinessMode: 'none',
   });
+
+  const initialPositions = await waitForHolding(provisioned.cookieJar, provisioned.accountId, 5_000);
+
+  if (initialPositions.length === 0) {
+    await seedHolding(provisioned.accountId);
+    const seededPositions = await waitForHolding(
+      provisioned.cookieJar,
+      provisioned.accountId,
+      20_000,
+    );
+
+    if (seededPositions.length === 0) {
+      throw new Error(`Seeded holding did not appear in /positions/list for account ${provisioned.accountId}.`);
+    }
+  }
 
   const browser = await chromium.launch({
     headless: true,
@@ -197,11 +297,7 @@ const recordDemo = async (videoTempDir) => {
     await centerTestId(page, 'portfolio-dashboard-quote-ticker-state', 900);
     await centerTestId(page, 'portfolio-dashboard-quote-ticker-guidance', 900);
 
-    const valuationGuidance = page.getByTestId('portfolio-valuation-guidance');
-
-    if (await valuationGuidance.count()) {
-      await centerLocator(valuationGuidance, 1_000);
-    }
+    await centerOptionalTestId(page, 'portfolio-valuation-guidance', 1_000);
 
     await page.getByTestId('portfolio-demo-order').click();
     await page.getByTestId('external-order-preset-krx-market-buy-3').waitFor({ timeout: 30_000 });
@@ -209,7 +305,7 @@ const recordDemo = async (videoTempDir) => {
     await page.getByTestId('market-order-live-ticker').waitFor({ timeout: 30_000 });
     await centerTestId(page, 'market-order-live-ticker', 1_000);
     await centerTestId(page, 'market-order-live-ticker-quote-as-of', 900);
-    await centerTestId(page, 'market-order-live-ticker-guidance', 900);
+    await centerOptionalTestId(page, 'market-order-live-ticker-guidance', 900);
 
     await page.getByTestId('order-session-create').click();
     await page.getByTestId('order-session-summary').waitFor({ timeout: 30_000 });
@@ -226,12 +322,11 @@ const recordDemo = async (videoTempDir) => {
   }
 };
 
-await ensureDir(outputDir);
-await startVite();
-
-const videoTempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fixyz-fe-story-2-8-live-'));
-
 try {
+  await ensureDir(outputDir);
+  await startVite();
+  const videoTempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fixyz-fe-story-2-8-live-'));
+
   await recordDemo(videoTempDir);
   const recordedVideoPath = await findRecordedVideo(videoTempDir);
 
