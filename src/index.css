@@ -2614,6 +2614,22 @@ p {
   font-size: 1.4rem;
 }
 
+.account-summary-cell__value--positive {
+  color: #0f8a5f;
+}
+
+.account-summary-cell__value--negative {
+  color: #b42318;
+}
+
+.account-summary-cell__value--neutral {
+  color: #143b61;
+}
+
+.account-summary-grid__guidance {
+  grid-column: 1 / -1;
+}
+
 .account-guidance-list {
   margin: 0;
   padding-left: 1.25rem;

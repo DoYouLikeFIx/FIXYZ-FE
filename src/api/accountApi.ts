@@ -2,6 +2,7 @@ import { api } from '@/lib/axios';
 import type {
   AccountOrderHistoryPage,
   AccountPosition,
+  AccountSummary,
 } from '@/types/account';
 
 export interface AccountPositionQuery {
@@ -50,8 +51,8 @@ export const fetchAccountPositions = async (
 
 export const fetchAccountSummary = async (
   query: AccountSummaryQuery,
-): Promise<AccountPosition> => {
-  const response = await api.get<AccountPosition>(
+): Promise<AccountSummary> => {
+  const response = await api.get<AccountSummary>(
     `/api/v1/accounts/${query.accountId}/summary`,
   );
 

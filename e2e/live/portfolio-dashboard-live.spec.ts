@@ -1,7 +1,8 @@
-import { spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 
 import {
+  type APIResponse,
+  type Response,
   expect,
   test,
   type Page,
@@ -16,10 +17,6 @@ const LIVE_LOGIN_EMAIL = process.env.LIVE_LOGIN_EMAIL?.trim();
 const LIVE_LOGIN_PASSWORD = process.env.LIVE_LOGIN_PASSWORD?.trim();
 const LIVE_LOGIN_OTP = process.env.LIVE_LOGIN_OTP?.trim();
 const LIVE_LOGIN_TOTP_SECRET = process.env.LIVE_LOGIN_TOTP_SECRET?.trim();
-const LIVE_CORE_DB_CONTAINER = process.env.LIVE_CORE_DB_CONTAINER?.trim() || 'mysql';
-const LIVE_CORE_DB_USER = process.env.LIVE_CORE_DB_USER?.trim() || 'fix';
-const LIVE_CORE_DB_PASSWORD = process.env.LIVE_CORE_DB_PASSWORD?.trim() || 'fix';
-const LIVE_CORE_DB_NAME = process.env.LIVE_CORE_DB_NAME?.trim() || 'core_db';
 
 const createLiveIdentity = () => {
   const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -42,8 +39,6 @@ const goToLogin = async (page: Page) => {
   await expect(page.getByTestId('login-email')).toBeVisible();
   await primeLiveBrowserCsrf(page);
 };
-
-const escapeSqlString = (value: string) => value.replaceAll("'", "''");
 
 const decodeBase32 = (value: string): Buffer => {
   const normalized = value.trim().replace(/[\s=-]/g, '').toUpperCase();
@@ -92,6 +87,294 @@ const delay = (milliseconds: number) =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, milliseconds);
   });
+
+const dashboardDateFormatter = new Intl.DateTimeFormat('ko-KR', {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+const quantityFormatter = new Intl.NumberFormat('ko-KR', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 4,
+});
+
+type QuoteSourceMode = 'LIVE' | 'DELAYED' | 'REPLAY' | (string & {});
+type ValuationStatus = 'FRESH' | 'STALE' | 'UNAVAILABLE' | (string & {});
+type ValuationUnavailableReason =
+  | 'STALE_QUOTE'
+  | 'QUOTE_MISSING'
+  | 'PROVIDER_UNAVAILABLE'
+  | (string & {});
+
+interface AccountSummary {
+  accountId: number;
+  balance: number;
+  availableBalance: number;
+  currency: string;
+  asOf: string;
+}
+
+interface AccountPosition {
+  accountId: number;
+  symbol: string;
+  quantity: number;
+  availableQuantity: number;
+  availableQty: number;
+  asOf: string;
+  avgPrice?: number | null;
+  marketPrice?: number | null;
+  quoteSnapshotId?: string | null;
+  quoteAsOf?: string | null;
+  quoteSourceMode?: QuoteSourceMode | null;
+  unrealizedPnl?: number | null;
+  realizedPnlDaily?: number | null;
+  valuationStatus?: ValuationStatus | null;
+  valuationUnavailableReason?: ValuationUnavailableReason | null;
+}
+
+interface SessionMember {
+  accountId?: string | null;
+}
+
+interface ApiEnvelope<T> {
+  success?: boolean;
+  data?: T;
+  error?: {
+    code?: string;
+    message?: string;
+  } | null;
+}
+
+const formatQuoteTimestamp = (value: string | null | undefined) => {
+  if (!value) {
+    return null;
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  return dashboardDateFormatter.format(new Date(timestamp));
+};
+
+const formatSummaryTimestamp = (value: string | null | undefined) => {
+  if (!value) {
+    return '확인 불가';
+  }
+
+  return formatQuoteTimestamp(value) ?? '시각 확인 필요';
+};
+
+const formatTickerTimestamp = (value: string | null | undefined) =>
+  formatQuoteTimestamp(value) ?? '시각 확인 필요';
+
+const formatKRW = (amount: number) => new Intl.NumberFormat('ko-KR', {
+  style: 'currency',
+  currency: 'KRW',
+  maximumFractionDigits: 0,
+}).format(amount);
+
+const formatSignedKRW = (amount: number) => {
+  if (amount > 0) {
+    return `+${formatKRW(amount)}`;
+  }
+
+  if (amount < 0) {
+    return `-${formatKRW(Math.abs(amount))}`;
+  }
+
+  return formatKRW(0);
+};
+
+const formatQuantity = (amount: number) => quantityFormatter.format(amount);
+
+const resolveValuationStatusLabel = (status: ValuationStatus | null | undefined) => {
+  switch (status) {
+    case 'FRESH':
+      return '평가 가능';
+    case 'STALE':
+      return '시세 지연';
+    case 'UNAVAILABLE':
+      return '평가 불가';
+    default:
+      return '상태 확인 필요';
+  }
+};
+
+const resolveValuationGuidance = (
+  status: ValuationStatus | null | undefined,
+  reason: ValuationUnavailableReason | null | undefined,
+) => {
+  switch (status) {
+    case 'FRESH':
+      return null;
+    case 'STALE':
+      return '호가 기준이 오래되어 평가 손익을 숨겼습니다.';
+    case 'UNAVAILABLE':
+      switch (reason) {
+        case 'QUOTE_MISSING':
+          return '시세 스냅샷이 없어 평가 손익을 숨겼습니다.';
+        case 'PROVIDER_UNAVAILABLE':
+          return '시세 제공자가 응답하지 않아 평가 손익을 숨겼습니다.';
+        default:
+          return '시세를 확인할 수 없어 평가 손익을 숨겼습니다.';
+      }
+    default:
+      return status
+        ? '백엔드 freshness 상태를 확인할 수 없어 평가 정보를 보수적으로 표시합니다.'
+        : null;
+  }
+};
+
+const formatAveragePriceValue = (position: AccountPosition) => {
+  if (position.avgPrice === null || position.avgPrice === undefined) {
+    return position.quantity === 0 ? '보유 없음' : '확인 불가';
+  }
+
+  return formatKRW(position.avgPrice);
+};
+
+const formatMarketDerivedValue = (
+  value: number | null | undefined,
+  valuationStatus: ValuationStatus | null | undefined,
+  formatter: (amount: number) => string,
+  ) => {
+  if (valuationStatus !== 'FRESH' || value === null || value === undefined) {
+    return '확인 불가';
+  }
+
+  return formatter(value);
+};
+
+const resolveQuoteSourceMode = (value: string | null | undefined) =>
+  typeof value === 'string' && value.trim() ? value.trim() : '확인 불가';
+
+const resolveAvailableQuantity = (position: AccountPosition) =>
+  position.availableQuantity ?? position.availableQty;
+
+const resolveTickerTone = (
+  quoteSourceMode: QuoteSourceMode | null | undefined,
+  valuationStatus: ValuationStatus | null | undefined,
+  valuationUnavailableReason: ValuationUnavailableReason | null | undefined,
+) => {
+  if (valuationStatus === 'STALE') {
+    return {
+      stateLabel: '시세 지연',
+      statusNote: '평가 손익 숨김',
+    };
+  }
+
+  if (valuationStatus === 'UNAVAILABLE') {
+    return {
+      stateLabel: '평가 불가',
+      statusNote: valuationUnavailableReason === 'QUOTE_MISSING'
+        ? '시세 없음'
+        : valuationUnavailableReason === 'PROVIDER_UNAVAILABLE'
+          ? '시세 제공 실패'
+          : '시세 확인 불가',
+    };
+  }
+
+  switch (quoteSourceMode?.trim()) {
+    case 'LIVE':
+      return {
+        stateLabel: '직결 시세',
+        statusNote: '실시간 기준',
+      };
+    case 'DELAYED':
+      return {
+        stateLabel: '지연 호가',
+        statusNote: '지연 도착 데이터',
+      };
+    case 'REPLAY':
+      return {
+        stateLabel: '리플레이 기준',
+        statusNote: '재생 스냅샷',
+      };
+    default:
+      return {
+        stateLabel: '미확인 시세',
+        statusNote: quoteSourceMode?.trim() ? '확인되지 않은 source mode' : 'source 정보 없음',
+      };
+  }
+};
+
+const formatFreshnessAge = (
+  quoteAsOf: string | null | undefined,
+  asOf: string | null | undefined,
+) => {
+  if (!quoteAsOf) {
+    return '확인 불가';
+  }
+
+  const quoteTime = new Date(quoteAsOf).getTime();
+  const asOfTime = new Date(asOf ?? '').getTime();
+
+  if (!Number.isFinite(quoteTime) || !Number.isFinite(asOfTime)) {
+    return '시각 확인 필요';
+  }
+
+  const deltaMs = Math.abs(asOfTime - quoteTime);
+
+  if (deltaMs < 60_000) {
+    return '동일 시각';
+  }
+
+  const deltaMinutes = Math.round(deltaMs / 60_000);
+
+  if (deltaMinutes < 60) {
+    return `${deltaMinutes}분 차이`;
+  }
+
+  const hours = Math.floor(deltaMinutes / 60);
+  const minutes = deltaMinutes % 60;
+
+  return minutes > 0
+    ? `${hours}시간 ${minutes}분 차이`
+    : `${hours}시간 차이`;
+};
+
+const getPathname = (url: string) => new URL(url).pathname;
+
+const readJsonEnvelope = async <T>(
+  response: APIResponse | Response,
+  label: string,
+) => {
+  const payloadText = await response.text();
+
+  if (!response.ok()) {
+    throw new Error(
+      `${label} returned ${response.status()} ${response.statusText()}`
+      + (payloadText ? ` (${payloadText})` : ''),
+    );
+  }
+
+  let payload: ApiEnvelope<T>;
+
+  try {
+    payload = JSON.parse(payloadText) as ApiEnvelope<T>;
+  } catch {
+    throw new Error(
+      `${label} returned a non-JSON payload`
+      + (payloadText ? ` (${payloadText})` : '.'),
+    );
+  }
+
+  if (payload.success !== true) {
+    throw new Error(
+      `${label} returned success=false`
+      + (payload.error?.message ? ` (${payload.error.message})` : ''),
+    );
+  }
+
+  if (!Object.hasOwn(payload, 'data')) {
+    throw new Error(`${label} did not include a data payload.`);
+  }
+
+  return payload.data as T;
+};
 
 const millisUntilNextTotpWindow = (now = Date.now()) => 30_000 - (now % 30_000);
 
@@ -143,30 +426,40 @@ const waitForPortfolioPath = async (page: Page) => {
   }).toBe('/portfolio');
 };
 
-const waitForPortfolioQuoteData = async (
-  page: Page,
-  timeout = 30_000,
-) => {
-  const startedAt = Date.now();
-  let lastState = 'portfolio quote data never appeared';
+const capturePortfolioBootstrap = async (page: Page) => {
+  const summaryResponsePromise = page.waitForResponse(
+    (response) => response.request().method() === 'GET'
+      && /\/api\/v1\/accounts\/\d+\/summary$/.test(getPathname(response.url())),
+  );
+  const positionsResponsePromise = page.waitForResponse(
+    (response) => response.request().method() === 'GET'
+      && /\/api\/v1\/accounts\/\d+\/positions\/list$/.test(getPathname(response.url())),
+  );
 
-  while (Date.now() - startedAt <= timeout) {
-    if (await page.getByTestId('portfolio-market-price').isVisible().catch(() => false)) {
-      return;
-    }
+  await page.reload({ waitUntil: 'load' });
+  await waitForPortfolioPath(page);
 
-    const emptyStateVisible = await page.getByText('아직 보유 중인 종목이 없습니다.').isVisible().catch(() => false);
-    lastState = emptyStateVisible ? 'portfolio still reported no owned positions' : 'portfolio quote card still loading';
+  const [summaryResponse, positionsResponse] = await Promise.all([
+    summaryResponsePromise,
+    positionsResponsePromise,
+  ]);
 
-    await delay(1_000);
+  return {
+    summary: await readJsonEnvelope<AccountSummary>(summaryResponse, 'Portfolio summary'),
+    positions: await readJsonEnvelope<AccountPosition[]>(
+      positionsResponse,
+      'Portfolio positions list',
+    ),
+  };
+};
 
-    if (emptyStateVisible) {
-      await page.reload({ waitUntil: 'load' });
-      await waitForPortfolioPath(page);
-    }
-  }
+const selectPortfolioSymbol = async (page: Page, symbol: string) => {
+  const button = page.getByTestId(`portfolio-symbol-${symbol}`);
 
-  throw new Error(`Timed out waiting for portfolio quote data after order completion (${lastState}).`);
+  await expect(button).toBeVisible();
+  await button.click();
+  await expect(button).toHaveClass(/account-history-toolbar__button--active/);
+  await expect(page.getByText(new RegExp(`현재 조회 종목\\s*${symbol}`))).toBeVisible();
 };
 
 const waitForLoginStep = async (page: Page): Promise<'portfolio' | 'mfa' | 'error'> => {
@@ -270,53 +563,18 @@ const loginWithExistingLiveAccountToPortfolio = async (page: Page) => {
   return true;
 };
 
-const provisionPortfolioHolding = (email: string) => {
-  const escapedEmail = escapeSqlString(email);
-  const sql = [
-    `SET @member_id := (SELECT id FROM channel_db.members WHERE email='${escapedEmail}' LIMIT 1);`,
-    'SET @account_id := (SELECT id FROM core_db.accounts WHERE member_id=@member_id LIMIT 1);',
-    'INSERT INTO core_db.positions (account_id, symbol, qty, avg_price, created_at, updated_at, version)',
-    " VALUES (@account_id, '005930', 3.0000, 70100.0000, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)",
-    " ON DUPLICATE KEY UPDATE qty=VALUES(qty), avg_price=VALUES(avg_price), updated_at=CURRENT_TIMESTAMP;",
-    "SELECT qty FROM core_db.positions WHERE account_id=@account_id AND symbol='005930';",
-  ].join(' ');
-
-  const result = spawnSync(
-    'docker',
-    [
-      'exec',
-      LIVE_CORE_DB_CONTAINER,
-      'mysql',
-      `-u${LIVE_CORE_DB_USER}`,
-      `-p${LIVE_CORE_DB_PASSWORD}`,
-      '-N',
-      '-B',
-      '-D',
-      LIVE_CORE_DB_NAME,
-      '-e',
-      sql,
-    ],
-    {
-      encoding: 'utf8',
-    },
+const fetchSessionAccountId = async (page: Page) => {
+  const sessionPayload = await readJsonEnvelope<SessionMember>(
+    await page.request.get('/api/v1/auth/session'),
+    'Authenticated session',
   );
+  const accountId = sessionPayload.accountId?.trim();
 
-  if (result.status !== 0) {
-    throw new Error(
-      `Failed to seed a live portfolio holding via local DB fixture: ${result.stderr || result.stdout || 'unknown error'}`,
-    );
+  if (!accountId) {
+    throw new Error('Authenticated live session did not expose an accountId for portfolio verification.');
   }
 
-  const seededQuantity = result.stdout
-    .trim()
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .at(-1);
-
-  if (seededQuantity !== '3.0000') {
-    throw new Error(`Live portfolio holding fixture did not confirm qty=3.0000 (received ${seededQuantity ?? 'empty output'}).`);
-  }
+  return accountId;
 };
 
 const registerEnrollAndLoginToPortfolio = async (page: Page) => {
@@ -357,9 +615,9 @@ const registerEnrollAndLoginToPortfolio = async (page: Page) => {
 const expectDashboardQuoteChart = async (page: Page) => {
   await expect(page.getByTestId('portfolio-market-price')).toBeVisible();
   await expect(page.getByTestId('portfolio-quote-as-of')).toBeVisible();
-  await expect(page.getByTestId('portfolio-quote-source-mode')).toHaveText(/^(LIVE|DELAYED|REPLAY)$/);
+  await expect(page.getByTestId('portfolio-quote-source-mode')).toBeVisible();
   await expect(page.getByTestId('portfolio-dashboard-quote-ticker')).toBeVisible();
-  await expect(page.getByTestId('portfolio-dashboard-quote-ticker-mode')).toHaveText(/^(LIVE|DELAYED|REPLAY)$/);
+  await expect(page.getByTestId('portfolio-dashboard-quote-ticker-mode')).toBeVisible();
   await expect(page.getByTestId('portfolio-dashboard-quote-ticker-price')).toBeVisible();
   await expect(page.getByTestId('portfolio-dashboard-quote-ticker-quote-as-of')).toBeVisible();
   await expect(page.getByTestId('portfolio-dashboard-quote-ticker-chart')).toBeVisible();
@@ -367,48 +625,49 @@ const expectDashboardQuoteChart = async (page: Page) => {
   await expect(page.getByTestId('portfolio-dashboard-quote-ticker-candle')).toHaveCount(0);
 };
 
-const provisionPortfolioHoldingFixture = async (page: Page, portfolioEmail: string) => {
-  provisionPortfolioHolding(portfolioEmail);
-  await page.goto('/portfolio');
-  await expect(page.getByTestId('protected-area-title')).toHaveText('Portfolio overview');
-  await waitForPortfolioQuoteData(page);
-};
-
 test.describe('live backend portfolio dashboard', () => {
   test.beforeEach(async ({ request }) => {
     await requireLiveAuthContractHealthy(request);
   });
 
-  test('renders dashboard quote chart and history state from the live backend', async ({
+  test('renders live portfolio dashboard and history states from the backend contract', async ({
     page,
   }) => {
-    let provisionedPosition = false;
-    let portfolioEmail = LIVE_LOGIN_EMAIL ?? null;
     const reusedExistingAccount = await loginWithExistingLiveAccountToPortfolio(page);
 
     if (!reusedExistingAccount) {
-      const identity = await registerEnrollAndLoginToPortfolio(page);
-      portfolioEmail = identity.email;
+      await registerEnrollAndLoginToPortfolio(page);
     }
 
     await expect(page.getByTestId('protected-area-title')).toHaveText('Portfolio overview');
+    const accountId = await fetchSessionAccountId(page);
+    const { summary, positions } = await capturePortfolioBootstrap(page);
+
+    expect(summary.accountId).toBe(Number(accountId));
     await expect(page.getByTestId('portfolio-demo-order')).toBeVisible();
     await expect(page.getByTestId('portfolio-masked-account')).toHaveText(MASKED_ACCOUNT_PATTERN);
     await expect(page.getByTestId('portfolio-symbol-error')).toHaveCount(0);
     await expect(page.getByTestId('portfolio-summary-error')).toHaveCount(0);
-    await expect(page.getByTestId('portfolio-total-balance')).toBeVisible();
-    await expect(page.getByTestId('portfolio-available-quantity')).toBeVisible();
+    await expect(page.getByTestId('portfolio-total-balance')).toHaveText(
+      formatKRW(summary.balance),
+    );
+    await expect(page.getByTestId('portfolio-summary-as-of')).toHaveText(
+      formatSummaryTimestamp(summary.asOf),
+    );
 
-    if (await page.getByTestId('portfolio-market-price').count() === 0) {
-      if (!portfolioEmail) {
-        throw new Error('Portfolio live fixture requires a known account email to seed a holding.');
-      }
+    if (positions.length === 0) {
+      await expect(page.getByTestId('portfolio-symbol-empty')).toBeVisible();
+      await expect(page.getByTestId('portfolio-dashboard-quote-ticker')).toHaveCount(0);
+      await expect(page.getByTestId('portfolio-market-price')).toHaveCount(0);
+    } else {
+      const targetPosition = positions[0]!;
 
-      await provisionPortfolioHoldingFixture(page, portfolioEmail);
-      provisionedPosition = true;
+      await selectPortfolioSymbol(page, targetPosition.symbol);
+      await expectDashboardQuoteChart(page);
+      await expect(page.getByTestId('portfolio-available-quantity')).toHaveText(
+        `${formatQuantity(resolveAvailableQuantity(targetPosition))}주`,
+      );
     }
-
-    await expectDashboardQuoteChart(page);
 
     await page.getByTestId('portfolio-tab-history').click();
 
@@ -423,9 +682,121 @@ test.describe('live backend portfolio dashboard', () => {
       ),
       { timeout: 15_000 },
     ).toBeGreaterThan(0);
+  });
 
-    if (provisionedPosition) {
-      await expect(page.getByTestId('order-list-empty')).toBeVisible();
+  test('keeps FE portfolio valuation rows aligned with the live backend contract', async ({
+    page,
+  }) => {
+    test.skip(
+      !LIVE_LOGIN_EMAIL || !LIVE_LOGIN_PASSWORD,
+      'LIVE_LOGIN_EMAIL and LIVE_LOGIN_PASSWORD are required for non-mutating live parity assertions.',
+    );
+
+    const reusedExistingAccount = await loginWithExistingLiveAccountToPortfolio(page);
+    expect(reusedExistingAccount).toBe(true);
+
+    await expect(page.getByTestId('protected-area-title')).toHaveText('Portfolio overview');
+    const accountId = await fetchSessionAccountId(page);
+    const { summary, positions } = await capturePortfolioBootstrap(page);
+
+    expect(summary.accountId).toBe(Number(accountId));
+
+    if (positions.length === 0) {
+      test.skip(true, 'LIVE login account must already own at least one position for portfolio parity assertions.');
+    }
+
+    const selectedPosition = positions[0]!;
+    await selectPortfolioSymbol(page, selectedPosition.symbol);
+
+    await expect(page.getByTestId('portfolio-total-balance')).toHaveText(
+      formatKRW(summary.balance),
+    );
+    await expect(page.getByTestId('portfolio-summary-as-of')).toHaveText(
+      formatSummaryTimestamp(summary.asOf),
+    );
+    await expect(page.getByTestId('portfolio-available-quantity')).toHaveText(
+      `${formatQuantity(resolveAvailableQuantity(selectedPosition))}주`,
+    );
+
+    const valuationStatus = selectedPosition.valuationStatus ?? null;
+    const valuationGuidance = resolveValuationGuidance(
+      valuationStatus,
+      selectedPosition.valuationUnavailableReason ?? null,
+    );
+    const tickerTone = resolveTickerTone(
+      selectedPosition.quoteSourceMode ?? null,
+      valuationStatus,
+      selectedPosition.valuationUnavailableReason ?? null,
+    );
+
+    await expect(page.getByTestId('portfolio-avg-price')).toHaveText(
+      formatAveragePriceValue(selectedPosition),
+    );
+    await expect(page.getByTestId('portfolio-valuation-status')).toHaveText(
+      resolveValuationStatusLabel(valuationStatus),
+    );
+    await expect(page.getByTestId('portfolio-market-price')).toHaveText(
+      formatMarketDerivedValue(selectedPosition.marketPrice, valuationStatus, formatKRW),
+    );
+    await expect(page.getByTestId('portfolio-unrealized-pnl')).toHaveText(
+      formatMarketDerivedValue(selectedPosition.unrealizedPnl, valuationStatus, formatSignedKRW),
+    );
+    await expect(page.getByTestId('portfolio-realized-pnl-daily')).toHaveText(
+      formatMarketDerivedValue(
+        selectedPosition.realizedPnlDaily,
+        valuationStatus,
+        formatSignedKRW,
+      ),
+    );
+    await expect(page.getByTestId('portfolio-quote-as-of')).toHaveText(
+      formatSummaryTimestamp(selectedPosition.quoteAsOf),
+    );
+    await expect(page.getByTestId('portfolio-quote-source-mode')).toHaveText(
+      resolveQuoteSourceMode(selectedPosition.quoteSourceMode),
+    );
+    await expect(page.getByTestId('portfolio-dashboard-quote-ticker-symbol')).toHaveText(
+      selectedPosition.symbol,
+    );
+    await expect(page.getByTestId('portfolio-dashboard-quote-ticker-mode')).toHaveText(
+      resolveQuoteSourceMode(selectedPosition.quoteSourceMode),
+    );
+    await expect(page.getByTestId('portfolio-dashboard-quote-ticker-state')).toHaveText(
+      tickerTone.stateLabel,
+    );
+    await expect(page.getByTestId('portfolio-dashboard-quote-ticker-status-note')).toHaveText(
+      tickerTone.statusNote,
+    );
+    await expect(page.getByTestId('portfolio-dashboard-quote-ticker-price')).toHaveText(
+      formatMarketDerivedValue(selectedPosition.marketPrice, valuationStatus, formatKRW),
+    );
+    await expect(page.getByTestId('portfolio-dashboard-quote-ticker-guidance')).toHaveText(
+      valuationGuidance ?? tickerTone.statusNote,
+    );
+    await expect(page.getByTestId('portfolio-dashboard-quote-ticker-quote-as-of')).toHaveText(
+      formatTickerTimestamp(selectedPosition.quoteAsOf),
+    );
+    await expect(page.getByTestId('portfolio-dashboard-quote-ticker-snapshot')).toHaveText(
+      selectedPosition.quoteSnapshotId ?? '확인 불가',
+    );
+    await expect(page.getByTestId('portfolio-dashboard-quote-ticker-freshness-age')).toHaveText(
+      formatFreshnessAge(selectedPosition.quoteAsOf, selectedPosition.asOf),
+    );
+
+    if (valuationGuidance) {
+      await expect(page.getByTestId('portfolio-valuation-guidance')).toContainText(
+        resolveValuationStatusLabel(valuationStatus),
+      );
+      await expect(page.getByTestId('portfolio-valuation-guidance')).toContainText(
+        valuationGuidance,
+      );
+      await expect(page.getByTestId('portfolio-valuation-guidance')).toContainText(
+        formatSummaryTimestamp(selectedPosition.quoteAsOf),
+      );
+      await expect(page.getByTestId('portfolio-valuation-guidance')).toContainText(
+        resolveQuoteSourceMode(selectedPosition.quoteSourceMode),
+      );
+    } else {
+      await expect(page.getByTestId('portfolio-valuation-guidance')).toHaveCount(0);
     }
   });
 });

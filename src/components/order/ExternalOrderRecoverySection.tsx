@@ -1,11 +1,21 @@
 import { ExternalOrderErrorPanel } from '@/components/order/ExternalOrderErrorPanel';
 import { useExpiryCountdown } from '@/hooks/auth/useTotpHelpers';
+import {
+  isFreshValuationStatus,
+  resolveValuationGuidance,
+  resolveValuationStatusLabel,
+  VALUATION_UNAVAILABLE_LABEL,
+} from '@/lib/account-valuation';
 import { formatKRW, formatQuantity } from '@/utils/formatters';
 import type {
   ExternalOrderPresetId,
   ExternalOrderPresetOption,
 } from '@/order/external-order-recovery';
 import type { ExternalOrderErrorPresentation } from '@/order/external-errors';
+import type {
+  ValuationStatus,
+  ValuationUnavailableReason,
+} from '@/types/account';
 import {
   resolveOrderFinalResultContent,
   resolveOrderProcessingContent,
@@ -25,9 +35,14 @@ interface ExternalOrderRecoverySectionProps {
   draftSummary: string;
   marketTicker: {
     symbol: string;
+    avgPrice?: number | null;
     marketPrice: number | null;
     quoteAsOf: string | null;
     quoteSourceMode: string | null;
+    unrealizedPnl?: number | null;
+    realizedPnlDaily?: number | null;
+    valuationStatus?: ValuationStatus | null;
+    valuationUnavailableReason?: ValuationUnavailableReason | null;
     isLoading: boolean;
     error: string | null;
   } | null;
@@ -84,6 +99,19 @@ const isFinalResultStatus = (status?: OrderSessionResponse['status']) =>
   status === 'COMPLETED'
   || status === 'FAILED'
   || status === 'CANCELED';
+
+const formatMarketTickerTimestamp = (value: string | null | undefined) => {
+  if (!value) {
+    return '시각 확인 필요';
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return '시각 확인 필요';
+  }
+
+  return quoteDateFormatter.format(new Date(timestamp));
+};
 
 export function ExternalOrderRecoverySection({
   step,
@@ -146,22 +174,39 @@ export function ExternalOrderRecoverySection({
     step === 'COMPLETE' && hasCompleteStateCard ? null : feedbackMessage;
   const showDedicatedStaleQuoteGuidance =
     step !== 'COMPLETE' && staleQuoteGuidance !== null;
+  const marketTickerValuationStatus = marketTicker?.valuationStatus ?? null;
+  const marketTickerValuationLabel = resolveValuationStatusLabel(marketTickerValuationStatus);
+  const marketTickerGuidance = resolveValuationGuidance(
+    marketTickerValuationStatus,
+    marketTicker?.valuationUnavailableReason ?? null,
+  );
   const hasMarketTickerQuote =
     marketTicker?.marketPrice !== null
     && marketTicker?.marketPrice !== undefined
     && Boolean(marketTicker?.quoteAsOf)
     && Boolean(marketTicker?.quoteSourceMode);
+  const hasMarketTickerMetadata = Boolean(
+    marketTicker?.quoteAsOf
+    || marketTicker?.quoteSourceMode
+    || marketTicker?.valuationStatus,
+  );
   const marketTickerStatus = marketTicker === null
     ? null
     : marketTicker.error
       ? hasMarketTickerQuote
         ? '마지막 시세를 유지 중입니다. 새 ticker를 다시 연결하고 있어요.'
         : '실시간 ticker를 불러오지 못했습니다.'
+      : marketTickerValuationStatus === 'STALE'
+        ? '백엔드가 시세 지연으로 평가값을 숨겼습니다.'
+      : marketTickerValuationStatus === 'UNAVAILABLE'
+        ? '백엔드가 시세 확인 실패로 평가값을 숨겼습니다.'
       : marketTicker.isLoading && !hasMarketTickerQuote
         ? '실시간 ticker 연결 중...'
         : hasMarketTickerQuote
           ? '5초마다 자동 갱신'
-          : '실시간 ticker 데이터가 아직 준비되지 않았습니다.';
+          : hasMarketTickerMetadata
+            ? '백엔드 freshness metadata 반영'
+            : '실시간 ticker 데이터가 아직 준비되지 않았습니다.';
   const expiredModalMessage = hasExpiry && countdown.isExpired
     ? `${countdown.expiresAtLabel}에 세션이 종료되었습니다. 입력한 주문을 확인한 뒤 다시 시작해 주세요.`
     : '주문 세션이 더 이상 유효하지 않습니다. 입력한 주문을 확인한 뒤 다시 시작해 주세요.';
@@ -297,27 +342,46 @@ export function ExternalOrderRecoverySection({
                 <span className="portfolio-card__meta">{marketTicker.symbol}</span>
               </div>
 
-              {hasMarketTickerQuote ? (
+              {hasMarketTickerQuote || hasMarketTickerMetadata ? (
                 <div className="market-order-ticker__grid">
                   <div className="market-order-ticker__cell">
                     <span className="market-order-ticker__label">현재 시세</span>
                     <strong data-testid="market-order-live-ticker-price">
-                      {formatKRW(marketTicker.marketPrice ?? 0)}
+                      {isFreshValuationStatus(marketTickerValuationStatus)
+                      && marketTicker.marketPrice !== null
+                      && marketTicker.marketPrice !== undefined
+                        ? formatKRW(marketTicker.marketPrice)
+                        : VALUATION_UNAVAILABLE_LABEL}
                     </strong>
                   </div>
                   <div className="market-order-ticker__cell">
                     <span className="market-order-ticker__label">호가 기준 시각</span>
                     <strong data-testid="market-order-live-ticker-quote-as-of">
-                      {quoteDateFormatter.format(new Date(marketTicker.quoteAsOf ?? ''))}
+                      {formatMarketTickerTimestamp(marketTicker.quoteAsOf)}
                     </strong>
                   </div>
                   <div className="market-order-ticker__cell">
                     <span className="market-order-ticker__label">호가 source</span>
                     <strong data-testid="market-order-live-ticker-source-mode">
-                      {marketTicker.quoteSourceMode}
+                      {marketTicker.quoteSourceMode ?? VALUATION_UNAVAILABLE_LABEL}
+                    </strong>
+                  </div>
+                  <div className="market-order-ticker__cell">
+                    <span className="market-order-ticker__label">평가 상태</span>
+                    <strong data-testid="market-order-live-ticker-valuation-status">
+                      {marketTickerValuationLabel}
                     </strong>
                   </div>
                 </div>
+              ) : null}
+
+              {marketTickerGuidance ? (
+                <p
+                  className="external-order-recovery__feedback"
+                  data-testid="market-order-live-ticker-guidance"
+                >
+                  {marketTickerGuidance}
+                </p>
               ) : null}
 
               {marketTicker.error && !hasMarketTickerQuote ? (

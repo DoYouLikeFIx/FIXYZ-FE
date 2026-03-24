@@ -14,6 +14,7 @@ import { maskAccountNumber } from '@/lib/account-masking';
 import type {
   AccountOrderHistoryPage,
   AccountPosition,
+  AccountSummary,
 } from '@/types/account';
 
 export type PortfolioTab = 'dashboard' | 'history';
@@ -67,8 +68,8 @@ export const useAccountDashboard = () => {
   const [historyPageSize, setHistoryPageSizeState] = useState<number>(
     HISTORY_PAGE_SIZE_OPTIONS[1],
   );
-  const [summaryState, setSummaryState] = useState<AsyncState<AccountPosition>>(() =>
-    createAsyncState<AccountPosition>(currentScopeKey, Boolean(currentScopeKey)),
+  const [summaryState, setSummaryState] = useState<AsyncState<AccountSummary>>(() =>
+    createAsyncState<AccountSummary>(currentScopeKey, Boolean(currentScopeKey)),
   );
   const [positionsState, setPositionsState] = useState<AsyncState<AccountPosition[]>>(() =>
     createAsyncState<AccountPosition[]>(currentScopeKey, Boolean(currentScopeKey)),
@@ -228,6 +229,12 @@ export const useAccountDashboard = () => {
   );
   const symbolOptionsError =
     positionsState.scopeKey === currentScopeKey ? positionsState.error : null;
+  const summaryLoading = Boolean(currentScopeKey) && (
+    summaryState.loading || summaryState.scopeKey !== currentScopeKey
+  );
+  const positionsLoading = Boolean(currentScopeKey) && (
+    positionsState.loading || positionsState.scopeKey !== currentScopeKey
+  );
   const positionLoading = Boolean(currentScopeKey) && (
     summaryState.loading
     || positionsState.loading
@@ -252,8 +259,8 @@ export const useAccountDashboard = () => {
     () => positionItems.find((item) => item.symbol === selectedSymbol) ?? null,
     [positionItems, selectedSymbol],
   );
-  const position = selectedPosition ?? summary;
-  const positionError = position ? null : (summaryError ?? symbolOptionsError);
+  const holdingPosition = selectedPosition ?? summary;
+  const valuationPosition = selectedPosition;
   const symbolOptions = useMemo(
     () => positionItems.map((item) => item.symbol),
     [positionItems],
@@ -286,8 +293,12 @@ export const useAccountDashboard = () => {
         : 0,
     maskedAccountNumber,
     member,
-    position,
-    positionError,
+    holdingPosition,
+    summary,
+    summaryError,
+    summaryLoading,
+    positionsLoading,
+    valuationPosition,
     positionLoading,
     retryHistory: () => {
       if (!currentScopeKey) {
