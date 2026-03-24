@@ -23,6 +23,13 @@ export interface AdminMonitoringPanelFreshness {
   lastUpdatedAt: string;
 }
 
+export interface AdminMonitoringPanelFreshnessOverride {
+  key: AdminMonitoringPanelKey;
+  status: AdminMonitoringPanelFreshnessStatus;
+  statusMessage?: string;
+  lastUpdatedAt?: string | null;
+}
+
 export interface AdminMonitoringPanelDescriptor {
   key: AdminMonitoringPanelKey;
   title: string;
