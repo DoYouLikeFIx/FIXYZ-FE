@@ -1,6 +1,12 @@
 export type QuoteSourceMode = 'LIVE' | 'DELAYED' | 'REPLAY' | (string & {});
+export type ValuationStatus = 'FRESH' | 'STALE' | 'UNAVAILABLE' | (string & {});
+export type ValuationUnavailableReason =
+  | 'STALE_QUOTE'
+  | 'QUOTE_MISSING'
+  | 'PROVIDER_UNAVAILABLE'
+  | (string & {});
 
-export interface AccountPosition {
+interface AccountHoldingBase {
   accountId: number;
   memberId: number;
   symbol: string;
@@ -11,10 +17,20 @@ export interface AccountPosition {
   availableBalance: number;
   currency: string;
   asOf: string;
+}
+
+export type AccountSummary = AccountHoldingBase;
+
+export interface AccountPosition extends AccountHoldingBase {
+  avgPrice?: number | null;
   marketPrice?: number | null;
   quoteSnapshotId?: string | null;
   quoteAsOf?: string | null;
   quoteSourceMode?: QuoteSourceMode | null;
+  unrealizedPnl?: number | null;
+  realizedPnlDaily?: number | null;
+  valuationStatus?: ValuationStatus | null;
+  valuationUnavailableReason?: ValuationUnavailableReason | null;
 }
 
 export interface AccountOrderHistoryItem {
