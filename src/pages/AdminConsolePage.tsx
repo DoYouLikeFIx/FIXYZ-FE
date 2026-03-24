@@ -263,20 +263,16 @@ export function AdminConsolePage() {
   }, []);
 
   useEffect(() => {
-    if (!auditShortcutEventType) {
-      return;
-    }
-
     setAuditError(null);
     setAuditPage(0);
     setMemberIdFilter('');
     setFromFilter('');
     setToFilter('');
-    setEventTypeFilter(auditShortcutEventType);
+    setEventTypeFilter(auditShortcutEventType ?? '');
     setAppliedMemberIdFilter('');
     setAppliedFromFilter('');
     setAppliedToFilter('');
-    setAppliedEventTypeFilter(auditShortcutEventType);
+    setAppliedEventTypeFilter(auditShortcutEventType ?? '');
   }, [auditShortcutEventType]);
 
   const handleForceLogout = async (event: FormEvent<HTMLFormElement>) => {
@@ -377,12 +373,17 @@ export function AdminConsolePage() {
       return;
     }
 
-    const nextSearchParams = new URLSearchParams(new URL(targetAuditUrl, window.location.origin).search);
+    const parsedTargetAuditUrl = new URL(targetAuditUrl, window.location.origin);
     const targetAuditEventType = resolveAuditShortcutEventType(
-      nextSearchParams.get(ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY),
+      parsedTargetAuditUrl.searchParams.get(ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY),
     ) ?? fallbackAuditEventType;
-    setSearchParams(nextSearchParams);
+    const nextSearchParams = new URLSearchParams();
 
+    if (targetAuditEventType) {
+      nextSearchParams.set(ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY, targetAuditEventType);
+    }
+
+    setSearchParams(nextSearchParams);
     setAuditError(null);
     setAuditPage(0);
     setMemberIdFilter('');
