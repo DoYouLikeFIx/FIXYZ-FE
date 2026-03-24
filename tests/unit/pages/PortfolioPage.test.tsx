@@ -46,10 +46,15 @@ const positionsFixture: AccountPosition[] = [
     availableBalance: 100_000_000,
     currency: 'KRW',
     asOf: '2026-03-11T09:10:00Z',
+    avgPrice: 68_900,
     marketPrice: 70_100,
     quoteSnapshotId: 'quote-live-001',
     quoteAsOf: '2026-03-11T09:09:00Z',
     quoteSourceMode: 'LIVE',
+    unrealizedPnl: 144_000,
+    realizedPnlDaily: 12_000,
+    valuationStatus: 'FRESH',
+    valuationUnavailableReason: null,
   },
   {
     accountId: 1,
@@ -67,26 +72,38 @@ const positionsFixture: AccountPosition[] = [
 
 const quoteFreshnessScenarios = [
   {
+    avgPrice: 68_900,
     marketPrice: 70_100,
     quoteSnapshotId: 'quote-live-001',
     quoteAsOf: '2026-03-11T09:09:00Z',
     quoteSourceMode: 'LIVE',
+    unrealizedPnl: 144_000,
+    realizedPnlDaily: 12_000,
+    valuationStatus: 'FRESH',
     stateLabel: '직결 시세',
     statusNote: '실시간 기준',
   },
   {
+    avgPrice: 71_000,
     marketPrice: 70_200,
     quoteSnapshotId: 'quote-delayed-001',
     quoteAsOf: '2026-03-12T08:15:00Z',
     quoteSourceMode: 'DELAYED',
+    unrealizedPnl: -96_000,
+    realizedPnlDaily: -8_000,
+    valuationStatus: 'FRESH',
     stateLabel: '지연 호가',
     statusNote: '지연 도착 데이터',
   },
   {
+    avgPrice: 70_300,
     marketPrice: 70_300,
     quoteSnapshotId: 'quote-replay-001',
     quoteAsOf: '2026-03-12T07:45:00Z',
     quoteSourceMode: 'REPLAY',
+    unrealizedPnl: 0,
+    realizedPnlDaily: 0,
+    valuationStatus: 'FRESH',
     stateLabel: '리플레이 기준',
     statusNote: '재생 스냅샷',
   },
@@ -178,10 +195,15 @@ describe('PortfolioPage', () => {
       vi.mocked(fetchAccountPositions).mockResolvedValue([
         {
           ...positionsFixture[0],
+          avgPrice: scenario.avgPrice,
           marketPrice: scenario.marketPrice,
           quoteSnapshotId: scenario.quoteSnapshotId,
           quoteAsOf: scenario.quoteAsOf,
           quoteSourceMode: scenario.quoteSourceMode,
+          unrealizedPnl: scenario.unrealizedPnl,
+          realizedPnlDaily: scenario.realizedPnlDaily,
+          valuationStatus: scenario.valuationStatus,
+          valuationUnavailableReason: null,
         },
       ]);
 
@@ -194,6 +216,24 @@ describe('PortfolioPage', () => {
       expect(await screen.findByTestId('portfolio-market-price')).toHaveTextContent(
         `₩${scenario.marketPrice.toLocaleString('en-US')}`,
       );
+      expect(screen.getByTestId('portfolio-avg-price')).toHaveTextContent(
+        `₩${scenario.avgPrice.toLocaleString('en-US')}`,
+      );
+      expect(screen.getByTestId('portfolio-unrealized-pnl')).toHaveTextContent(
+        scenario.unrealizedPnl > 0
+          ? `+₩${scenario.unrealizedPnl.toLocaleString('en-US')}`
+          : scenario.unrealizedPnl < 0
+            ? `-₩${Math.abs(scenario.unrealizedPnl).toLocaleString('en-US')}`
+            : '₩0',
+      );
+      expect(screen.getByTestId('portfolio-realized-pnl-daily')).toHaveTextContent(
+        scenario.realizedPnlDaily > 0
+          ? `+₩${scenario.realizedPnlDaily.toLocaleString('en-US')}`
+          : scenario.realizedPnlDaily < 0
+            ? `-₩${Math.abs(scenario.realizedPnlDaily).toLocaleString('en-US')}`
+            : '₩0',
+      );
+      expect(screen.getByTestId('portfolio-valuation-status')).toHaveTextContent('평가 가능');
       expect(screen.getByTestId('portfolio-quote-as-of')).toHaveTextContent(
         quoteDateFormatter.format(new Date(scenario.quoteAsOf)),
       );
@@ -214,6 +254,9 @@ describe('PortfolioPage', () => {
         scenario.stateLabel,
       );
       expect(screen.getByTestId('portfolio-dashboard-quote-ticker-status-note')).toHaveTextContent(
+        scenario.statusNote,
+      );
+      expect(screen.getByTestId('portfolio-dashboard-quote-ticker-guidance')).toHaveTextContent(
         scenario.statusNote,
       );
       expect(screen.getByTestId('portfolio-dashboard-quote-ticker-quote-as-of')).toHaveTextContent(
@@ -253,8 +296,185 @@ describe('PortfolioPage', () => {
       '미확인 시세',
     );
     expect(screen.getByTestId('portfolio-dashboard-quote-ticker-status-note')).toHaveTextContent(
-      '새 source mode',
+      '확인되지 않은 source mode',
     );
+  });
+
+  it('renders stale valuation guidance without inventing market-derived values', async () => {
+    vi.mocked(fetchAccountPositions).mockResolvedValue([
+      {
+        ...positionsFixture[0],
+        avgPrice: 68_900,
+        marketPrice: 70_200,
+        quoteSnapshotId: 'quote-stale-001',
+        quoteAsOf: '2026-03-12T08:15:00Z',
+        quoteSourceMode: 'REPLAY',
+        unrealizedPnl: -96_000,
+        realizedPnlDaily: -8_000,
+        valuationStatus: 'STALE',
+        valuationUnavailableReason: 'STALE_QUOTE',
+      },
+    ]);
+
+    render(
+      <MemoryRouter>
+        <PortfolioPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('portfolio-valuation-status')).toHaveTextContent('시세 지연');
+    expect(screen.getByTestId('portfolio-market-price')).toHaveTextContent('확인 불가');
+    expect(screen.getByTestId('portfolio-unrealized-pnl')).toHaveTextContent('확인 불가');
+    expect(screen.getByTestId('portfolio-realized-pnl-daily')).toHaveTextContent('확인 불가');
+    expect(screen.getByTestId('portfolio-quote-as-of')).toHaveTextContent(
+      quoteDateFormatter.format(new Date('2026-03-12T08:15:00Z')),
+    );
+    expect(screen.getByTestId('portfolio-quote-source-mode')).toHaveTextContent('REPLAY');
+    expect(screen.getByTestId('portfolio-valuation-guidance')).toHaveTextContent(
+      '호가 기준이 오래되어 평가 손익을 숨겼습니다.',
+    );
+    expect(screen.getByTestId('portfolio-dashboard-quote-ticker-price')).toHaveTextContent(
+      '확인 불가',
+    );
+    expect(screen.getByTestId('portfolio-dashboard-quote-ticker-state')).toHaveTextContent(
+      '시세 지연',
+    );
+    expect(screen.getByTestId('portfolio-dashboard-quote-ticker-status-note')).toHaveTextContent(
+      '평가 손익 숨김',
+    );
+  });
+
+  it('renders unavailable valuation guidance and hides market-derived values until freshness is restored', async () => {
+    vi.mocked(fetchAccountPositions).mockResolvedValue([
+      {
+        ...positionsFixture[0],
+        avgPrice: 68_900,
+        marketPrice: 70_500,
+        quoteSnapshotId: null,
+        quoteAsOf: null,
+        quoteSourceMode: null,
+        unrealizedPnl: 0,
+        realizedPnlDaily: 1_000,
+        valuationStatus: 'UNAVAILABLE',
+        valuationUnavailableReason: 'PROVIDER_UNAVAILABLE',
+      },
+    ]);
+
+    render(
+      <MemoryRouter>
+        <PortfolioPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('portfolio-valuation-status')).toHaveTextContent('평가 불가');
+    expect(screen.getByTestId('portfolio-market-price')).toHaveTextContent('확인 불가');
+    expect(screen.getByTestId('portfolio-unrealized-pnl')).toHaveTextContent('확인 불가');
+    expect(screen.getByTestId('portfolio-realized-pnl-daily')).toHaveTextContent('확인 불가');
+    expect(screen.getByTestId('portfolio-quote-as-of')).toHaveTextContent('확인 불가');
+    expect(screen.getByTestId('portfolio-quote-source-mode')).toHaveTextContent('확인 불가');
+    expect(screen.getByTestId('portfolio-valuation-guidance')).toHaveTextContent(
+      '시세 제공자가 응답하지 않아 평가 손익을 숨겼습니다.',
+    );
+    expect(screen.getByTestId('portfolio-dashboard-quote-ticker-state')).toHaveTextContent(
+      '평가 불가',
+    );
+  });
+
+  it('uses the selected position only for valuation data while keeping cash summary fields on the summary payload', async () => {
+    vi.mocked(fetchAccountSummary).mockResolvedValue({
+      accountId: 1,
+      memberId: 1,
+      symbol: '',
+      quantity: 0,
+      availableQuantity: 0,
+      availableQty: 0,
+      balance: 100_000_000,
+      availableBalance: 100_000_000,
+      currency: 'KRW',
+      asOf: '2026-03-11T09:05:00Z',
+      marketPrice: 999_999,
+      quoteSnapshotId: 'summary-quote',
+      quoteAsOf: '2026-03-11T08:00:00Z',
+      quoteSourceMode: 'LIVE',
+      unrealizedPnl: 999_999,
+      realizedPnlDaily: 999_999,
+      valuationStatus: 'FRESH',
+      valuationUnavailableReason: null,
+    } as never);
+    vi.mocked(fetchAccountPositions).mockResolvedValue([
+      {
+        ...positionsFixture[0],
+        balance: 87_654_321,
+        marketPrice: 70_100,
+        quoteSnapshotId: 'position-quote',
+        quoteAsOf: '2026-03-11T09:09:00Z',
+        quoteSourceMode: 'LIVE',
+        unrealizedPnl: 144_000,
+        realizedPnlDaily: 12_000,
+        valuationStatus: 'FRESH',
+        valuationUnavailableReason: null,
+      },
+    ]);
+
+    render(
+      <MemoryRouter>
+        <PortfolioPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('portfolio-market-price')).toHaveTextContent('₩70,100');
+    expect(screen.getByTestId('portfolio-total-balance')).toHaveTextContent('₩100,000,000');
+    expect(screen.getByTestId('portfolio-summary-as-of')).toHaveTextContent(
+      quoteDateFormatter.format(new Date('2026-03-11T09:05:00Z')),
+    );
+    expect(screen.getByTestId('portfolio-dashboard-quote-ticker-snapshot')).toHaveTextContent(
+      'position-quote',
+    );
+    expect(screen.queryByText('₩87,654,321')).not.toBeInTheDocument();
+    expect(screen.queryByText('₩999,999')).not.toBeInTheDocument();
+  });
+
+  it('shows the summary error even when positions load successfully', async () => {
+    vi.mocked(fetchAccountSummary).mockRejectedValue(new Error('summary failed'));
+    vi.mocked(fetchAccountPositions).mockResolvedValue(positionsFixture);
+
+    render(
+      <MemoryRouter>
+        <PortfolioPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('portfolio-summary-error')).toHaveTextContent(
+      'summary failed',
+    );
+    expect(screen.getByTestId('portfolio-symbol-005930')).toBeInTheDocument();
+    expect(screen.queryByTestId('portfolio-total-balance')).not.toBeInTheDocument();
+  });
+
+  it('keeps the summary visible when the summary timestamp is malformed', async () => {
+    vi.mocked(fetchAccountSummary).mockResolvedValue({
+      accountId: 1,
+      memberId: 1,
+      symbol: '',
+      quantity: 0,
+      availableQuantity: 0,
+      availableQty: 0,
+      balance: 100_000_000,
+      availableBalance: 100_000_000,
+      currency: 'KRW',
+      asOf: 'malformed-summary-time',
+    });
+
+    render(
+      <MemoryRouter>
+        <PortfolioPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('portfolio-total-balance')).toHaveTextContent(
+      '₩100,000,000',
+    );
+    expect(screen.getByTestId('portfolio-summary-as-of')).toHaveTextContent('시각 확인 필요');
   });
 
   it('switches the selected owned position and re-queries history when the page size or page changes', async () => {

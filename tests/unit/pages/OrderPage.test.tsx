@@ -585,9 +585,14 @@ describe('OrderPage', () => {
           currency: 'KRW',
           asOf: '2026-03-18T09:00:00Z',
           marketPrice: 70_100,
+          avgPrice: 68_900,
           quoteSnapshotId: 'quote-live-001',
           quoteAsOf: '2026-03-18T09:00:00Z',
           quoteSourceMode: 'LIVE',
+          unrealizedPnl: 144_000,
+          realizedPnlDaily: 12_000,
+          valuationStatus: 'FRESH',
+          valuationUnavailableReason: null,
         })
         .mockResolvedValue({
           accountId: 1,
@@ -601,9 +606,14 @@ describe('OrderPage', () => {
           currency: 'KRW',
           asOf: '2026-03-18T09:00:00Z',
           marketPrice: 70_300,
+          avgPrice: 68_900,
           quoteSnapshotId: 'quote-replay-001',
           quoteAsOf: '2026-03-18T09:05:00Z',
           quoteSourceMode: 'REPLAY',
+          unrealizedPnl: 168_000,
+          realizedPnlDaily: 12_000,
+          valuationStatus: 'FRESH',
+          valuationUnavailableReason: null,
         });
       ({ unmount } = render(<OrderPage />));
 
@@ -622,6 +632,9 @@ describe('OrderPage', () => {
         quoteDateFormatter.format(new Date('2026-03-18T09:00:00Z')),
       );
       expect(screen.getByTestId('market-order-live-ticker-source-mode')).toHaveTextContent('LIVE');
+      expect(screen.getByTestId('market-order-live-ticker-valuation-status')).toHaveTextContent(
+        '평가 가능',
+      );
       expect(screen.getByTestId('market-order-live-ticker-status')).toHaveTextContent(
         '5초마다 자동 갱신',
       );
@@ -637,6 +650,224 @@ describe('OrderPage', () => {
       );
       expect(screen.getByTestId('market-order-live-ticker-source-mode')).toHaveTextContent(
         'REPLAY',
+      );
+      expect(screen.getByTestId('market-order-live-ticker-valuation-status')).toHaveTextContent(
+        '평가 가능',
+      );
+    } finally {
+      unmount?.();
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('renders stale market-ticker metadata without fabricating a fresh price', async () => {
+    vi.mocked(fetchAccountPosition).mockResolvedValue({
+      accountId: 1,
+      memberId: 1,
+      symbol: '005930',
+      quantity: 120,
+      availableQuantity: 20,
+      availableQty: 20,
+      balance: 100_000_000,
+      availableBalance: 100_000_000,
+      currency: 'KRW',
+      asOf: '2026-03-18T09:05:00Z',
+      avgPrice: 68_900,
+      marketPrice: null,
+      quoteSnapshotId: 'quote-stale-001',
+      quoteAsOf: '2026-03-18T09:00:00Z',
+      quoteSourceMode: 'REPLAY',
+      unrealizedPnl: null,
+      realizedPnlDaily: null,
+      valuationStatus: 'STALE',
+      valuationUnavailableReason: 'STALE_QUOTE',
+    });
+    const user = userEvent.setup();
+
+    render(<OrderPage />);
+
+    await user.click(screen.getByTestId('external-order-preset-krx-market-buy-3'));
+
+    expect(await screen.findByTestId('market-order-live-ticker-status')).toHaveTextContent(
+      '백엔드가 시세 지연으로 평가값을 숨겼습니다.',
+    );
+    expect(screen.getByTestId('market-order-live-ticker-price')).toHaveTextContent('확인 불가');
+    expect(screen.getByTestId('market-order-live-ticker-quote-as-of')).toHaveTextContent(
+      quoteDateFormatter.format(new Date('2026-03-18T09:00:00Z')),
+    );
+    expect(screen.getByTestId('market-order-live-ticker-source-mode')).toHaveTextContent('REPLAY');
+    expect(screen.getByTestId('market-order-live-ticker-valuation-status')).toHaveTextContent(
+      '시세 지연',
+    );
+    expect(screen.getByTestId('market-order-live-ticker-guidance')).toHaveTextContent(
+      '호가 기준이 오래되어 평가 손익을 숨겼습니다.',
+    );
+  });
+
+  it('clears the last market-ticker quote when a refresh fails', async () => {
+    vi.useFakeTimers();
+    let unmount: (() => void) | undefined;
+
+    try {
+      vi.mocked(fetchAccountPosition)
+        .mockResolvedValueOnce({
+          accountId: 1,
+          memberId: 1,
+          symbol: '005930',
+          quantity: 120,
+          availableQuantity: 20,
+          availableQty: 20,
+          balance: 100_000_000,
+          availableBalance: 100_000_000,
+          currency: 'KRW',
+          asOf: '2026-03-18T09:00:00Z',
+          avgPrice: 68_900,
+          marketPrice: 70_100,
+          quoteSnapshotId: 'quote-live-001',
+          quoteAsOf: '2026-03-18T09:00:00Z',
+          quoteSourceMode: 'LIVE',
+          unrealizedPnl: 144_000,
+          realizedPnlDaily: 12_000,
+          valuationStatus: 'FRESH',
+          valuationUnavailableReason: null,
+        })
+        .mockRejectedValue(new Error('ticker refresh failed'));
+      ({ unmount } = render(<OrderPage />));
+
+      fireEvent.click(screen.getByTestId('external-order-preset-krx-market-buy-3'));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(screen.getByTestId('market-order-live-ticker-price')).toHaveTextContent('₩70,100');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      expect(fetchAccountPosition).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('market-order-live-ticker-error')).toHaveTextContent(
+        'ticker refresh failed',
+      );
+      expect(screen.queryByTestId('market-order-live-ticker-price')).not.toBeInTheDocument();
+    } finally {
+      unmount?.();
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores older overlapping market-ticker poll responses after a newer poll succeeds', async () => {
+    vi.useFakeTimers();
+    let unmount: (() => void) | undefined;
+
+    try {
+      const stalePollDeferred = createDeferred<Awaited<ReturnType<typeof fetchAccountPosition>>>();
+      const freshPollDeferred = createDeferred<Awaited<ReturnType<typeof fetchAccountPosition>>>();
+
+      vi.mocked(fetchAccountPosition)
+        .mockResolvedValueOnce({
+          accountId: 1,
+          memberId: 1,
+          symbol: '005930',
+          quantity: 120,
+          availableQuantity: 20,
+          availableQty: 20,
+          balance: 100_000_000,
+          availableBalance: 100_000_000,
+          currency: 'KRW',
+          asOf: '2026-03-18T09:00:00Z',
+          avgPrice: 68_900,
+          marketPrice: 70_100,
+          quoteSnapshotId: 'quote-live-001',
+          quoteAsOf: '2026-03-18T09:00:00Z',
+          quoteSourceMode: 'LIVE',
+          unrealizedPnl: 144_000,
+          realizedPnlDaily: 12_000,
+          valuationStatus: 'FRESH',
+          valuationUnavailableReason: null,
+        })
+        .mockImplementationOnce(() => stalePollDeferred.promise)
+        .mockImplementationOnce(() => freshPollDeferred.promise);
+      ({ unmount } = render(<OrderPage />));
+
+      fireEvent.click(screen.getByTestId('external-order-preset-krx-market-buy-3'));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(screen.getByTestId('market-order-live-ticker-price')).toHaveTextContent('₩70,100');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      expect(fetchAccountPosition).toHaveBeenCalledTimes(3);
+
+      await act(async () => {
+        freshPollDeferred.resolve({
+          accountId: 1,
+          memberId: 1,
+          symbol: '005930',
+          quantity: 120,
+          availableQuantity: 20,
+          availableQty: 20,
+          balance: 100_000_000,
+          availableBalance: 100_000_000,
+          currency: 'KRW',
+          asOf: '2026-03-18T09:10:00Z',
+          avgPrice: 68_900,
+          marketPrice: 70_300,
+          quoteSnapshotId: 'quote-live-003',
+          quoteAsOf: '2026-03-18T09:10:00Z',
+          quoteSourceMode: 'LIVE',
+          unrealizedPnl: 168_000,
+          realizedPnlDaily: 20_000,
+          valuationStatus: 'FRESH',
+          valuationUnavailableReason: null,
+        });
+        await Promise.resolve();
+      });
+
+      expect(screen.getByTestId('market-order-live-ticker-price')).toHaveTextContent('₩70,300');
+      expect(screen.getByTestId('market-order-live-ticker-quote-as-of')).toHaveTextContent(
+        quoteDateFormatter.format(new Date('2026-03-18T09:10:00Z')),
+      );
+
+      await act(async () => {
+        stalePollDeferred.resolve({
+          accountId: 1,
+          memberId: 1,
+          symbol: '005930',
+          quantity: 120,
+          availableQuantity: 20,
+          availableQty: 20,
+          balance: 100_000_000,
+          availableBalance: 100_000_000,
+          currency: 'KRW',
+          asOf: '2026-03-18T09:05:00Z',
+          avgPrice: 68_900,
+          marketPrice: 69_900,
+          quoteSnapshotId: 'quote-live-002',
+          quoteAsOf: '2026-03-18T09:05:00Z',
+          quoteSourceMode: 'LIVE',
+          unrealizedPnl: 120_000,
+          realizedPnlDaily: 15_000,
+          valuationStatus: 'FRESH',
+          valuationUnavailableReason: null,
+        });
+        await Promise.resolve();
+      });
+
+      expect(screen.getByTestId('market-order-live-ticker-price')).toHaveTextContent('₩70,300');
+      expect(screen.getByTestId('market-order-live-ticker-quote-as-of')).toHaveTextContent(
+        quoteDateFormatter.format(new Date('2026-03-18T09:10:00Z')),
       );
     } finally {
       unmount?.();
