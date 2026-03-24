@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router-dom';
 
 import { fetchAdminAuditLogs, invalidateMemberSessions } from '@/api/adminApi';
 import { AdminConsolePage } from '@/pages/AdminConsolePage';
@@ -555,6 +555,59 @@ describe('AdminConsolePage', () => {
         from: undefined,
         to: undefined,
         eventType: 'ORDER_EXECUTE',
+      },
+      expect.any(AbortSignal),
+    ]);
+  });
+
+  it('clears the audit shortcut filter when back navigation removes the query param', async () => {
+    const router = createMemoryRouter(
+      [{
+        path: '/admin',
+        element: <AdminConsolePage />,
+      }],
+      {
+        initialEntries: ['/admin?auditEventType=ORDER_EXECUTE'],
+      },
+    );
+
+    vi.mocked(fetchAdminAuditLogs)
+      .mockResolvedValueOnce({
+        content: [
+          {
+            ...createAuditLog('log-query-param'),
+            eventType: 'ORDER_EXECUTE',
+          },
+        ],
+        totalElements: 1,
+        totalPages: 1,
+        number: 0,
+        size: 20,
+      })
+      .mockResolvedValueOnce(createAuditPage('log-back-nav', 1));
+
+    render(<RouterProvider router={router} />);
+
+    expect(await screen.findByTestId('admin-audit-row-log-query-param')).toBeInTheDocument();
+    expect(screen.getByTestId('admin-audit-event-type')).toHaveValue('ORDER_EXECUTE');
+
+    await act(async () => {
+      await router.navigate('/admin');
+    });
+
+    await waitFor(() => {
+      expect(vi.mocked(fetchAdminAuditLogs)).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByTestId('admin-audit-row-log-back-nav')).toBeInTheDocument();
+    expect(screen.getByTestId('admin-audit-event-type')).toHaveValue('');
+    expect(vi.mocked(fetchAdminAuditLogs).mock.calls[1]).toEqual([
+      {
+        page: 0,
+        size: 20,
+        memberId: undefined,
+        from: undefined,
+        to: undefined,
+        eventType: undefined,
       },
       expect.any(AbortSignal),
     ]);

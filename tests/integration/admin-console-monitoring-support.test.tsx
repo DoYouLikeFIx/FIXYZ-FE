@@ -88,11 +88,12 @@ describe.sequential('AdminConsolePage monitoring support integration', () => {
 
   it('keeps force-logout and audit search behavior alive alongside monitoring cards', async () => {
     vi.stubEnv('VITE_ADMIN_MONITORING_PANELS_JSON', monitoringPanelsConfig);
+    const csrfToken = 'csrf-admin-console-monitoring';
 
     const { calls } = await installMockAxiosModule((request) => {
       if (request.method === 'GET' && getPathname(request.url) === '/api/v1/auth/csrf') {
         return successEnvelope({
-          token: 'csrf-admin-console-monitoring',
+          csrfToken,
           headerName: 'X-CSRF-TOKEN',
         });
       }
@@ -150,6 +151,10 @@ describe.sequential('AdminConsolePage monitoring support integration', () => {
         request.method === 'DELETE'
         && getPathname(request.url) === '/api/v1/admin/members/member-001/sessions'
       ) {
+        if (request.headers['X-CSRF-TOKEN'] !== csrfToken) {
+          throw new Error('Expected X-CSRF-TOKEN header on admin session invalidation request.');
+        }
+
         return successEnvelope({
           memberUuid: 'member-001',
           invalidatedCount: 1,

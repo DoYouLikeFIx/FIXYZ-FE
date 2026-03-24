@@ -129,5 +129,19 @@ describe('parseAdminMonitoringPanelsConfig', () => {
       status: 'invalid',
       message: expect.stringContaining('불완전'),
     });
+
+    const unsupportedQueryPanels = JSON.parse(createValidMonitoringPanelsConfig()) as Array<Record<string, unknown>>;
+    unsupportedQueryPanels[0] = {
+      ...unsupportedQueryPanels[0],
+      drillDown: {
+        ...(unsupportedQueryPanels[0].drillDown as Record<string, unknown>),
+        adminAuditUrl: '/admin?auditEventType=ORDER_EXECUTE&memberId=member-001',
+      },
+    };
+
+    expect(parseAdminMonitoringPanelsConfig(JSON.stringify(unsupportedQueryPanels))).toMatchObject({
+      status: 'invalid',
+      message: expect.stringContaining('불완전'),
+    });
   });
 });
