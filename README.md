@@ -15,7 +15,7 @@ Bring up the repo-owned Prometheus/Grafana stack with the default services:
 COMPOSE_PROFILES=observability docker compose up -d
 ```
 
-Generate the real admin monitoring descriptor after Grafana is reachable:
+Generate the real admin monitoring descriptor after Prometheus and Grafana are reachable:
 
 ```bash
 node ../scripts/observability/generate-monitoring-panels.mjs --write-env-file .env.local
