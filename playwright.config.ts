@@ -49,7 +49,7 @@ const defaultAdminMonitoringPanelsJson = JSON.stringify([
     },
     drillDown: {
       grafanaUrl: 'https://grafana.fix.local/d/ops/pending-sessions?viewPanel=12',
-      adminAuditUrl: '/admin?auditEventType=ORDER_SESSION_CREATE',
+      adminAuditUrl: '/admin?auditEventType=ORDER_RECOVERY',
     },
   },
   {
@@ -112,9 +112,9 @@ export default defineConfig({
   webServer: {
     command: `pnpm exec vite --host ${host} --port ${port} --strictPort`,
     url: baseURL,
-    // In CI always start with a fresh server for a consistent injected env contract;
-    // locally reuse an existing server if one is already running on this port.
-    reuseExistingServer: !process.env.CI,
+    // Mocked admin-monitoring runs need a fresh Vite env contract, so do not reuse
+    // an already-running local server that may have been started without the fixture.
+    reuseExistingServer: !process.env.CI && !usesMockedAdminMonitoringFixture,
     env: {
       ...process.env,
       LIVE_API_BASE_URL: liveBackendBaseUrl,

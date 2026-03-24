@@ -12,8 +12,13 @@ pnpm dev
 Bring up the repo-owned Prometheus/Grafana stack with the default services:
 
 ```bash
-COMPOSE_PROFILES=observability docker compose up -d
+INTERNAL_SECRET_BOOTSTRAP="${INTERNAL_SECRET_BOOTSTRAP:-observability-bootstrap-secret}" \
+INTERNAL_SECRET="${INTERNAL_SECRET:-observability-runtime-secret}" \
+COMPOSE_PROFILES=observability \
+docker compose up -d
 ```
+
+The generated monitoring descriptor defaults to safe `link` mode. Only opt into `embed` mode when your Grafana deployment explicitly supports secure embedding for operator access.
 
 Generate the real admin monitoring descriptor after Prometheus and Grafana are reachable:
 
