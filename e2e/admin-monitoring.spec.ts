@@ -96,10 +96,16 @@ const installMockEventSource = async (page: Page) => {
   });
 };
 
-const installAuthenticatedAdminApi = async (page: Page) => {
+const installAuthenticatedAdminApi = async (
+  page: Page,
+  options?: {
+    freshnessMode?: 'success' | 'failure';
+  },
+) => {
   const auditRequestUrls: string[] = [];
   const invalidatedMembers: string[] = [];
   const csrfToken = 'csrf-admin-monitoring-e2e';
+  const freshnessMode = options?.freshnessMode ?? 'success';
 
   await installMockEventSource(page);
 
@@ -176,6 +182,46 @@ const installAuthenticatedAdminApi = async (page: Page) => {
         totalPages: 1,
         number: 0,
         size: 20,
+      }));
+      return;
+    }
+
+    if (pathname === '/api/v1/admin/monitoring/freshness' && request.method() === 'GET') {
+      if (freshnessMode === 'failure') {
+        await fulfillJson(
+          route,
+          503,
+          directErrorPayload(
+            'OBS-503',
+            'Monitoring freshness unavailable',
+            pathname,
+            'corr-admin-monitoring-freshness-failed',
+          ),
+        );
+        return;
+      }
+
+      await fulfillJson(route, 200, successEnvelope({
+        items: [
+          {
+            key: 'executionVolume',
+            status: 'live',
+            statusMessage: 'Prometheus freshness healthy (30s old)',
+            lastUpdatedAt: '2026-03-24T09:19:30Z',
+          },
+          {
+            key: 'pendingSessions',
+            status: 'stale',
+            statusMessage: 'Prometheus freshness stale (5m old)',
+            lastUpdatedAt: '2026-03-24T09:15:00Z',
+          },
+          {
+            key: 'marketDataIngest',
+            status: 'unavailable',
+            statusMessage: 'Prometheus target unavailable (fep-gateway)',
+            lastUpdatedAt: '2026-03-24T09:20:00Z',
+          },
+        ],
       }));
       return;
     }
@@ -278,7 +324,9 @@ test.describe('admin monitoring dashboard e2e', () => {
     await expect(page.getByTestId('topbar-admin-link')).toBeVisible();
     await expect(page.getByTestId('admin-console-title')).toContainText('운영자 보안 및 모니터링 콘솔');
     await expect(page.getByTestId('admin-monitoring-card-executionVolume')).toBeVisible();
-    await expect(page.getByTestId('admin-monitoring-status-executionVolume')).toContainText('Freshness OK');
+    await expect(page.getByTestId('admin-monitoring-status-executionVolume')).toContainText(
+      'Prometheus freshness healthy (30s old)',
+    );
     await expect(page.getByTestId('admin-monitoring-last-updated-pendingSessions')).toContainText('Last updated');
     await expect(page.getByTestId('admin-monitoring-open-executionVolume')).toHaveAttribute(
       'href',
@@ -310,6 +358,22 @@ test.describe('admin monitoring dashboard e2e', () => {
         (requestUrl) => new URL(requestUrl).searchParams.get('eventType') === 'ORDER_EXECUTE',
       ),
     ).toBe(true);
+  });
+
+  test('shows degraded monitoring feedback when the live freshness request fails', async ({ page }) => {
+    await installAuthenticatedAdminApi(page, { freshnessMode: 'failure' });
+
+    await page.goto('/admin');
+
+    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page.getByTestId('admin-monitoring-card-executionVolume')).toBeVisible();
+    await expect(page.getByTestId('admin-monitoring-freshness-feedback')).toContainText(
+      '실시간 freshness 조회에 실패했습니다.',
+    );
+    await expect(page.getByTestId('admin-monitoring-status-executionVolume')).toContainText(
+      '실시간 freshness 조회 실패',
+    );
+    await expect(page.getByTestId('admin-monitoring-last-updated-pendingSessions')).toHaveText('Last updated');
   });
 
   test('blocks anonymous access to admin monitoring and preserves the redirect target', async ({ page }) => {

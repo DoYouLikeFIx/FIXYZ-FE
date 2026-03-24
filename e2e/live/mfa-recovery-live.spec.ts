@@ -6,7 +6,7 @@ import {
   type Page,
 } from '@playwright/test';
 
-import { requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
+import { primeLiveBrowserCsrf, requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
 
 const DEFAULT_REGISTER_PASSWORD = 'LiveTest1!';
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -91,6 +91,7 @@ const waitForNextTotp = async (
 const goToRegister = async (page: Page) => {
   await page.goto('/register');
   await expect(page.getByTestId('register-email')).toBeVisible();
+  await primeLiveBrowserCsrf(page);
 };
 
 test.describe.serial('live backend MFA recovery rebind', () => {

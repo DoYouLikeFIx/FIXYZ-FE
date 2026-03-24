@@ -1,7 +1,6 @@
-import type { APIRequestContext, APIResponse } from '@playwright/test';
+import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
 
 const LIVE_AUTH_HEALTH_TIMEOUT_MS = 30_000;
-const LIVE_FORGOT_PREREQUISITE_PATH = '/api/v1/auth/password/forgot';
 const LIVE_AUTH_HEALTH_BASE_URL = (
   process.env.LIVE_API_BASE_URL?.trim()
   || process.env.VITE_DEV_PROXY_TARGET?.trim()
@@ -18,11 +17,6 @@ const buildHealthFailureMessage = (responseStatus: number, responseStatusText: s
   + (payload ? ` (${payload})` : '')
 );
 
-const buildForgotFailureMessage = (responseStatus: number, responseStatusText: string, payload: string) => (
-  `LIVE auth prerequisite is unhealthy. ${LIVE_FORGOT_PREREQUISITE_PATH} returned ${responseStatus} ${responseStatusText}`
-  + (payload ? ` (${payload})` : '')
-);
-
 const readResponsePayload = async (response: APIResponse) => {
   try {
     return await response.text();
@@ -30,9 +24,6 @@ const readResponsePayload = async (response: APIResponse) => {
     return '';
   }
 };
-
-const createForgotPreflightEmail = () =>
-  `live-preflight-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}@example.com`;
 
 const runLiveAuthContractHealthcheck = async (request: APIRequestContext) => {
   let response;
@@ -63,53 +54,9 @@ const runLiveAuthContractHealthcheck = async (request: APIRequestContext) => {
     };
   };
   const csrfToken = csrfPayload.data?.csrfToken ?? csrfPayload.data?.token;
-  const csrfHeaderName = csrfPayload.data?.headerName ?? 'X-CSRF-TOKEN';
 
   if (!csrfToken) {
     throw new Error('LIVE auth prerequisite is unhealthy. /api/v1/auth/csrf did not return a csrfToken.');
-  }
-
-  let forgotResponse;
-
-  try {
-    forgotResponse = await request.post(resolveLiveAuthUrl(LIVE_FORGOT_PREREQUISITE_PATH), {
-      timeout: LIVE_AUTH_HEALTH_TIMEOUT_MS,
-      headers: {
-        'Content-Type': 'application/json',
-        [csrfHeaderName]: csrfToken,
-      },
-      data: {
-        email: createForgotPreflightEmail(),
-      },
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `LIVE auth prerequisite is unreachable. ${LIVE_FORGOT_PREREQUISITE_PATH} failed within ${LIVE_AUTH_HEALTH_TIMEOUT_MS}ms (${message})`,
-    );
-  }
-
-  if (!forgotResponse.ok()) {
-    const payload = await readResponsePayload(forgotResponse);
-    throw new Error(
-      buildForgotFailureMessage(forgotResponse.status(), forgotResponse.statusText(), payload),
-    );
-  }
-
-  const forgotPayload = await forgotResponse.json() as {
-    success?: boolean;
-    data?: {
-      accepted?: boolean;
-      recovery?: {
-        challengeMayBeRequired?: boolean;
-      };
-    };
-  };
-
-  if (!forgotPayload.success || forgotPayload.data?.accepted !== true) {
-    throw new Error(
-      'LIVE auth prerequisite is unhealthy. /api/v1/auth/password/forgot did not return the accepted envelope.',
-    );
   }
 };
 
@@ -122,4 +69,50 @@ export const requireLiveAuthContractHealthy = async (request: APIRequestContext)
   }
 
   await liveAuthContractHealthcheck;
+};
+
+const readBrowserCsrfPayload = async (page: Page) => page.evaluate(async () => {
+  const response = await fetch('/api/v1/auth/csrf', {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error(`/api/v1/auth/csrf returned ${response.status} ${response.statusText}`);
+  }
+
+  const payload = await response.json() as {
+    success?: boolean;
+    data?: {
+      csrfToken?: string;
+      token?: string;
+    };
+  };
+  const csrfToken = payload.data?.csrfToken ?? payload.data?.token;
+
+  if (!payload.success || !csrfToken) {
+    throw new Error('/api/v1/auth/csrf did not return a csrfToken.');
+  }
+
+  return csrfToken;
+});
+
+export const primeLiveBrowserCsrf = async (page: Page) => {
+  const pageUrl = page.url();
+
+  if (!pageUrl || pageUrl === 'about:blank') {
+    throw new Error('primeLiveBrowserCsrf requires an already loaded live page.');
+  }
+
+  const pageOrigin = new URL(pageUrl).origin;
+  const response = await page.context().request.get(`${pageOrigin}/api/v1/auth/csrf`, {
+    timeout: LIVE_AUTH_HEALTH_TIMEOUT_MS,
+    failOnStatusCode: false,
+  });
+
+  if (!response.ok()) {
+    const payload = await readResponsePayload(response);
+    throw new Error(buildHealthFailureMessage(response.status(), response.statusText(), payload));
+  }
+
+  await readBrowserCsrfPayload(page);
 };

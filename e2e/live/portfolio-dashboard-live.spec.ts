@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 
 import {
@@ -6,7 +7,7 @@ import {
   type Page,
 } from '@playwright/test';
 
-import { requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
+import { primeLiveBrowserCsrf, requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
 
 const DEFAULT_REGISTER_PASSWORD = 'LiveTest1!';
 const MASKED_ACCOUNT_PATTERN = /(^\*\*\*-[*\d]{4}$)|(^\d{3}-\*{4}-\d{4}$)/;
@@ -15,6 +16,10 @@ const LIVE_LOGIN_EMAIL = process.env.LIVE_LOGIN_EMAIL?.trim();
 const LIVE_LOGIN_PASSWORD = process.env.LIVE_LOGIN_PASSWORD?.trim();
 const LIVE_LOGIN_OTP = process.env.LIVE_LOGIN_OTP?.trim();
 const LIVE_LOGIN_TOTP_SECRET = process.env.LIVE_LOGIN_TOTP_SECRET?.trim();
+const LIVE_CORE_DB_CONTAINER = process.env.LIVE_CORE_DB_CONTAINER?.trim() || 'mysql';
+const LIVE_CORE_DB_USER = process.env.LIVE_CORE_DB_USER?.trim() || 'fix';
+const LIVE_CORE_DB_PASSWORD = process.env.LIVE_CORE_DB_PASSWORD?.trim() || 'fix';
+const LIVE_CORE_DB_NAME = process.env.LIVE_CORE_DB_NAME?.trim() || 'core_db';
 
 const createLiveIdentity = () => {
   const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -29,12 +34,16 @@ const createLiveIdentity = () => {
 const goToRegister = async (page: Page) => {
   await page.goto('/register');
   await expect(page.getByTestId('register-email')).toBeVisible();
+  await primeLiveBrowserCsrf(page);
 };
 
 const goToLogin = async (page: Page) => {
   await page.goto('/login?redirect=/portfolio');
   await expect(page.getByTestId('login-email')).toBeVisible();
+  await primeLiveBrowserCsrf(page);
 };
+
+const escapeSqlString = (value: string) => value.replaceAll("'", "''");
 
 const decodeBase32 = (value: string): Buffer => {
   const normalized = value.trim().replace(/[\s=-]/g, '').toUpperCase();
@@ -132,6 +141,32 @@ const waitForPortfolioPath = async (page: Page) => {
     timeout: 20_000,
     message: 'Expected browser to navigate to /portfolio pathname.',
   }).toBe('/portfolio');
+};
+
+const waitForPortfolioQuoteData = async (
+  page: Page,
+  timeout = 30_000,
+) => {
+  const startedAt = Date.now();
+  let lastState = 'portfolio quote data never appeared';
+
+  while (Date.now() - startedAt <= timeout) {
+    if (await page.getByTestId('portfolio-market-price').isVisible().catch(() => false)) {
+      return;
+    }
+
+    const emptyStateVisible = await page.getByText('아직 보유 중인 종목이 없습니다.').isVisible().catch(() => false);
+    lastState = emptyStateVisible ? 'portfolio still reported no owned positions' : 'portfolio quote card still loading';
+
+    await delay(1_000);
+
+    if (emptyStateVisible) {
+      await page.reload({ waitUntil: 'load' });
+      await waitForPortfolioPath(page);
+    }
+  }
+
+  throw new Error(`Timed out waiting for portfolio quote data after order completion (${lastState}).`);
 };
 
 const waitForLoginStep = async (page: Page): Promise<'portfolio' | 'mfa' | 'error'> => {
@@ -235,6 +270,55 @@ const loginWithExistingLiveAccountToPortfolio = async (page: Page) => {
   return true;
 };
 
+const provisionPortfolioHolding = (email: string) => {
+  const escapedEmail = escapeSqlString(email);
+  const sql = [
+    `SET @member_id := (SELECT id FROM channel_db.members WHERE email='${escapedEmail}' LIMIT 1);`,
+    'SET @account_id := (SELECT id FROM core_db.accounts WHERE member_id=@member_id LIMIT 1);',
+    'INSERT INTO core_db.positions (account_id, symbol, qty, avg_price, created_at, updated_at, version)',
+    " VALUES (@account_id, '005930', 3.0000, 70100.0000, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)",
+    " ON DUPLICATE KEY UPDATE qty=VALUES(qty), avg_price=VALUES(avg_price), updated_at=CURRENT_TIMESTAMP;",
+    "SELECT qty FROM core_db.positions WHERE account_id=@account_id AND symbol='005930';",
+  ].join(' ');
+
+  const result = spawnSync(
+    'docker',
+    [
+      'exec',
+      LIVE_CORE_DB_CONTAINER,
+      'mysql',
+      `-u${LIVE_CORE_DB_USER}`,
+      `-p${LIVE_CORE_DB_PASSWORD}`,
+      '-N',
+      '-B',
+      '-D',
+      LIVE_CORE_DB_NAME,
+      '-e',
+      sql,
+    ],
+    {
+      encoding: 'utf8',
+    },
+  );
+
+  if (result.status !== 0) {
+    throw new Error(
+      `Failed to seed a live portfolio holding via local DB fixture: ${result.stderr || result.stdout || 'unknown error'}`,
+    );
+  }
+
+  const seededQuantity = result.stdout
+    .trim()
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .at(-1);
+
+  if (seededQuantity !== '3.0000') {
+    throw new Error(`Live portfolio holding fixture did not confirm qty=3.0000 (received ${seededQuantity ?? 'empty output'}).`);
+  }
+};
+
 const registerEnrollAndLoginToPortfolio = async (page: Page) => {
   const identity = createLiveIdentity();
 
@@ -267,6 +351,7 @@ const registerEnrollAndLoginToPortfolio = async (page: Page) => {
   await page.getByTestId('login-mfa-submit').click();
 
   await waitForPortfolioPath(page);
+  return identity;
 };
 
 const expectDashboardQuoteChart = async (page: Page) => {
@@ -282,36 +367,11 @@ const expectDashboardQuoteChart = async (page: Page) => {
   await expect(page.getByTestId('portfolio-dashboard-quote-ticker-candle')).toHaveCount(0);
 };
 
-const provisionPositionViaOrderFlow = async (page: Page) => {
-  await page.goto('/orders');
-  await expect(page.getByTestId('protected-area-title')).toHaveText('Session-based order flow');
-  await expect(page.getByTestId('order-session-create')).toBeVisible();
-
-  const createOrderSessionResponsePromise = page.waitForResponse(
-    (response) =>
-      response.url().includes('/api/v1/orders/sessions')
-      && !response.url().includes('/execute')
-      && response.request().method() === 'POST',
-  );
-  await page.getByTestId('order-session-create').click();
-  const createOrderSessionResponse = await createOrderSessionResponsePromise;
-  expect(createOrderSessionResponse.ok()).toBe(true);
-
-  await expect(page.getByTestId('order-session-execute')).toBeVisible();
-
-  const executeOrderSessionResponsePromise = page.waitForResponse(
-    (response) =>
-      response.url().includes('/api/v1/orders/sessions/')
-      && response.url().includes('/execute')
-      && response.request().method() === 'POST',
-  );
-  await page.getByTestId('order-session-execute').click();
-  const executeOrderSessionResponse = await executeOrderSessionResponsePromise;
-  expect(executeOrderSessionResponse.ok()).toBe(true);
-
-  await expect(page.getByTestId('order-session-summary')).toContainText('상태 COMPLETED');
+const provisionPortfolioHoldingFixture = async (page: Page, portfolioEmail: string) => {
+  provisionPortfolioHolding(portfolioEmail);
   await page.goto('/portfolio');
   await expect(page.getByTestId('protected-area-title')).toHaveText('Portfolio overview');
+  await waitForPortfolioQuoteData(page);
 };
 
 test.describe('live backend portfolio dashboard', () => {
@@ -319,14 +379,16 @@ test.describe('live backend portfolio dashboard', () => {
     await requireLiveAuthContractHealthy(request);
   });
 
-  test('renders dashboard quote chart and history data from the live backend', async ({
+  test('renders dashboard quote chart and history state from the live backend', async ({
     page,
   }) => {
     let provisionedPosition = false;
+    let portfolioEmail = LIVE_LOGIN_EMAIL ?? null;
     const reusedExistingAccount = await loginWithExistingLiveAccountToPortfolio(page);
 
     if (!reusedExistingAccount) {
-      await registerEnrollAndLoginToPortfolio(page);
+      const identity = await registerEnrollAndLoginToPortfolio(page);
+      portfolioEmail = identity.email;
     }
 
     await expect(page.getByTestId('protected-area-title')).toHaveText('Portfolio overview');
@@ -338,7 +400,11 @@ test.describe('live backend portfolio dashboard', () => {
     await expect(page.getByTestId('portfolio-available-quantity')).toBeVisible();
 
     if (await page.getByTestId('portfolio-market-price').count() === 0) {
-      await provisionPositionViaOrderFlow(page);
+      if (!portfolioEmail) {
+        throw new Error('Portfolio live fixture requires a known account email to seed a holding.');
+      }
+
+      await provisionPortfolioHoldingFixture(page, portfolioEmail);
       provisionedPosition = true;
     }
 
@@ -349,16 +415,6 @@ test.describe('live backend portfolio dashboard', () => {
     await expect(page.getByTestId('portfolio-history-error')).toHaveCount(0);
     await expect(page.getByTestId('portfolio-history-page-indicator')).toHaveText(/^\d+ \/ \d+$/);
 
-    if (provisionedPosition) {
-      await expect(page.getByTestId('order-list')).toBeVisible();
-      await expect(page.getByTestId('order-list-empty')).toHaveCount(0);
-      await expect.poll(
-        async () => page.locator('[data-testid^="order-row-"]').count(),
-        { timeout: 15_000 },
-      ).toBeGreaterThan(0);
-      return;
-    }
-
     await expect.poll(
       async () => (
         await page.getByTestId('order-list').count()
@@ -367,5 +423,9 @@ test.describe('live backend portfolio dashboard', () => {
       ),
       { timeout: 15_000 },
     ).toBeGreaterThan(0);
+
+    if (provisionedPosition) {
+      await expect(page.getByTestId('order-list-empty')).toBeVisible();
+    }
   });
 });

@@ -9,6 +9,8 @@ import {
   type Page,
 } from '@playwright/test';
 
+import { primeLiveBrowserCsrf } from './_shared/liveAuthContract';
+
 const DEFAULT_REGISTER_PASSWORD = 'LiveOrder1!';
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const LIVE_DIRECT_BASE_URL = process.env.LIVE_API_BASE_URL?.trim() || 'http://127.0.0.1:8080';
@@ -301,11 +303,13 @@ const clearBrowserSession = async (page: Page) => {
 const goToRegister = async (page: Page) => {
   await page.goto('/register?redirect=/orders');
   await expect(page.getByTestId('register-email')).toBeVisible();
+  await primeLiveBrowserCsrf(page);
 };
 
 const goToLogin = async (page: Page) => {
   await page.goto('/login?redirect=/orders');
   await expect(page.getByTestId('login-email')).toBeVisible();
+  await primeLiveBrowserCsrf(page);
 };
 
 const firstHeaderValue = (value: string | undefined) =>
