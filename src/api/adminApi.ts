@@ -5,6 +5,9 @@ import type {
   AdminSessionInvalidationPayload,
   AdminSessionInvalidationResponse,
 } from '@/types/admin';
+import type {
+  AdminMonitoringPanelFreshnessOverride,
+} from '@/types/adminMonitoring';
 
 const purgeUndefinedParams = <T extends Record<string, unknown>>(params: T) =>
   Object.fromEntries(
@@ -113,4 +116,17 @@ export const fetchAdminAuditLogs = async (
   });
 
   return response.data;
+};
+
+export const fetchAdminMonitoringFreshness = async (
+  signal?: AbortSignal,
+): Promise<AdminMonitoringPanelFreshnessOverride[]> => {
+  const response = await api.get<{ items: AdminMonitoringPanelFreshnessOverride[] }>(
+    '/api/v1/admin/monitoring/freshness',
+    {
+      signal,
+    },
+  );
+
+  return response.data.items;
 };

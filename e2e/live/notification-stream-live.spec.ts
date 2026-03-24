@@ -6,7 +6,7 @@ import {
   type Page,
 } from '@playwright/test';
 
-import { requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
+import { primeLiveBrowserCsrf, requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
 
 const DEFAULT_REGISTER_PASSWORD = 'LiveNotification1!';
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -205,11 +205,13 @@ const clearBrowserSession = async (page: Page) => {
 const goToRegister = async (page: Page) => {
   await page.goto('/register?redirect=/orders');
   await expect(page.getByTestId('register-email')).toBeVisible();
+  await primeLiveBrowserCsrf(page);
 };
 
 const goToLogin = async (page: Page) => {
   await page.goto('/login?redirect=/orders');
   await expect(page.getByTestId('login-email')).toBeVisible();
+  await primeLiveBrowserCsrf(page);
 };
 
 const expectOrdersPath = async (page: Page) => {

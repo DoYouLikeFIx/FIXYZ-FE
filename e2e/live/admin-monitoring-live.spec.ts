@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
+import { primeLiveBrowserCsrf, requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
 
 const DEFAULT_REGISTER_PASSWORD = 'LiveAdminMonitoring1!';
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -11,6 +11,21 @@ const MONITORING_PANEL_KEYS = [
   'executionVolume',
   'pendingSessions',
   'marketDataIngest',
+] as const;
+const ADMIN_AUDIT_EVENT_TYPES = [
+  'LOGIN_SUCCESS',
+  'LOGIN_FAIL',
+  'LOGOUT',
+  'ADMIN_FORCE_LOGOUT',
+  'ORDER_SESSION_CREATE',
+  'ORDER_OTP_SUCCESS',
+  'ORDER_OTP_FAIL',
+  'ORDER_EXECUTE',
+  'ORDER_CANCEL',
+  'ORDER_RECOVERY',
+  'MANUAL_REPLAY',
+  'TOTP_ENROLL',
+  'TOTP_CONFIRM',
 ] as const;
 const LIVE_ADMIN_EMAIL = process.env.LIVE_ADMIN_EMAIL?.trim();
 const LIVE_ADMIN_PASSWORD = process.env.LIVE_ADMIN_PASSWORD?.trim();
@@ -39,11 +54,20 @@ type MonitoringPanelKey = (typeof MONITORING_PANEL_KEYS)[number];
 type MonitoringFreshnessStatus = 'live' | 'stale' | 'unavailable';
 
 interface MonitoringPanelFreshness {
+  source: 'grafana-panel' | 'grafana-companion-panel';
   indicatorLabel: string;
   lastUpdatedLabel: string;
+  companionPanelUrl?: string;
   status: MonitoringFreshnessStatus;
   statusMessage?: string;
   lastUpdatedAt: string;
+}
+
+interface MonitoringFreshnessApiItem {
+  key: MonitoringPanelKey;
+  status: MonitoringFreshnessStatus;
+  statusMessage?: string;
+  lastUpdatedAt?: string | null;
 }
 
 interface MonitoringPanelDescriptor {
@@ -53,8 +77,12 @@ interface MonitoringPanelDescriptor {
   description: string;
   linkUrl: string;
   freshness: MonitoringPanelFreshness;
+  dashboardUid: string;
+  panelId: number;
+  sourceMetricHint: string;
   embedUrl?: string;
   drillDown: {
+    grafanaUrl: string;
     adminAuditUrl?: string;
   };
 }
@@ -112,7 +140,8 @@ const isSafeAdminAuditUrl = (value: unknown): value is string => {
 
     return parsed.origin === 'http://localhost'
       && parsed.pathname === '/admin'
-      && (eventType === null || eventType.trim().length > 0);
+      && (eventType === null
+        || ADMIN_AUDIT_EVENT_TYPES.includes(eventType as (typeof ADMIN_AUDIT_EVENT_TYPES)[number]));
   } catch {
     return false;
   }
@@ -130,11 +159,26 @@ const isMonitoringFreshness = (value: unknown): value is MonitoringPanelFreshnes
 
   return isNonEmptyString(freshness.indicatorLabel)
     && isNonEmptyString(freshness.lastUpdatedLabel)
+    && (freshness.source === 'grafana-panel' || freshness.source === 'grafana-companion-panel')
     && (freshness.status === 'live'
       || freshness.status === 'stale'
       || freshness.status === 'unavailable')
     && isValidTimestamp(freshness.lastUpdatedAt)
+    && (freshness.source !== 'grafana-companion-panel' || isSafeExternalUrl(freshness.companionPanelUrl))
     && (freshness.statusMessage === undefined || isNonEmptyString(freshness.statusMessage));
+};
+
+const isMonitoringFreshnessApiItem = (value: unknown): value is MonitoringFreshnessApiItem => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const item = value as Partial<MonitoringFreshnessApiItem>;
+
+  return MONITORING_PANEL_KEYS.includes(item.key as MonitoringPanelKey)
+    && (item.status === 'live' || item.status === 'stale' || item.status === 'unavailable')
+    && (item.lastUpdatedAt === undefined || item.lastUpdatedAt === null || isValidTimestamp(item.lastUpdatedAt))
+    && (item.statusMessage === undefined || isNonEmptyString(item.statusMessage));
 };
 
 const isMonitoringPanelDescriptor = (value: unknown): value is MonitoringPanelDescriptor => {
@@ -143,17 +187,22 @@ const isMonitoringPanelDescriptor = (value: unknown): value is MonitoringPanelDe
   }
 
   const descriptor = value as Partial<MonitoringPanelDescriptor>;
-  const drillDown = descriptor.drillDown as { adminAuditUrl?: unknown } | undefined;
+  const drillDown = descriptor.drillDown as { grafanaUrl?: unknown; adminAuditUrl?: unknown } | undefined;
 
   return MONITORING_PANEL_KEYS.includes(descriptor.key as MonitoringPanelKey)
     && (descriptor.mode === 'link' || descriptor.mode === 'embed')
     && isNonEmptyString(descriptor.title)
     && isNonEmptyString(descriptor.description)
     && isSafeExternalUrl(descriptor.linkUrl)
+    && isNonEmptyString(descriptor.dashboardUid)
+    && Number.isInteger(descriptor.panelId)
+    && Number(descriptor.panelId) > 0
+    && isNonEmptyString(descriptor.sourceMetricHint)
     && isMonitoringFreshness(descriptor.freshness)
     && (descriptor.mode !== 'embed' || isSafeExternalUrl(descriptor.embedUrl))
     && (drillDown === undefined
       || typeof drillDown === 'object'
+      && isSafeExternalUrl(drillDown.grafanaUrl)
       && (drillDown.adminAuditUrl === undefined || isSafeAdminAuditUrl(drillDown.adminAuditUrl)));
 };
 
@@ -358,11 +407,13 @@ const expectCorrelationHeaders = (headers: Record<string, string>) => {
 const goToAdminLogin = async (page: Page) => {
   await page.goto('/login?redirect=%2Fadmin');
   await expect(page.getByTestId('login-email')).toBeVisible();
+  await primeLiveBrowserCsrf(page);
 };
 
 const goToAdminRegister = async (page: Page) => {
   await page.goto('/register?redirect=%2Fadmin');
   await expect(page.getByTestId('register-email')).toBeVisible();
+  await primeLiveBrowserCsrf(page);
 };
 
 const waitForOrderAuthorizationStep = async (
@@ -401,6 +452,40 @@ const requestAdminAuditStatus = async (page: Page) => {
     body: await response.text(),
     headers: response.headers(),
   };
+};
+
+const requestAdminMonitoringFreshnessStatus = async (page: Page) => {
+  const response = await page.context().request.get(
+    `${LIVE_BACKEND_BASE_URL}/api/v1/admin/monitoring/freshness`,
+    {
+      failOnStatusCode: false,
+    },
+  );
+  const body = await response.text();
+  let payload: unknown = null;
+
+  try {
+    payload = JSON.parse(body) as unknown;
+  } catch {
+    payload = null;
+  }
+
+  return {
+    status: response.status(),
+    body,
+    headers: response.headers(),
+    payload,
+  };
+};
+
+const expectAnonymousAdminApiAuthFailure = (result: {
+  status: number;
+  body: string;
+  headers: Record<string, string>;
+}) => {
+  expect([401, 410]).toContain(result.status);
+  expect(result.body).toMatch(/AUTH-003|CHANNEL-001/);
+  expectCorrelationHeaders(result.headers);
 };
 
 const registerFreshUserWithAdminRedirect = async (page: Page): Promise<LiveIdentity> => {
@@ -608,17 +693,31 @@ const cleanupProvisionedIdentity = (email: string) => {
   }
 };
 
-const formatMonitoringTime = (value: string) =>
-  new Intl.DateTimeFormat('ko-KR', {
+const formatMonitoringTime = (value: string | undefined | null) => {
+  if (!value) {
+    return undefined;
+  }
+
+  return new Intl.DateTimeFormat('ko-KR', {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value));
+};
 
-const getMonitoringStatusText = (descriptor: MonitoringPanelDescriptor) =>
-  descriptor.freshness.statusMessage ?? descriptor.freshness.indicatorLabel;
+const getMonitoringStatusText = (
+  descriptor: MonitoringPanelDescriptor,
+  runtimeFreshness?: MonitoringFreshnessApiItem,
+) => runtimeFreshness?.statusMessage ?? descriptor.freshness.indicatorLabel;
 
-const getMonitoringLastUpdatedText = (descriptor: MonitoringPanelDescriptor) =>
-  `${descriptor.freshness.lastUpdatedLabel}: ${formatMonitoringTime(descriptor.freshness.lastUpdatedAt)}`;
+const getMonitoringLastUpdatedText = (
+  descriptor: MonitoringPanelDescriptor,
+  runtimeFreshness?: MonitoringFreshnessApiItem,
+) => {
+  const formatted = formatMonitoringTime(runtimeFreshness?.lastUpdatedAt ?? descriptor.freshness.lastUpdatedAt);
+  return formatted
+    ? `${descriptor.freshness.lastUpdatedLabel}: ${formatted}`
+    : descriptor.freshness.lastUpdatedLabel;
+};
 
 const loginWithLiveAdminToAdmin = async (page: Page) => {
   test.skip(
@@ -710,10 +809,13 @@ test.describe.serial('live backend admin monitoring', () => {
   test('redirects anonymous admin requests to login and preserves the original admin target', async ({
     page,
   }) => {
+    await page.context().clearCookies();
+
     const adminAudit = await requestAdminAuditStatus(page);
-    expect(adminAudit.status).toBe(401);
-    expect(adminAudit.body).toContain('AUTH-003');
-    expectCorrelationHeaders(adminAudit.headers);
+    expectAnonymousAdminApiAuthFailure(adminAudit);
+
+    const adminMonitoringFreshness = await requestAdminMonitoringFreshnessStatus(page);
+    expectAnonymousAdminApiAuthFailure(adminMonitoringFreshness);
 
     await page.goto('/admin?auditEventType=ORDER_EXECUTE');
 
@@ -735,6 +837,10 @@ test.describe.serial('live backend admin monitoring', () => {
     const adminAudit = await requestAdminAuditStatus(page);
     expect(adminAudit.status).toBe(403);
     expectCorrelationHeaders(adminAudit.headers);
+
+    const adminMonitoringFreshness = await requestAdminMonitoringFreshnessStatus(page);
+    expect(adminMonitoringFreshness.status).toBe(403);
+    expectCorrelationHeaders(adminMonitoringFreshness.headers);
 
     await page.goto('/admin');
 
@@ -774,7 +880,9 @@ test.describe.serial('live backend admin monitoring', () => {
     }
 
     const executionVolume = monitoringDescriptors.panels.find((descriptor) => descriptor.key === 'executionVolume');
+    const pendingSessions = monitoringDescriptors.panels.find((descriptor) => descriptor.key === 'pendingSessions');
     expect(executionVolume).toBeTruthy();
+    expect(pendingSessions).toBeTruthy();
     const expectedAuditEventType = (() => {
       const adminAuditUrl = executionVolume!.drillDown.adminAuditUrl;
 
@@ -784,13 +892,44 @@ test.describe.serial('live backend admin monitoring', () => {
 
       return new URL(adminAuditUrl, 'http://localhost').searchParams.get('auditEventType') ?? 'ORDER_EXECUTE';
     })();
+    const monitoringFreshnessResponse = await requestAdminMonitoringFreshnessStatus(page);
+    expect(monitoringFreshnessResponse.status).toBe(200);
+    expectCorrelationHeaders(monitoringFreshnessResponse.headers);
+
+    const monitoringFreshnessItems = (
+      (monitoringFreshnessResponse.payload as {
+        data?: {
+          items?: unknown;
+        };
+      } | null)?.data?.items
+    );
+    const monitoringFreshnessItemsArray = Array.isArray(monitoringFreshnessItems)
+      ? monitoringFreshnessItems
+      : [];
+
+    expect(Array.isArray(monitoringFreshnessItems)).toBe(true);
+    expect(monitoringFreshnessItemsArray.every(isMonitoringFreshnessApiItem)).toBe(true);
+
+    const runtimeExecutionVolume = (monitoringFreshnessItemsArray as MonitoringFreshnessApiItem[])
+      .find((item) => item.key === 'executionVolume');
+    const runtimePendingSessions = (monitoringFreshnessItemsArray as MonitoringFreshnessApiItem[])
+      .find((item) => item.key === 'pendingSessions');
+
+    expect(runtimeExecutionVolume).toBeTruthy();
+    expect(runtimePendingSessions).toBeTruthy();
 
     await expect(page.getByTestId('admin-monitoring-card-executionVolume')).toBeVisible();
     await expect(page.getByTestId('admin-monitoring-status-executionVolume')).toHaveText(
-      getMonitoringStatusText(executionVolume!),
+      getMonitoringStatusText(executionVolume!, runtimeExecutionVolume),
     );
     await expect(page.getByTestId('admin-monitoring-last-updated-executionVolume')).toHaveText(
-      getMonitoringLastUpdatedText(executionVolume!),
+      getMonitoringLastUpdatedText(executionVolume!, runtimeExecutionVolume),
+    );
+    await expect(page.getByTestId('admin-monitoring-status-pendingSessions')).toHaveText(
+      getMonitoringStatusText(pendingSessions!, runtimePendingSessions),
+    );
+    await expect(page.getByTestId('admin-monitoring-last-updated-pendingSessions')).toHaveText(
+      getMonitoringLastUpdatedText(pendingSessions!, runtimePendingSessions),
     );
     await expect(page.getByTestId('admin-monitoring-open-executionVolume')).toHaveAttribute(
       'href',

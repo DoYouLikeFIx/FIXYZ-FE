@@ -50,7 +50,7 @@ const monitoringPanelsConfig = JSON.stringify([
     },
     drillDown: {
       grafanaUrl: 'https://grafana.fix.local/d/ops/pending-sessions?viewPanel=12',
-      adminAuditUrl: '/admin?auditEventType=ORDER_SESSION_CREATE',
+      adminAuditUrl: '/admin?auditEventType=ORDER_RECOVERY',
     },
   },
   {
@@ -144,6 +144,31 @@ describe.sequential('AdminConsolePage monitoring support integration', () => {
           totalPages: 1,
           number: 0,
           size: 20,
+        });
+      }
+
+      if (request.method === 'GET' && getPathname(request.url) === '/api/v1/admin/monitoring/freshness') {
+        return successEnvelope({
+          items: [
+            {
+              key: 'executionVolume',
+              status: 'live',
+              statusMessage: 'Prometheus freshness healthy (30s old)',
+              lastUpdatedAt: '2026-03-24T09:19:30Z',
+            },
+            {
+              key: 'pendingSessions',
+              status: 'stale',
+              statusMessage: 'Prometheus freshness stale (5m old)',
+              lastUpdatedAt: '2026-03-24T09:15:00Z',
+            },
+            {
+              key: 'marketDataIngest',
+              status: 'unavailable',
+              statusMessage: 'Prometheus target unavailable (fep-gateway)',
+              lastUpdatedAt: '2026-03-24T09:20:00Z',
+            },
+          ],
         });
       }
 

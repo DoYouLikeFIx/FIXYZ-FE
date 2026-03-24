@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
+import { primeLiveBrowserCsrf, requireLiveAuthContractHealthy } from './_shared/liveAuthContract';
 
 const INVALID_CREDENTIALS_MESSAGE = '이메일 또는 비밀번호가 올바르지 않습니다.';
 const DEFAULT_REGISTER_PASSWORD = 'LiveTest1!';
@@ -20,11 +20,13 @@ const createLiveIdentity = () => {
 const goToLogin = async (page: Page) => {
   await page.goto('/login');
   await expect(page.getByTestId('login-email')).toBeVisible();
+  await primeLiveBrowserCsrf(page);
 };
 
 const goToRegister = async (page: Page) => {
   await page.goto('/register');
   await expect(page.getByTestId('register-email')).toBeVisible();
+  await primeLiveBrowserCsrf(page);
 };
 
 const firstHeaderValue = (value: string | undefined) =>
