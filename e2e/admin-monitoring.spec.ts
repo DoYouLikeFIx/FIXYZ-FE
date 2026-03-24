@@ -99,6 +99,7 @@ const installMockEventSource = async (page: Page) => {
 const installAuthenticatedAdminApi = async (page: Page) => {
   const auditRequestUrls: string[] = [];
   const invalidatedMembers: string[] = [];
+  const csrfToken = 'csrf-admin-monitoring-e2e';
 
   await installMockEventSource(page);
 
@@ -109,7 +110,7 @@ const installAuthenticatedAdminApi = async (page: Page) => {
 
     if (pathname === '/api/v1/auth/csrf' && request.method() === 'GET') {
       await fulfillJson(route, 200, successEnvelope({
-        csrfToken: 'csrf-admin-monitoring-e2e',
+        csrfToken,
         headerName: 'X-CSRF-TOKEN',
       }));
       return;
@@ -184,6 +185,20 @@ const installAuthenticatedAdminApi = async (page: Page) => {
       && pathname.endsWith('/sessions')
       && request.method() === 'DELETE'
     ) {
+      if ((await request.headerValue('X-CSRF-TOKEN')) !== csrfToken) {
+        await fulfillJson(
+          route,
+          403,
+          directErrorPayload(
+            'AUTH-006',
+            'CSRF token invalid or missing',
+            pathname,
+            'corr-admin-monitoring-csrf',
+          ),
+        );
+        return;
+      }
+
       const memberUuid = decodeURIComponent(pathname.split('/')[5] ?? '');
       invalidatedMembers.push(memberUuid);
 
