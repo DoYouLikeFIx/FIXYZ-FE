@@ -191,10 +191,15 @@ const installMockApi = async (page: Page) => {
           availableBalance: 100_000_000,
           currency: 'KRW',
           asOf: '2026-03-23T09:00:00Z',
+          avgPrice: 68_900,
           marketPrice: 70_100,
           quoteSnapshotId: 'qsnap-live-001',
           quoteAsOf: '2026-03-23T09:00:00Z',
           quoteSourceMode: 'LIVE',
+          unrealizedPnl: 144_000,
+          realizedPnlDaily: 12_000,
+          valuationStatus: 'FRESH',
+          valuationUnavailableReason: null,
         },
       ]));
       return;
@@ -215,10 +220,15 @@ const installMockApi = async (page: Page) => {
         availableBalance: 100_000_000,
         currency: 'KRW',
         asOf: '2026-03-23T09:00:00Z',
+        avgPrice: 68_900,
         marketPrice: isReplayTick ? 70_300 : 70_100,
         quoteSnapshotId: isReplayTick ? 'qsnap-replay-001' : 'qsnap-live-001',
         quoteAsOf: isReplayTick ? '2026-03-23T09:05:00Z' : '2026-03-23T09:00:00Z',
         quoteSourceMode: isReplayTick ? 'REPLAY' : 'LIVE',
+        unrealizedPnl: isReplayTick ? 168_000 : 144_000,
+        realizedPnlDaily: isReplayTick ? 20_000 : 12_000,
+        valuationStatus: isReplayTick ? 'STALE' : 'FRESH',
+        valuationUnavailableReason: isReplayTick ? 'STALE_QUOTE' : null,
       }));
       return;
     }
@@ -316,11 +326,20 @@ test.describe('market ticker order e2e', () => {
     );
     await expect(page.getByTestId('market-order-live-ticker-price')).toHaveText('₩70,100');
     await expect(page.getByTestId('market-order-live-ticker-source-mode')).toHaveText('LIVE');
+    await expect(page.getByTestId('market-order-live-ticker-valuation-status')).toHaveText(
+      '평가 가능',
+    );
 
-    await expect(page.getByTestId('market-order-live-ticker-price')).toHaveText('₩70,300', {
+    await expect(page.getByTestId('market-order-live-ticker-price')).toHaveText('확인 불가', {
       timeout: 8_000,
     });
     await expect(page.getByTestId('market-order-live-ticker-source-mode')).toHaveText('REPLAY');
+    await expect(page.getByTestId('market-order-live-ticker-valuation-status')).toHaveText(
+      '시세 지연',
+    );
+    await expect(page.getByTestId('market-order-live-ticker-guidance')).toContainText(
+      '호가 기준이 오래되어 평가 손익을 숨겼습니다.',
+    );
     expect(mockApi.getMarketTickerRequestCount()).toBeGreaterThanOrEqual(2);
 
     await page.getByTestId('order-session-create').click();

@@ -93,6 +93,160 @@ const delay = (milliseconds: number) =>
     setTimeout(resolve, milliseconds);
   });
 
+const dashboardDateFormatter = new Intl.DateTimeFormat('ko-KR', {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+type QuoteSourceMode = 'LIVE' | 'DELAYED' | 'REPLAY' | (string & {});
+type ValuationStatus = 'FRESH' | 'STALE' | 'UNAVAILABLE' | (string & {});
+type ValuationUnavailableReason =
+  | 'STALE_QUOTE'
+  | 'QUOTE_MISSING'
+  | 'PROVIDER_UNAVAILABLE'
+  | (string & {});
+
+interface AccountSummary {
+  accountId: number;
+  memberId: number;
+  symbol: string;
+  quantity: number;
+  availableQuantity: number;
+  availableQty: number;
+  balance: number;
+  availableBalance: number;
+  currency: string;
+  asOf: string;
+}
+
+interface AccountPosition extends AccountSummary {
+  avgPrice?: number | null;
+  marketPrice?: number | null;
+  quoteSnapshotId?: string | null;
+  quoteAsOf?: string | null;
+  quoteSourceMode?: QuoteSourceMode | null;
+  unrealizedPnl?: number | null;
+  realizedPnlDaily?: number | null;
+  valuationStatus?: ValuationStatus | null;
+  valuationUnavailableReason?: ValuationUnavailableReason | null;
+}
+
+interface SessionMember {
+  accountId?: string | null;
+}
+
+interface SuccessEnvelope<T> {
+  data?: T;
+}
+
+const formatQuoteTimestamp = (value: string | null | undefined) => {
+  if (!value) {
+    return null;
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  return dashboardDateFormatter.format(new Date(timestamp));
+};
+
+const formatDashboardTimestamp = (value: string | null | undefined) => {
+  if (!value) {
+    return '확인 불가';
+  }
+
+  return formatQuoteTimestamp(value) ?? '시각 확인 필요';
+};
+
+const formatKRW = (amount: number) => new Intl.NumberFormat('ko-KR', {
+  style: 'currency',
+  currency: 'KRW',
+  maximumFractionDigits: 0,
+}).format(amount);
+
+const formatSignedKRW = (amount: number) => {
+  if (amount > 0) {
+    return `+${formatKRW(amount)}`;
+  }
+
+  if (amount < 0) {
+    return `-${formatKRW(Math.abs(amount))}`;
+  }
+
+  return formatKRW(0);
+};
+
+const resolveValuationStatusLabel = (status: ValuationStatus | null | undefined) => {
+  switch (status) {
+    case 'FRESH':
+      return '평가 가능';
+    case 'STALE':
+      return '시세 지연';
+    case 'UNAVAILABLE':
+      return '평가 불가';
+    default:
+      return '상태 확인 필요';
+  }
+};
+
+const resolveValuationGuidance = (
+  status: ValuationStatus | null | undefined,
+  reason: ValuationUnavailableReason | null | undefined,
+) => {
+  switch (status) {
+    case 'FRESH':
+      return null;
+    case 'STALE':
+      return '호가 기준이 오래되어 평가 손익을 숨겼습니다.';
+    case 'UNAVAILABLE':
+      switch (reason) {
+        case 'QUOTE_MISSING':
+          return '시세 스냅샷이 없어 평가 손익을 숨겼습니다.';
+        case 'PROVIDER_UNAVAILABLE':
+          return '시세 제공자가 응답하지 않아 평가 손익을 숨겼습니다.';
+        default:
+          return '시세를 확인할 수 없어 평가 손익을 숨겼습니다.';
+      }
+    default:
+      return status
+        ? '백엔드 freshness 상태를 확인할 수 없어 평가 정보를 보수적으로 표시합니다.'
+        : null;
+  }
+};
+
+const formatAveragePriceValue = (position: AccountPosition) => {
+  if (position.avgPrice === null || position.avgPrice === undefined) {
+    return position.quantity === 0 ? '보유 없음' : '확인 불가';
+  }
+
+  return formatKRW(position.avgPrice);
+};
+
+const formatMarketDerivedValue = (
+  value: number | null | undefined,
+  valuationStatus: ValuationStatus | null | undefined,
+  formatter: (amount: number) => string,
+) => {
+  if (valuationStatus !== 'FRESH' || value === null || value === undefined) {
+    return '확인 불가';
+  }
+
+  return formatter(value);
+};
+
+const fetchSessionJson = async <T>(
+  page: Page,
+  path: string,
+) => {
+  const response = await page.request.get(path);
+  expect(response.ok()).toBe(true);
+  return await response.json() as SuccessEnvelope<T>;
+};
+
 const millisUntilNextTotpWindow = (now = Date.now()) => 30_000 - (now % 30_000);
 
 const generateStableTotp = async (
@@ -426,6 +580,97 @@ test.describe('live backend portfolio dashboard', () => {
 
     if (provisionedPosition) {
       await expect(page.getByTestId('order-list-empty')).toBeVisible();
+    }
+  });
+
+  test('keeps FE portfolio valuation rows aligned with the live backend contract', async ({
+    page,
+  }) => {
+    let portfolioEmail = LIVE_LOGIN_EMAIL ?? null;
+    const reusedExistingAccount = await loginWithExistingLiveAccountToPortfolio(page);
+
+    if (!reusedExistingAccount) {
+      const identity = await registerEnrollAndLoginToPortfolio(page);
+      portfolioEmail = identity.email;
+    }
+
+    await expect(page.getByTestId('protected-area-title')).toHaveText('Portfolio overview');
+
+    if (await page.getByTestId('portfolio-market-price').count() === 0) {
+      if (!portfolioEmail) {
+        throw new Error('Portfolio live fixture requires a known account email to seed a holding.');
+      }
+
+      await provisionPortfolioHoldingFixture(page, portfolioEmail);
+    }
+
+    const sessionPayload = await fetchSessionJson<SessionMember>(page, '/api/v1/auth/session');
+    const accountId = sessionPayload.data?.accountId?.trim();
+
+    if (!accountId) {
+      throw new Error('Authenticated live session did not expose an accountId for portfolio verification.');
+    }
+
+    const summaryPayload = await fetchSessionJson<AccountSummary>(
+      page,
+      `/api/v1/accounts/${accountId}/summary`,
+    );
+    const positionsPayload = await fetchSessionJson<AccountPosition[]>(
+      page,
+      `/api/v1/accounts/${accountId}/positions/list`,
+    );
+
+    const summary = summaryPayload.data;
+    const selectedPosition = positionsPayload.data?.[0] ?? null;
+
+    expect(summary).toBeTruthy();
+    expect(selectedPosition).toBeTruthy();
+
+    await expect(page.getByTestId('portfolio-total-balance')).toHaveText(
+      formatKRW(summary!.balance),
+    );
+    await expect(page.getByTestId('portfolio-summary-as-of')).toHaveText(
+      formatDashboardTimestamp(summary!.asOf),
+    );
+    await expect(page.getByTestId('portfolio-available-quantity')).toHaveText(
+      `${selectedPosition!.availableQuantity}주`,
+    );
+
+    const valuationStatus = selectedPosition!.valuationStatus ?? null;
+    const valuationGuidance = resolveValuationGuidance(
+      valuationStatus,
+      selectedPosition!.valuationUnavailableReason ?? null,
+    );
+
+    await expect(page.getByTestId('portfolio-avg-price')).toHaveText(
+      formatAveragePriceValue(selectedPosition!),
+    );
+    await expect(page.getByTestId('portfolio-valuation-status')).toHaveText(
+      resolveValuationStatusLabel(valuationStatus),
+    );
+    await expect(page.getByTestId('portfolio-market-price')).toHaveText(
+      formatMarketDerivedValue(selectedPosition!.marketPrice, valuationStatus, formatKRW),
+    );
+    await expect(page.getByTestId('portfolio-unrealized-pnl')).toHaveText(
+      formatMarketDerivedValue(selectedPosition!.unrealizedPnl, valuationStatus, formatSignedKRW),
+    );
+    await expect(page.getByTestId('portfolio-realized-pnl-daily')).toHaveText(
+      formatMarketDerivedValue(selectedPosition!.realizedPnlDaily, valuationStatus, formatSignedKRW),
+    );
+    await expect(page.getByTestId('portfolio-quote-as-of')).toHaveText(
+      formatDashboardTimestamp(selectedPosition!.quoteAsOf),
+    );
+    await expect(page.getByTestId('portfolio-quote-source-mode')).toHaveText(
+      selectedPosition!.quoteSourceMode?.trim() ? selectedPosition!.quoteSourceMode : '확인 불가',
+    );
+    await expect(page.getByTestId('portfolio-dashboard-quote-ticker-price')).toHaveText(
+      formatMarketDerivedValue(selectedPosition!.marketPrice, valuationStatus, formatKRW),
+    );
+
+    if (valuationGuidance) {
+      await expect(page.getByTestId('portfolio-valuation-guidance')).toContainText(valuationGuidance);
+    } else {
+      await expect(page.getByTestId('portfolio-valuation-guidance')).toHaveCount(0);
     }
   });
 });
