@@ -68,13 +68,26 @@ const isValidTimestamp = (value: string) => !Number.isNaN(Date.parse(value));
 const isSafeAdminAuditUrl = (value: string) => {
   try {
     const parsed = new URL(value, 'http://localhost');
-    const eventType = parsed.searchParams.get(ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY);
 
     if (parsed.origin !== 'http://localhost' || parsed.pathname !== ADMIN_ROUTE) {
       return false;
     }
 
-    return eventType === null || isAdminAuditEventType(eventType);
+    const queryKeys = Array.from(parsed.searchParams.keys());
+
+    if (queryKeys.some((key) => key !== ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY)) {
+      return false;
+    }
+
+    const eventTypes = parsed.searchParams.getAll(ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY);
+
+    if (eventTypes.length > 1) {
+      return false;
+    }
+
+    const [eventType] = eventTypes;
+
+    return eventType === undefined || isAdminAuditEventType(eventType);
   } catch {
     return false;
   }
