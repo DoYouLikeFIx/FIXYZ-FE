@@ -427,8 +427,6 @@ const waitForPortfolioPath = async (page: Page) => {
 };
 
 const capturePortfolioBootstrap = async (page: Page) => {
-  await page.waitForLoadState('networkidle');
-
   const summaryResponsePromise = page.waitForResponse(
     (response) => response.request().method() === 'GET'
       && /\/api\/v1\/accounts\/\d+\/summary$/.test(getPathname(response.url())),
@@ -440,7 +438,6 @@ const capturePortfolioBootstrap = async (page: Page) => {
 
   await page.reload({ waitUntil: 'load' });
   await waitForPortfolioPath(page);
-  await page.waitForLoadState('networkidle');
 
   const [summaryResponse, positionsResponse] = await Promise.all([
     summaryResponsePromise,
