@@ -1,4 +1,5 @@
 import {
+  buildAdminAuditPath,
   buildForgotPasswordPath,
   buildMfaRecoverySuccessLoginPath,
   buildPasswordResetSuccessLoginPath,
@@ -19,5 +20,10 @@ describe('auth navigation helpers', () => {
     expect(buildMfaRecoverySuccessLoginPath('/orders')).toBe(
       '/login?mfaRecovery=rebound&redirect=%2Forders',
     );
+  });
+
+  it('builds admin audit drill-down paths from fixed event filters', () => {
+    expect(buildAdminAuditPath('ORDER_EXECUTE')).toBe('/admin?auditEventType=ORDER_EXECUTE');
+    expect(buildAdminAuditPath()).toBe('/admin');
   });
 });

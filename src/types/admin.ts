@@ -15,6 +15,13 @@ export const ADMIN_AUDIT_EVENT_TYPES = [
 
 export type AdminAuditEventType = (typeof ADMIN_AUDIT_EVENT_TYPES)[number];
 
+export const isAdminAuditEventType = (
+  value: string | null | undefined,
+): value is AdminAuditEventType =>
+  value !== undefined
+  && value !== null
+  && ADMIN_AUDIT_EVENT_TYPES.includes(value as AdminAuditEventType);
+
 export interface AdminSessionInvalidationResponse {
   memberUuid: string;
   invalidatedCount: number;

@@ -10,6 +10,7 @@ export const PASSWORD_RESET_SUCCESS_QUERY_VALUE = 'reset-success';
 export const PASSWORD_RESET_SUCCESS_QUERY =
   `${PASSWORD_RESET_SUCCESS_QUERY_KEY}=${PASSWORD_RESET_SUCCESS_QUERY_VALUE}`;
 export const ADMIN_ROUTE = '/admin';
+export const ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY = 'auditEventType';
 export const MFA_RECOVERY_SUCCESS_QUERY_KEY = 'mfaRecovery';
 export const MFA_RECOVERY_SUCCESS_QUERY_VALUE = 'rebound';
 export const MFA_RECOVERY_SUCCESS_QUERY =
@@ -48,6 +49,16 @@ export const resolveRedirectTarget = (redirectParam: string | null | undefined) 
 
 export const buildLoginRedirect = (redirectPath: string) =>
   `${LOGIN_ROUTE}?redirect=${encodeURIComponent(redirectPath)}`;
+
+export const buildAdminAuditPath = (auditEventType?: string) => {
+  const normalizedEventType = auditEventType?.trim();
+
+  if (!normalizedEventType) {
+    return ADMIN_ROUTE;
+  }
+
+  return `${ADMIN_ROUTE}?${ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY}=${encodeURIComponent(normalizedEventType)}`;
+};
 
 export const resolveTotpEnrollmentRoute = (routePath: string | null | undefined) => {
   if (!routePath) {

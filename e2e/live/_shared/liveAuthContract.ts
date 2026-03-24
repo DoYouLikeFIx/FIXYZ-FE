@@ -2,8 +2,16 @@ import type { APIRequestContext, APIResponse } from '@playwright/test';
 
 const LIVE_AUTH_HEALTH_TIMEOUT_MS = 30_000;
 const LIVE_FORGOT_PREREQUISITE_PATH = '/api/v1/auth/password/forgot';
+const LIVE_AUTH_HEALTH_BASE_URL = (
+  process.env.LIVE_API_BASE_URL?.trim()
+  || process.env.VITE_DEV_PROXY_TARGET?.trim()
+  || ''
+).replace(/\/$/, '');
 
 let liveAuthContractHealthcheck: Promise<void> | null = null;
+
+const resolveLiveAuthUrl = (path: string) =>
+  LIVE_AUTH_HEALTH_BASE_URL ? `${LIVE_AUTH_HEALTH_BASE_URL}${path}` : path;
 
 const buildHealthFailureMessage = (responseStatus: number, responseStatusText: string, payload: string) => (
   `LIVE auth prerequisite is unhealthy. /api/v1/auth/csrf returned ${responseStatus} ${responseStatusText}`
@@ -30,7 +38,7 @@ const runLiveAuthContractHealthcheck = async (request: APIRequestContext) => {
   let response;
 
   try {
-    response = await request.get('/api/v1/auth/csrf', {
+    response = await request.get(resolveLiveAuthUrl('/api/v1/auth/csrf'), {
       timeout: LIVE_AUTH_HEALTH_TIMEOUT_MS,
     });
   } catch (error) {
@@ -64,7 +72,7 @@ const runLiveAuthContractHealthcheck = async (request: APIRequestContext) => {
   let forgotResponse;
 
   try {
-    forgotResponse = await request.post(LIVE_FORGOT_PREREQUISITE_PATH, {
+    forgotResponse = await request.post(resolveLiveAuthUrl(LIVE_FORGOT_PREREQUISITE_PATH), {
       timeout: LIVE_AUTH_HEALTH_TIMEOUT_MS,
       headers: {
         'Content-Type': 'application/json',

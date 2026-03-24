@@ -41,9 +41,9 @@ describe('AdminRoute', () => {
     resetAuthStore();
   });
 
-  const renderAdminLayout = () =>
+  const renderAdminLayout = (initialEntry = ADMIN_ROUTE) =>
     render(
-      <MemoryRouter initialEntries={[ADMIN_ROUTE]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route element={<AdminRoute />}>
             <Route path={ADMIN_ROUTE} element={<div data-testid="route-admin-content" />} />
@@ -96,6 +96,19 @@ describe('AdminRoute', () => {
     renderAdminLayout();
 
     expect(await screen.findByTestId('route-login')).toHaveTextContent('redirect=%2Fadmin');
+  });
+
+  it('preserves monitoring query params when redirecting unauthenticated users', async () => {
+    useAuthStore.setState({
+      member: null,
+      status: 'anonymous',
+    });
+
+    renderAdminLayout('/admin?auditEventType=ORDER_EXECUTE');
+
+    expect(await screen.findByTestId('route-login')).toHaveTextContent(
+      'redirect=%2Fadmin%3FauditEventType%3DORDER_EXECUTE',
+    );
   });
 
   it('shows checking state while auth status is not ready', () => {

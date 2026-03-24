@@ -1,16 +1,51 @@
 import { isAxiosError } from 'axios';
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { fetchAdminAuditLogs, invalidateMemberSessions } from '@/api/adminApi';
 import { getAuthErrorMessage } from '@/lib/auth-errors';
+import {
+  ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY,
+  buildAdminAuditPath,
+} from '@/router/navigation';
 import {
   ADMIN_AUDIT_EVENT_TYPES,
   type AdminAuditEventType,
   type AdminAuditLog,
   type AdminAuditLogQuery,
+  isAdminAuditEventType,
 } from '@/types/admin';
+import {
+  ADMIN_MONITORING_PANEL_KEYS,
+  type AdminMonitoringPanelDescriptor,
+  type AdminMonitoringPanelKey,
+  parseAdminMonitoringPanelsConfig,
+} from '@/types/adminMonitoring';
 
 const AUDIT_PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+
+const ADMIN_MONITORING_CARD_COPY: Record<AdminMonitoringPanelKey, {
+  title: string;
+  description: string;
+}> = {
+  executionVolume: {
+    title: '체결 처리량',
+    description: '주문 실행량과 처리 흐름을 Grafana 패널로 확인합니다.',
+  },
+  pendingSessions: {
+    title: '대기 세션',
+    description: '재조회 또는 운영자 개입이 필요한 세션 흐름을 점검합니다.',
+  },
+  marketDataIngest: {
+    title: '시세 수집 상태',
+    description: '시장 데이터 ingest와 연결 상태를 한눈에 확인합니다.',
+  },
+};
+
+const ADMIN_MONITORING_AUDIT_SHORTCUTS: Partial<Record<AdminMonitoringPanelKey, AdminAuditEventType>> = {
+  executionVolume: 'ORDER_EXECUTE',
+  pendingSessions: 'ORDER_SESSION_CREATE',
+};
 
 type FeedbackTone = 'info' | 'error';
 
@@ -92,7 +127,52 @@ const formatAuditTime = (value: string) => {
   }).format(parsed);
 };
 
+const formatMonitoringTime = (value: string | undefined) => {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('ko-KR', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(parsed);
+};
+
+const resolveAuditShortcutEventType = (value: string | null) =>
+  isAdminAuditEventType(value)
+    ? value
+    : undefined;
+
+const getMonitoringStatusText = (descriptor: AdminMonitoringPanelDescriptor) =>
+  descriptor.freshness.statusMessage ?? descriptor.freshness.indicatorLabel;
+
+const getMonitoringLastUpdatedText = (descriptor: AdminMonitoringPanelDescriptor) => {
+  const formatted = formatMonitoringTime(descriptor.freshness.lastUpdatedAt);
+
+  return formatted
+    ? `${descriptor.freshness.lastUpdatedLabel}: ${formatted}`
+    : descriptor.freshness.lastUpdatedLabel;
+};
+
 export function AdminConsolePage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const monitoringConfig = useMemo(
+    () => parseAdminMonitoringPanelsConfig(import.meta.env.VITE_ADMIN_MONITORING_PANELS_JSON),
+    [],
+  );
+  const monitoringConfigMessage = monitoringConfig.status === 'ready'
+    ? null
+    : monitoringConfig.message;
+  const auditShortcutEventType = resolveAuditShortcutEventType(
+    searchParams.get(ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY),
+  );
+  const auditSectionRef = useRef<HTMLElement | null>(null);
   const [memberUuid, setMemberUuid] = useState('');
   const [forceLogoutFeedback, setForceLogoutFeedback] = useState<FeedbackState | null>(null);
   const [isForceLogoutSubmitting, setIsForceLogoutSubmitting] = useState(false);
@@ -100,11 +180,11 @@ export function AdminConsolePage() {
   const [memberIdFilter, setMemberIdFilter] = useState('');
   const [fromFilter, setFromFilter] = useState('');
   const [toFilter, setToFilter] = useState('');
-  const [eventTypeFilter, setEventTypeFilter] = useState('');
+  const [eventTypeFilter, setEventTypeFilter] = useState(auditShortcutEventType ?? '');
   const [appliedMemberIdFilter, setAppliedMemberIdFilter] = useState('');
   const [appliedFromFilter, setAppliedFromFilter] = useState('');
   const [appliedToFilter, setAppliedToFilter] = useState('');
-  const [appliedEventTypeFilter, setAppliedEventTypeFilter] = useState('');
+  const [appliedEventTypeFilter, setAppliedEventTypeFilter] = useState(auditShortcutEventType ?? '');
 
   const [auditPage, setAuditPage] = useState(0);
   const [auditSize, setAuditSize] = useState<(typeof AUDIT_PAGE_SIZE_OPTIONS)[number]>(
@@ -181,6 +261,19 @@ export function AdminConsolePage() {
   useEffect(() => () => {
     latestAuditLogAbortControllerRef.current?.abort();
   }, []);
+
+  useEffect(() => {
+    setAuditError(null);
+    setAuditPage(0);
+    setMemberIdFilter('');
+    setFromFilter('');
+    setToFilter('');
+    setEventTypeFilter(auditShortcutEventType ?? '');
+    setAppliedMemberIdFilter('');
+    setAppliedFromFilter('');
+    setAppliedToFilter('');
+    setAppliedEventTypeFilter(auditShortcutEventType ?? '');
+  }, [auditShortcutEventType]);
 
   const handleForceLogout = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -271,13 +364,54 @@ export function AdminConsolePage() {
     setAuditPage(0);
   };
 
+  const handleMonitoringAuditDrillDown = (panel: AdminMonitoringPanelDescriptor) => {
+    const fallbackAuditEventType = ADMIN_MONITORING_AUDIT_SHORTCUTS[panel.key];
+    const targetAuditUrl = panel.drillDown.adminAuditUrl?.trim()
+      || (fallbackAuditEventType ? buildAdminAuditPath(fallbackAuditEventType) : '');
+
+    if (!targetAuditUrl) {
+      return;
+    }
+
+    const parsedTargetAuditUrl = new URL(targetAuditUrl, window.location.origin);
+    const targetAuditEventType = resolveAuditShortcutEventType(
+      parsedTargetAuditUrl.searchParams.get(ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY),
+    ) ?? fallbackAuditEventType;
+    const nextSearchParams = new URLSearchParams();
+
+    if (targetAuditEventType) {
+      nextSearchParams.set(ADMIN_AUDIT_EVENT_TYPE_QUERY_KEY, targetAuditEventType);
+    }
+
+    setSearchParams(nextSearchParams);
+    setAuditError(null);
+    setAuditPage(0);
+    setMemberIdFilter('');
+    setFromFilter('');
+    setToFilter('');
+    setEventTypeFilter(targetAuditEventType ?? '');
+    setAppliedMemberIdFilter('');
+    setAppliedFromFilter('');
+    setAppliedToFilter('');
+    setAppliedEventTypeFilter(targetAuditEventType ?? '');
+
+    requestAnimationFrame(() => {
+      if (typeof auditSectionRef.current?.scrollIntoView === 'function') {
+        auditSectionRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      }
+    });
+  };
+
   return (
     <section className="admin-console-shell">
       <header className="admin-console-hero">
         <p className="status-kicker">Admin security console</p>
-        <h2 data-testid="admin-console-title">운영자 세션 제어</h2>
+        <h2 data-testid="admin-console-title">운영자 보안 및 모니터링 콘솔</h2>
         <p className="admin-console-hero__description">
-          강제 로그아웃 대상 멤버 ID를 입력해 세션을 무효화하고, 감사 로그를 필터링해서 확인하세요.
+          세션 무효화, 감사 로그 검색, 운영 관측 패널을 같은 `/admin` 화면에서 확인하세요.
         </p>
       </header>
 
@@ -321,7 +455,10 @@ export function AdminConsolePage() {
           </form>
         </article>
 
-        <article className="admin-console-panel">
+        <article
+          ref={auditSectionRef}
+          className="admin-console-panel"
+        >
           <header className="admin-console-panel__header">
             <p className="admin-console-panel__kicker">Audit search</p>
             <h3>감사 로그 검색</h3>
@@ -493,6 +630,163 @@ export function AdminConsolePage() {
             </div>
           </div>
         </article>
+      </section>
+
+      <section className="admin-monitoring-shell" aria-labelledby="admin-monitoring-title">
+        <header className="admin-console-panel admin-monitoring-shell__header">
+          <div className="admin-console-panel__header">
+            <p className="admin-console-panel__kicker">Operations monitoring</p>
+            <h3 id="admin-monitoring-title">관측 대시보드</h3>
+            <p className="admin-monitoring-shell__description">
+              Grafana 패널과 감사 로그 drill-down을 연결해 데모 운영 상태를 빠르게 살펴봅니다.
+            </p>
+          </div>
+
+          {monitoringConfig.status !== 'ready' ? (
+            <p
+              className="feedback feedback--error admin-monitoring-shell__feedback"
+              data-testid="admin-monitoring-config-message"
+            >
+              {monitoringConfigMessage}
+            </p>
+          ) : null}
+        </header>
+
+        <div className="admin-monitoring-grid">
+          {ADMIN_MONITORING_PANEL_KEYS.map((panelKey) => {
+            const configuredPanel = monitoringConfig.status === 'ready'
+              ? monitoringConfig.panelsByKey[panelKey]
+              : undefined;
+            const cardCopy = ADMIN_MONITORING_CARD_COPY[panelKey];
+
+            if (!configuredPanel) {
+              return (
+                <article
+                  key={panelKey}
+                  className="admin-monitoring-card admin-monitoring-card--placeholder"
+                  data-testid={`admin-monitoring-card-${panelKey}`}
+                >
+                  <header className="admin-console-panel__header">
+                    <p className="admin-console-panel__kicker">Monitoring placeholder</p>
+                    <h4>{cardCopy.title}</h4>
+                    <p className="admin-monitoring-card__description">{cardCopy.description}</p>
+                  </header>
+
+                  <p
+                    className="admin-monitoring-card__guidance"
+                    data-testid={`admin-monitoring-guidance-${panelKey}`}
+                  >
+                    {monitoringConfigMessage}
+                  </p>
+                </article>
+              );
+            }
+
+            return (
+              <article
+                key={configuredPanel.key}
+                className="admin-monitoring-card"
+                data-testid={`admin-monitoring-card-${configuredPanel.key}`}
+              >
+                <header className="admin-console-panel__header">
+                  <p className="admin-console-panel__kicker">Monitoring panel</p>
+                  <h4>{configuredPanel.title}</h4>
+                  <p className="admin-monitoring-card__description">{configuredPanel.description}</p>
+                </header>
+
+                <div className="admin-monitoring-card__meta">
+                  <span
+                    className={`admin-monitoring-status ${
+                      configuredPanel.freshness.status
+                        ? `admin-monitoring-status--${configuredPanel.freshness.status}`
+                        : ''
+                    }`}
+                    data-testid={`admin-monitoring-status-${configuredPanel.key}`}
+                  >
+                    {getMonitoringStatusText(configuredPanel)}
+                  </span>
+                  <span
+                    className="admin-monitoring-card__last-updated"
+                    data-testid={`admin-monitoring-last-updated-${configuredPanel.key}`}
+                  >
+                    {getMonitoringLastUpdatedText(configuredPanel)}
+                  </span>
+                  <span
+                    className="admin-monitoring-card__metric-hint"
+                    data-testid={`admin-monitoring-metric-hint-${configuredPanel.key}`}
+                  >
+                    {configuredPanel.sourceMetricHint}
+                  </span>
+                </div>
+
+                {configuredPanel.mode === 'embed' && configuredPanel.embedUrl ? (
+                  <iframe
+                    className="admin-monitoring-card__embed"
+                    data-testid={`admin-monitoring-embed-${configuredPanel.key}`}
+                    loading="lazy"
+                    src={configuredPanel.embedUrl}
+                    title={`${configuredPanel.title} Grafana panel`}
+                  />
+                ) : (
+                  <p
+                    className="admin-monitoring-card__guidance"
+                    data-testid={`admin-monitoring-link-mode-${configuredPanel.key}`}
+                  >
+                    내부 Grafana 링크 방식으로 열립니다.
+                  </p>
+                )}
+
+                <div className="admin-monitoring-card__actions">
+                  <a
+                    className="admin-console-action admin-console-action--secondary"
+                    data-testid={`admin-monitoring-open-${configuredPanel.key}`}
+                    href={configuredPanel.linkUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    대시보드 열기
+                  </a>
+
+                  <a
+                    className="admin-console-action admin-console-action--muted"
+                    data-testid={`admin-monitoring-drilldown-${configuredPanel.key}`}
+                    href={configuredPanel.drillDown.grafanaUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    패널 상세
+                  </a>
+
+                  {configuredPanel.freshness.companionPanelUrl ? (
+                    <a
+                      className="admin-console-action admin-console-action--muted"
+                      data-testid={`admin-monitoring-freshness-${configuredPanel.key}`}
+                      href={configuredPanel.freshness.companionPanelUrl}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Freshness 패널
+                    </a>
+                  ) : null}
+
+                  {configuredPanel.drillDown.adminAuditUrl
+                    || ADMIN_MONITORING_AUDIT_SHORTCUTS[configuredPanel.key] ? (
+                    <button
+                      className="admin-console-action admin-console-action--muted"
+                      data-testid={`admin-monitoring-audit-${configuredPanel.key}`}
+                      type="button"
+                      onClick={() => {
+                        handleMonitoringAuditDrillDown(configuredPanel);
+                      }}
+                    >
+                      관련 감사 로그
+                    </button>
+                    ) : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
       </section>
     </section>
   );
