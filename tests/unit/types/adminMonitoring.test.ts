@@ -43,7 +43,7 @@ const createValidMonitoringPanelsConfig = () =>
       },
       drillDown: {
         grafanaUrl: 'https://grafana.fix.local/d/ops/pending-sessions?viewPanel=12',
-        adminAuditUrl: '/admin?auditEventType=ORDER_SESSION_CREATE',
+        adminAuditUrl: '/admin?auditEventType=ORDER_RECOVERY',
       },
     },
     {

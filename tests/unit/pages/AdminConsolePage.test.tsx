@@ -3,13 +3,18 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router-dom';
 
-import { fetchAdminAuditLogs, invalidateMemberSessions } from '@/api/adminApi';
+import {
+  fetchAdminAuditLogs,
+  fetchAdminMonitoringFreshness,
+  invalidateMemberSessions,
+} from '@/api/adminApi';
 import { AdminConsolePage } from '@/pages/AdminConsolePage';
 import { resetAuthStore } from '@/store/useAuthStore';
 import type { AdminAuditLog, AdminAuditLogsPage } from '@/types/admin';
 
 vi.mock('@/api/adminApi', () => ({
   fetchAdminAuditLogs: vi.fn(),
+  fetchAdminMonitoringFreshness: vi.fn(),
   invalidateMemberSessions: vi.fn(),
 }));
 
@@ -76,7 +81,7 @@ const monitoringPanelsConfig = JSON.stringify([
     },
     drillDown: {
       grafanaUrl: 'https://grafana.fix.local/d/ops/pending-sessions?viewPanel=12',
-      adminAuditUrl: '/admin?auditEventType=ORDER_SESSION_CREATE',
+      adminAuditUrl: '/admin?auditEventType=ORDER_RECOVERY',
     },
   },
   {
@@ -104,6 +109,27 @@ const monitoringPanelsConfig = JSON.stringify([
   },
 ]);
 
+const monitoringFreshnessResponse = [
+  {
+    key: 'executionVolume',
+    status: 'live',
+    statusMessage: 'Prometheus freshness healthy (30s old)',
+    lastUpdatedAt: '2026-03-24T09:19:30Z',
+  },
+  {
+    key: 'pendingSessions',
+    status: 'stale',
+    statusMessage: 'Prometheus freshness stale (5m old)',
+    lastUpdatedAt: '2026-03-24T09:15:00Z',
+  },
+  {
+    key: 'marketDataIngest',
+    status: 'unavailable',
+    statusMessage: 'Prometheus target unavailable (fep-gateway)',
+    lastUpdatedAt: '2026-03-24T09:20:00Z',
+  },
+] as const;
+
 describe('AdminConsolePage', () => {
   const renderPage = (initialEntries: string[] = ['/admin']) =>
     render(
@@ -116,8 +142,10 @@ describe('AdminConsolePage', () => {
     resetAuthStore();
     vi.stubEnv('VITE_ADMIN_MONITORING_PANELS_JSON', monitoringPanelsConfig);
     vi.mocked(fetchAdminAuditLogs).mockReset();
+    vi.mocked(fetchAdminMonitoringFreshness).mockReset();
     vi.mocked(invalidateMemberSessions).mockReset();
     vi.mocked(fetchAdminAuditLogs).mockResolvedValue(createAuditPage('log-0', 1));
+    vi.mocked(fetchAdminMonitoringFreshness).mockResolvedValue([...monitoringFreshnessResponse]);
   });
 
   afterEach(() => {
@@ -138,7 +166,9 @@ describe('AdminConsolePage', () => {
 
     expect(await screen.findByTestId('admin-audit-row-log-0')).toBeInTheDocument();
 
-    expect(screen.getByTestId('admin-monitoring-status-executionVolume')).toHaveTextContent('실시간 scrape 정상');
+    expect(await screen.findByTestId('admin-monitoring-status-executionVolume')).toHaveTextContent(
+      'Prometheus freshness healthy (30s old)',
+    );
     expect(screen.getByTestId('admin-monitoring-last-updated-pendingSessions')).toHaveTextContent('마지막 갱신');
     expect(screen.getByTestId('admin-monitoring-open-executionVolume')).toHaveAttribute(
       'href',
@@ -156,6 +186,44 @@ describe('AdminConsolePage', () => {
       'href',
       'https://grafana.fix.local/d/ops/market-data?viewPanel=31',
     );
+  });
+
+  it('overrides bootstrap freshness with the live admin freshness response', async () => {
+    vi.mocked(fetchAdminMonitoringFreshness).mockResolvedValue([
+      {
+        key: 'marketDataIngest',
+        status: 'live',
+        statusMessage: 'Prometheus freshness healthy (15s old)',
+        lastUpdatedAt: '2026-03-24T09:19:45Z',
+      },
+    ]);
+
+    renderPage();
+
+    expect(await screen.findByTestId('admin-audit-row-log-0')).toBeInTheDocument();
+    expect(await screen.findByTestId('admin-monitoring-status-marketDataIngest')).toHaveTextContent(
+      'Prometheus freshness healthy (15s old)',
+    );
+  });
+
+  it('shows degraded monitoring feedback when the live freshness request fails', async () => {
+    vi.mocked(fetchAdminMonitoringFreshness).mockRejectedValue(
+      Object.assign(new Error('monitoring freshness unavailable'), {
+        code: 'RATE-001',
+        retryAfterSeconds: 12,
+      }),
+    );
+
+    renderPage();
+
+    expect(await screen.findByTestId('admin-audit-row-log-0')).toBeInTheDocument();
+    expect(await screen.findByTestId('admin-monitoring-freshness-feedback')).toHaveTextContent(
+      '실시간 freshness 조회에 실패했습니다.',
+    );
+    expect(screen.getByTestId('admin-monitoring-status-executionVolume')).toHaveTextContent(
+      '실시간 freshness 조회 실패',
+    );
+    expect(screen.getByTestId('admin-monitoring-last-updated-pendingSessions')).toHaveTextContent('마지막 갱신');
   });
 
   it('shows deterministic guidance when monitoring config is missing', async () => {
@@ -488,7 +556,7 @@ describe('AdminConsolePage', () => {
       ...overriddenPanels[0],
       drillDown: {
         ...(overriddenPanels[0].drillDown as Record<string, unknown>),
-        adminAuditUrl: '/admin?auditEventType=ORDER_SESSION_CREATE',
+        adminAuditUrl: '/admin?auditEventType=ORDER_RECOVERY',
       },
     };
 
@@ -498,8 +566,8 @@ describe('AdminConsolePage', () => {
       .mockResolvedValueOnce({
         content: [
           {
-            ...createAuditLog('log-order-session-create'),
-            eventType: 'ORDER_SESSION_CREATE',
+            ...createAuditLog('log-order-recovery'),
+            eventType: 'ORDER_RECOVERY',
           },
         ],
         totalElements: 1,
@@ -514,8 +582,8 @@ describe('AdminConsolePage', () => {
 
     await user.click(screen.getByTestId('admin-monitoring-audit-executionVolume'));
 
-    expect(await screen.findByTestId('admin-audit-row-log-order-session-create')).toBeInTheDocument();
-    expect(screen.getByTestId('admin-audit-event-type')).toHaveValue('ORDER_SESSION_CREATE');
+    expect(await screen.findByTestId('admin-audit-row-log-order-recovery')).toBeInTheDocument();
+    expect(screen.getByTestId('admin-audit-event-type')).toHaveValue('ORDER_RECOVERY');
     expect(vi.mocked(fetchAdminAuditLogs).mock.calls[1]).toEqual([
       {
         page: 0,
@@ -523,7 +591,7 @@ describe('AdminConsolePage', () => {
         memberId: undefined,
         from: undefined,
         to: undefined,
-        eventType: 'ORDER_SESSION_CREATE',
+        eventType: 'ORDER_RECOVERY',
       },
       expect.any(AbortSignal),
     ]);
