@@ -449,6 +449,9 @@ describe('PortfolioPage', () => {
     );
     expect(screen.getByTestId('portfolio-symbol-005930')).toBeInTheDocument();
     expect(screen.queryByTestId('portfolio-total-balance')).not.toBeInTheDocument();
+    expect(screen.getByTestId('portfolio-dashboard-quote-ticker')).toBeInTheDocument();
+    expect(screen.getByTestId('portfolio-valuation-status')).toHaveTextContent('평가 가능');
+    expect(screen.getByTestId('portfolio-market-price')).toHaveTextContent('₩70,100');
   });
 
   it('keeps the summary visible when the summary timestamp is malformed', async () => {
