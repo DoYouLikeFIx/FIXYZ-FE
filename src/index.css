@@ -931,6 +931,9 @@ button:disabled {
 }
 
 .admin-console-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   border-radius: 12px;
   min-height: 44px;
@@ -938,6 +941,7 @@ button:disabled {
   color: #fff;
   font-weight: 700;
   cursor: pointer;
+  text-decoration: none;
   transition:
     transform 0.16s ease,
     background 0.16s ease,
@@ -1042,6 +1046,98 @@ button:disabled {
 .admin-console-page-actions {
   color: #6a7078;
   font-size: 0.89rem;
+}
+
+.admin-monitoring-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-monitoring-shell__header {
+  align-items: flex-start;
+}
+
+.admin-monitoring-shell__description,
+.admin-monitoring-shell__feedback {
+  margin: 0;
+}
+
+.admin-monitoring-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.admin-monitoring-card {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1.1rem;
+  border: 1px solid rgba(16, 26, 45, 0.1);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(244, 249, 255, 0.92) 100%);
+  box-shadow: 0 18px 40px rgba(24, 33, 40, 0.07);
+}
+
+.admin-monitoring-card--placeholder {
+  border-style: dashed;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(250, 245, 236, 0.92) 100%);
+}
+
+.admin-monitoring-card__description,
+.admin-monitoring-card__guidance,
+.admin-monitoring-card__metric-hint,
+.admin-monitoring-card__last-updated {
+  margin: 0;
+  color: #5f6772;
+  font-size: 0.88rem;
+}
+
+.admin-monitoring-card__meta {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.admin-monitoring-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 0.38rem 0.72rem;
+  background: rgba(15, 31, 63, 0.08);
+  color: #0f1f3f;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.admin-monitoring-status--live {
+  background: rgba(28, 141, 86, 0.12);
+  color: #11683d;
+}
+
+.admin-monitoring-status--stale {
+  background: rgba(214, 121, 28, 0.14);
+  color: #9a5308;
+}
+
+.admin-monitoring-status--unavailable {
+  background: rgba(180, 53, 53, 0.12);
+  color: #982525;
+}
+
+.admin-monitoring-card__embed {
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid rgba(16, 26, 45, 0.1);
+  border-radius: 18px;
+  background: rgba(241, 245, 249, 0.9);
+}
+
+.admin-monitoring-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
 }
 
 .portfolio-grid {
@@ -2004,6 +2100,15 @@ p {
 
   .admin-console-table-row--head {
     display: none;
+  }
+
+  .admin-monitoring-card,
+  .admin-monitoring-card__embed {
+    border-radius: 18px;
+  }
+
+  .admin-monitoring-card__actions {
+    flex-direction: column;
   }
 
   .auth-card {
