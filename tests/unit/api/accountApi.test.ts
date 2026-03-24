@@ -130,7 +130,7 @@ describe('accountApi', () => {
     expect(result.valuationUnavailableReason).toBe('PROVIDER_UNAVAILABLE');
   });
 
-  it('preserves valuation metadata on single-position payloads used by the market ticker', async () => {
+  it('preserves quote freshness metadata on single-position payloads used by the market ticker', async () => {
     const positionBody: AccountPosition = {
       accountId: 1,
       memberId: 1,
@@ -143,12 +143,12 @@ describe('accountApi', () => {
       currency: 'KRW',
       asOf: '2026-03-24T09:00:00Z',
       avgPrice: 70_000,
-      marketPrice: 70_200,
+      marketPrice: null,
       quoteSnapshotId: 'quote-001',
       quoteAsOf: '2026-03-24T08:55:00Z',
       quoteSourceMode: 'REPLAY',
-      unrealizedPnl: -5_000,
-      realizedPnlDaily: -1_000,
+      unrealizedPnl: null,
+      realizedPnlDaily: null,
       valuationStatus: 'STALE',
       valuationUnavailableReason: 'STALE_QUOTE',
     };
@@ -162,7 +162,8 @@ describe('accountApi', () => {
     });
 
     expect(result).toEqual(positionBody);
-    expect(result.marketPrice).toBe(70_200);
+    expect(result.quoteSnapshotId).toBe('quote-001');
+    expect(result.quoteAsOf).toBe('2026-03-24T08:55:00Z');
     expect(result.quoteSourceMode).toBe('REPLAY');
     expect(result.valuationStatus).toBe('STALE');
     expect(result.valuationUnavailableReason).toBe('STALE_QUOTE');
