@@ -1,3 +1,7 @@
+import {
+  resolveValuationGuidance,
+  resolveValuationStatus,
+} from '@/lib/account-valuation';
 import type { AccountPosition, QuoteSourceMode } from '@/types/account';
 import { formatKRW } from '@/utils/formatters';
 
@@ -14,38 +18,90 @@ type QuoteTone = {
   statusNote: string;
 };
 
-const getQuoteTone = (quoteSourceMode: QuoteSourceMode | null | undefined): QuoteTone => {
-  switch (quoteSourceMode) {
-    case 'LIVE':
-      return {
-        modeTone: 'live',
-        stateLabel: '직결 시세',
-        statusNote: '실시간 기준',
-      };
-    case 'DELAYED':
-      return {
-        modeTone: 'delayed',
-        stateLabel: '지연 호가',
-        statusNote: '지연 도착 데이터',
-      };
-    case 'REPLAY':
-      return {
-        modeTone: 'replay',
-        stateLabel: '리플레이 기준',
-        statusNote: '재생 스냅샷',
-      };
+const getUnavailableStatusNote = (
+  reason: AccountPosition['valuationUnavailableReason'],
+) => {
+  switch (reason) {
+    case 'QUOTE_MISSING':
+      return '시세 없음';
+    case 'PROVIDER_UNAVAILABLE':
+      return '시세 제공 실패';
     default:
-      return {
-        modeTone: 'neutral',
-        stateLabel: '미확인 시세',
-        statusNote: '새 source mode',
-      };
+      return '시세 확인 불가';
   }
+};
+
+const getQuoteTone = (
+  quoteSourceMode: QuoteSourceMode | null | undefined,
+  valuationStatus: AccountPosition['valuationStatus'],
+  valuationUnavailableReason: AccountPosition['valuationUnavailableReason'],
+): QuoteTone => {
+  const normalized = typeof quoteSourceMode === 'string' ? quoteSourceMode.trim() : '';
+
+  const baseTone = (() => {
+    switch (normalized) {
+      case 'LIVE':
+        return {
+          modeTone: 'live' as const,
+          stateLabel: '직결 시세',
+          statusNote: '실시간 기준',
+        };
+      case 'DELAYED':
+        return {
+          modeTone: 'delayed' as const,
+          stateLabel: '지연 호가',
+          statusNote: '지연 도착 데이터',
+        };
+      case 'REPLAY':
+        return {
+          modeTone: 'replay' as const,
+          stateLabel: '리플레이 기준',
+          statusNote: '재생 스냅샷',
+        };
+      default:
+        return {
+          modeTone: 'neutral' as const,
+          stateLabel: '미확인 시세',
+          statusNote: normalized ? '확인되지 않은 source mode' : 'source 정보 없음',
+        };
+    }
+  })();
+
+  if (valuationStatus === 'STALE') {
+    return {
+      modeTone: 'delayed',
+      stateLabel: '시세 지연',
+      statusNote: '평가 손익 숨김',
+    };
+  }
+
+  if (valuationStatus === 'UNAVAILABLE') {
+    return {
+      modeTone: 'neutral',
+      stateLabel: '평가 불가',
+      statusNote: getUnavailableStatusNote(valuationUnavailableReason),
+    };
+  }
+
+  return baseTone;
 };
 
 const formatModeLabel = (quoteSourceMode: QuoteSourceMode | null | undefined) => {
   const normalized = typeof quoteSourceMode === 'string' ? quoteSourceMode.trim() : '';
-  return normalized || 'UNKNOWN';
+  return normalized || '확인 불가';
+};
+
+const formatTimestampLabel = (value: string | null | undefined) => {
+  if (!value) {
+    return '시각 확인 필요';
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return '시각 확인 필요';
+  }
+
+  return quoteDateFormatter.format(new Date(timestamp));
 };
 
 const formatFreshnessAge = (quoteAsOf: string, asOf: string) => {
@@ -76,27 +132,48 @@ const formatFreshnessAge = (quoteAsOf: string, asOf: string) => {
     : `${hours}시간 차이`;
 };
 
+const formatPriceLabel = (
+  position: AccountPosition,
+  valuationStatus: AccountPosition['valuationStatus'],
+) => {
+  if (
+    valuationStatus === 'FRESH'
+    && position.marketPrice !== null
+    && position.marketPrice !== undefined
+  ) {
+    return formatKRW(position.marketPrice);
+  }
+
+  return '확인 불가';
+};
+
 interface DashboardQuoteTickerProps {
   position: AccountPosition;
 }
 
 export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
-  if (
-    position.marketPrice === null
-    || position.marketPrice === undefined
-    || !position.quoteAsOf
-    || !position.quoteSourceMode
-  ) {
-    return null;
-  }
-
-  const quoteTone = getQuoteTone(position.quoteSourceMode);
+  const valuationStatus = resolveValuationStatus(position);
+  const valuationGuidance = resolveValuationGuidance(
+    valuationStatus,
+    position.valuationUnavailableReason ?? null,
+  );
+  const quoteTone = getQuoteTone(
+    position.quoteSourceMode,
+    valuationStatus,
+    position.valuationUnavailableReason,
+  );
   const modeLabel = formatModeLabel(position.quoteSourceMode);
-  const freshnessAge = formatFreshnessAge(position.quoteAsOf, position.asOf);
+  const freshnessAge = position.quoteAsOf
+    ? formatFreshnessAge(position.quoteAsOf, position.asOf)
+    : '확인 불가';
+  const guidanceLabel = valuationGuidance ?? quoteTone.statusNote;
+  const toneClassName = quoteTone.modeTone === 'live'
+    ? 'fix-dashboard-quote-ticker'
+    : `fix-dashboard-quote-ticker fix-dashboard-quote-ticker--${quoteTone.modeTone}`;
 
   return (
     <section
-      className={`fix-dashboard-quote-ticker fix-dashboard-quote-ticker--${quoteTone.modeTone}`}
+      className={toneClassName}
       data-testid="portfolio-dashboard-quote-ticker"
       aria-label="대시보드 시세 freshness"
     >
@@ -124,7 +201,7 @@ export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
               className="fix-dashboard-quote-ticker__price"
               data-testid="portfolio-dashboard-quote-ticker-price"
             >
-              {formatKRW(position.marketPrice)}
+              {formatPriceLabel(position, valuationStatus)}
             </strong>
           </div>
         </div>
@@ -166,10 +243,12 @@ export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
             </span>
           </div>
           <div className="fix-dashboard-quote-ticker__freshness-item">
-            <span className="fix-dashboard-quote-ticker__meta-label">Source 해석</span>
-            <strong>{quoteTone.statusNote}</strong>
+            <span className="fix-dashboard-quote-ticker__meta-label">Freshness 안내</span>
+            <strong data-testid="portfolio-dashboard-quote-ticker-guidance">
+              {guidanceLabel}
+            </strong>
             <span className="fix-dashboard-quote-ticker__freshness-helper">
-              backend source mode를 그대로 보여줍니다.
+              backend freshness 상태를 그대로 설명합니다.
             </span>
           </div>
           <div className="fix-dashboard-quote-ticker__freshness-item">
@@ -189,17 +268,17 @@ export function DashboardQuoteTicker({ position }: DashboardQuoteTickerProps) {
         <div className="fix-dashboard-quote-ticker__meta-item">
           <span className="fix-dashboard-quote-ticker__meta-label">호가 기준 시각</span>
           <strong data-testid="portfolio-dashboard-quote-ticker-quote-as-of">
-            {quoteDateFormatter.format(new Date(position.quoteAsOf))}
+            {formatTimestampLabel(position.quoteAsOf)}
           </strong>
         </div>
         <div className="fix-dashboard-quote-ticker__meta-item">
           <span className="fix-dashboard-quote-ticker__meta-label">조회 기준</span>
-          <strong>{quoteDateFormatter.format(new Date(position.asOf))}</strong>
+          <strong>{formatTimestampLabel(position.asOf)}</strong>
         </div>
         <div className="fix-dashboard-quote-ticker__meta-item">
           <span className="fix-dashboard-quote-ticker__meta-label">Snapshot</span>
           <strong data-testid="portfolio-dashboard-quote-ticker-snapshot">
-            {position.quoteSnapshotId ?? 'pending'}
+            {position.quoteSnapshotId ?? '확인 불가'}
           </strong>
         </div>
         <div className="fix-dashboard-quote-ticker__meta-item">
