@@ -72,7 +72,7 @@ const buildFallbackDemoMonitoringPanels = (mockGrafanaBaseUrl) => [
     },
     drillDown: {
       grafanaUrl: `${mockGrafanaBaseUrl}/d/ops/pending-sessions?viewPanel=12`,
-      adminAuditUrl: '/admin?auditEventType=ORDER_SESSION_CREATE',
+      adminAuditUrl: '/admin?auditEventType=ORDER_RECOVERY',
     },
   },
   {
@@ -945,10 +945,14 @@ const runDemo = async () => {
     });
     await pause(600);
     await openExecutionVolume.click();
-    await waitForUrl(page, (url) => url.href === executionDashboardUrl || url.pathname.startsWith('/d/ops/exec-volume'));
-    await pause(2_200);
-    await page.mouse.wheel(0, 360);
-    await pause(2_000);
+    await waitForUrl(
+      page,
+      (url) =>
+        url.href === executionDashboardUrl
+        || url.pathname.includes('/ops-monitoring-overview')
+        || url.pathname.startsWith('/d/ops/exec-volume'),
+    );
+    await pause(8_500);
 
     await page.goto(`${baseUrl}/admin`);
     await page.getByTestId('admin-console-title').waitFor({
