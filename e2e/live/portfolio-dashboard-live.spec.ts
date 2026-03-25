@@ -17,6 +17,7 @@ const LIVE_LOGIN_EMAIL = process.env.LIVE_LOGIN_EMAIL?.trim();
 const LIVE_LOGIN_PASSWORD = process.env.LIVE_LOGIN_PASSWORD?.trim();
 const LIVE_LOGIN_OTP = process.env.LIVE_LOGIN_OTP?.trim();
 const LIVE_LOGIN_TOTP_SECRET = process.env.LIVE_LOGIN_TOTP_SECRET?.trim();
+const PROTECTED_ACCOUNT_BOUNDARY_STATUSES = [401, 403, 410];
 
 const createLiveIdentity = () => {
   const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -628,6 +629,22 @@ const expectDashboardQuoteChart = async (page: Page) => {
 test.describe('live backend portfolio dashboard', () => {
   test.beforeEach(async ({ request }) => {
     await requireLiveAuthContractHealthy(request);
+  });
+
+  test('redirects anonymous portfolio access to login and blocks backend account dashboard endpoints', async ({
+    page,
+  }) => {
+    await page.context().clearCookies();
+    await page.goto('/portfolio?tab=positions');
+
+    await expect(page).toHaveURL(/\/login\?redirect=%2Fportfolio%3Ftab%3Dpositions$/);
+    await expect(page.getByTestId('login-email')).toBeVisible();
+
+    const summaryResponse = await page.request.get('/api/v1/accounts/999999/summary');
+    const positionsResponse = await page.request.get('/api/v1/accounts/999999/positions/list');
+
+    expect(PROTECTED_ACCOUNT_BOUNDARY_STATUSES).toContain(summaryResponse.status());
+    expect(PROTECTED_ACCOUNT_BOUNDARY_STATUSES).toContain(positionsResponse.status());
   });
 
   test('renders live portfolio dashboard and history states from the backend contract', async ({
