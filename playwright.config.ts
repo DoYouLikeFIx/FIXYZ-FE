@@ -7,9 +7,23 @@ const configEnv = {
   ...process.env,
 };
 
+const parseBooleanEnv = (value: string | undefined) =>
+  /^(1|true|yes|on)$/i.test(value ?? '');
+
+const parsePortEnv = (value: string | undefined, fallback: number) => {
+  const parsed = Number.parseInt(value ?? '', 10);
+
+  if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65_535) {
+    return parsed;
+  }
+
+  return fallback;
+};
+
 const host = '127.0.0.1';
-const port = Number(configEnv.PLAYWRIGHT_FE_PORT ?? '4173');
+const port = parsePortEnv(configEnv.PLAYWRIGHT_FE_PORT, 4173);
 const baseURL = `http://${host}:${port}`;
+const isCi = parseBooleanEnv(configEnv.CI);
 const requestedArgs = process.argv.slice(2);
 const usesMockedAdminMonitoringFixture = requestedArgs.some((arg) =>
   arg.includes('admin-monitoring.spec.ts') && !arg.includes('/live/'),
@@ -97,7 +111,7 @@ export default defineConfig({
   expect: {
     timeout: 15_000,
   },
-  retries: configEnv.CI ? 1 : 0,
+  retries: isCi ? 1 : 0,
   reporter: [
     ['list'],
     ['html', { open: 'never' }],
@@ -121,7 +135,7 @@ export default defineConfig({
     url: baseURL,
     // Mocked admin-monitoring runs need a fresh Vite env contract, so do not reuse
     // an already-running local server that may have been started without the fixture.
-    reuseExistingServer: !configEnv.CI && !usesMockedAdminMonitoringFixture,
+    reuseExistingServer: !isCi && !usesMockedAdminMonitoringFixture,
     env: {
       ...configEnv,
       LIVE_API_BASE_URL: liveBackendBaseUrl,

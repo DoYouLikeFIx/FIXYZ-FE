@@ -133,7 +133,7 @@ pnpm run release:check
 pnpm run release:notes
 ```
 
-`playwright.config.ts` loads `.env.local` automatically, so the copied `LIVE_*`, `PLAYWRIGHT_FE_PORT`, and `VITE_*` values are visible to `pnpm run release:check` and the candidate pack generator.
+`playwright.config.ts` and `scripts/check-live-auth-contract.mjs` load `.env.local` automatically, so the copied `LIVE_*`, `PLAYWRIGHT_FE_PORT`, and `VITE_*` values are visible to `pnpm run release:check`, the live preflight step, and the candidate pack generator.
 
 After the commands pass, update the generated candidate files under `docs/release/candidates/v<package-version>/` with the checked-in Playwright summary, CI run URL, README/local-setup verification notes, and upstream evidence records, then finalize the candidate release notes for the approved build.
 
@@ -156,7 +156,7 @@ When FE is pointed at `MOB/scripts/mock-auth-server.mjs` through `VITE_DEV_PROXY
 
 ## Environment variables
 
-Copy `.env.example` to `.env.local` when needed. The example file includes both Vite runtime variables and the `LIVE_*` values consumed by the release-readiness Playwright suite, and Playwright loads `.env.local` before launching the local Vite server.
+Copy `.env.example` to `.env.local` when needed. The example file includes both Vite runtime variables and the `LIVE_*` values consumed by the release-readiness suite, and the FE live preflight plus Playwright config both load `.env.local` automatically.
 
 - `VITE_API_BASE_URL`: absolute API URL (typically for deployed environments)
 - `VITE_API_TIMEOUT_MS`: optional FE axios timeout override in milliseconds for slow live demos or diagnostics
