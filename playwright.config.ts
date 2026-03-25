@@ -1,7 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
+import { loadEnv } from 'vite';
+
+const loadedEnv = loadEnv(process.env.NODE_ENV ?? 'development', process.cwd(), '');
+const configEnv = {
+  ...loadedEnv,
+  ...process.env,
+};
 
 const host = '127.0.0.1';
-const port = Number(process.env.PLAYWRIGHT_FE_PORT ?? '4173');
+const port = Number(configEnv.PLAYWRIGHT_FE_PORT ?? '4173');
 const baseURL = `http://${host}:${port}`;
 const requestedArgs = process.argv.slice(2);
 const usesMockedAdminMonitoringFixture = requestedArgs.some((arg) =>
@@ -76,11 +83,11 @@ const defaultAdminMonitoringPanelsJson = JSON.stringify([
     },
   },
 ]);
-const liveBackendBaseUrl = process.env.LIVE_API_BASE_URL
-  ?? process.env.VITE_DEV_PROXY_TARGET
+const liveBackendBaseUrl = configEnv.LIVE_API_BASE_URL
+  ?? configEnv.VITE_DEV_PROXY_TARGET
   ?? 'http://127.0.0.1:8080';
-const proxyTarget = process.env.VITE_DEV_PROXY_TARGET
-  ?? process.env.LIVE_API_BASE_URL
+const proxyTarget = configEnv.VITE_DEV_PROXY_TARGET
+  ?? configEnv.LIVE_API_BASE_URL
   ?? 'http://127.0.0.1:8080';
 
 export default defineConfig({
@@ -90,7 +97,7 @@ export default defineConfig({
   expect: {
     timeout: 15_000,
   },
-  retries: process.env.CI ? 1 : 0,
+  retries: configEnv.CI ? 1 : 0,
   reporter: [
     ['list'],
     ['html', { open: 'never' }],
@@ -114,9 +121,9 @@ export default defineConfig({
     url: baseURL,
     // Mocked admin-monitoring runs need a fresh Vite env contract, so do not reuse
     // an already-running local server that may have been started without the fixture.
-    reuseExistingServer: !process.env.CI && !usesMockedAdminMonitoringFixture,
+    reuseExistingServer: !configEnv.CI && !usesMockedAdminMonitoringFixture,
     env: {
-      ...process.env,
+      ...configEnv,
       LIVE_API_BASE_URL: liveBackendBaseUrl,
       VITE_DEV_PROXY_TARGET: proxyTarget,
       // Force FE API calls to remain relative and flow through Vite proxy.
@@ -124,7 +131,7 @@ export default defineConfig({
       ...(usesMockedAdminMonitoringFixture
         ? {
             VITE_ADMIN_MONITORING_PANELS_JSON:
-              process.env.VITE_ADMIN_MONITORING_PANELS_JSON ?? defaultAdminMonitoringPanelsJson,
+              configEnv.VITE_ADMIN_MONITORING_PANELS_JSON ?? defaultAdminMonitoringPanelsJson,
           }
         : {}),
     },
