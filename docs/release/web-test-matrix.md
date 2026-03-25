@@ -23,5 +23,5 @@
 ## Notes
 
 - `pnpm run release:check` is the canonical FE release gate command for Story 10.5.
-- `FE/.env.example` is the checked-in source for the `LIVE_*` variables consumed by the release gate, and `playwright.config.ts` loads `.env.local` automatically.
+- `.env.example` is the checked-in source for the `LIVE_*` variables consumed by the FE release gate, and both the Playwright config and live preflight script load `.env.local` automatically.
 - Final release approval should attach the checked-in `playwright-release-summary.md` record and CI artifact URL to the candidate checklist under `docs/release/candidates/v<semver>/`.
