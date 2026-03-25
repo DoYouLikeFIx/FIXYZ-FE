@@ -1,6 +1,14 @@
+import { loadEnv } from 'vite';
+
+const loadedEnv = loadEnv(process.env.NODE_ENV ?? 'development', process.cwd(), '');
+const configEnv = {
+  ...loadedEnv,
+  ...process.env,
+};
+
 const baseUrl = (
-  process.env.LIVE_API_BASE_URL
-  ?? process.env.VITE_DEV_PROXY_TARGET
+  configEnv.LIVE_API_BASE_URL
+  ?? configEnv.VITE_DEV_PROXY_TARGET
   ?? 'http://127.0.0.1:8080'
 ).replace(/\/$/, '');
 
